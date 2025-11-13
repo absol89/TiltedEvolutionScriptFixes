@@ -20,6 +20,7 @@
 #include <sstream>
 #include <iomanip>
 #include <chrono>
+#include <cmath>
 
 #include <Games/Skyrim/Interface/UI.h>
 #include <Games/Skyrim/Camera/PlayerCamera.h>
@@ -221,7 +222,7 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
 
     // Build and send pins to CEF overlay at a throttled rate
     static auto s_lastSend = std::chrono::steady_clock::time_point{};
-    constexpr auto cDelayBetweenUpdates = std::chrono::milliseconds(100);
+    constexpr auto cDelayBetweenUpdates = std::chrono::milliseconds(33); // ~30 FPS for smoother pins
     const auto now = std::chrono::steady_clock::now();
     if (now - s_lastSend < cDelayBetweenUpdates)
         return;
@@ -373,7 +374,19 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
         if (!drew)
             continue; // nothing to draw for this member on this map
 
-        // Cache last projected position
+        // Smooth towards new projected position using an exponential moving average
+        auto itLS = m_lastScreen.find(pid);
+        if (itLS != m_lastScreen.end())
+        {
+            const uint64_t dt = tick - itLS->second.Tick;
+            // Time constant ~150ms for quick but smooth convergence
+            float alpha = 1.0f - std::exp(-static_cast<float>(dt) / 150.0f);
+            if (alpha < 0.f) alpha = 0.f; if (alpha > 1.f) alpha = 1.f;
+            sx = itLS->second.sx + (sx - itLS->second.sx) * alpha;
+            sy = itLS->second.sy + (sy - itLS->second.sy) * alpha;
+        }
+
+        // Cache last projected (smoothed) position
         m_lastScreen[pid] = LastScreen{sx, sy, tick};
 
         if (!first) os << ","; first = false;

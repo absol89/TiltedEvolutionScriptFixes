@@ -118,75 +118,7 @@ void PartyMarkerOverlayService::OnUpdate(const UpdateEvent&) noexcept
 
 void PartyMarkerOverlayService::OnDraw() noexcept
 {
-    if (!m_world.GetPartyService().IsInParty())
-        return;
-
-    const auto* pPlayer = PlayerCharacter::Get();
-    if (!pPlayer)
-        return;
-
-    const auto& members = m_world.GetPartyService().GetPartyMembers();
-    const auto& players = m_world.GetPartyService().GetPlayers();
-
-    // UI placement (top-right corner list)
-    ImDrawList* draw = ImGui::GetForegroundDrawList();
-    const ImVec2 base = ImVec2(ImGui::GetIO().DisplaySize.x - 350.f, 80.f);
-    float y = base.y;
-
-    // Local player's yaw (best-effort; Skyrim rotations can be quirky)
-    const float yaw = pPlayer->rotation.z;
-
-    for (uint32_t pid : members)
-    {
-        // Skip if we have a live entity locally -> quest objective will handle it
-        if (HasLiveEntityForPlayer(pid))
-            continue;
-
-        auto it = m_last.find(pid);
-        if (it == m_last.end())
-            continue; // no last-known position -> nothing to show
-
-        NiPoint3 delta{};
-        delta.x = it->second.Pos.x - pPlayer->position.x;
-        delta.y = it->second.Pos.y - pPlayer->position.y;
-        delta.z = it->second.Pos.z - pPlayer->position.z;
-
-        const float dist2 = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
-        const float dist = std::sqrt(dist2);
-
-        // Horizontal bearing vs. player yaw
-        const float bearing = std::atan2(delta.y, delta.x);
-        const float diff = NormalizeAngle(bearing - yaw);
-
-        const char* arrow = "";
-        const float adiff = std::abs(diff);
-        const float pi = static_cast<float>(TiltedPhoques::Pi);
-
-        if (adiff < pi / 8.f)
-            arrow = "\xE2\x86\x91"; // up
-        else if (adiff < pi / 3.f)
-            arrow = (diff > 0.f) ? "\xE2\x86\x97" : "\xE2\x86\x96"; // diag right/left up
-        else if (adiff < pi * 5.f / 8.f)
-            arrow = (diff > 0.f) ? "\xE2\x86\x92" : "\xE2\x86\x90"; // right/left
-        else if (adiff < pi * 7.f / 8.f)
-            arrow = (diff > 0.f) ? "\xE2\x86\x98" : "\xE2\x86\x99"; // diag right/left down
-        else
-            arrow = "\xE2\x86\x93"; // down
-
-        // Build label: Name + distance (in game units)
-        auto nameIt = players.find(pid);
-        std::string label;
-        if (nameIt != players.end())
-            label = nameIt->second.c_str();
-        else
-            label = std::string("Player ") + std::to_string(pid);
-
-        // If your build supports UTF-8 in ImGui font, arrows show; otherwise they fallback gracefully.
-        char buf[256];
-        std::snprintf(buf, sizeof(buf), "%s %s (%.0f)", arrow, label.c_str(), dist);
-
-        draw->AddText(ImVec2(base.x, y), IM_COL32(230, 230, 200, 255), buf);
-        y += 18.f;
-    }
+    // Disabled per user request: remove debug/marker UI when players are in different cells
+    return;
 }
 
