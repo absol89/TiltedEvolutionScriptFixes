@@ -8,6 +8,7 @@ import { Player } from '../models/player';
 import { ChatService } from './chat.service';
 import { ErrorEvents, ErrorService } from './error.service';
 import { LoadingService } from './loading.service';
+import { PartyPin } from '../models/party-pin';
 
 /** Client game service. */
 @Injectable({
@@ -51,6 +52,9 @@ export class ClientService implements OnDestroy {
 
   /** Connect party info change. */
   public partyLeftChange = new Subject<void>();
+
+  /** Party pins for world map overlay. */
+  public partyPinsChange = new BehaviorSubject<PartyPin[]>([]);
 
   /** Connect party invite received. */
   public partyInviteReceivedChange = new Subject<number>();
@@ -151,6 +155,7 @@ export class ClientService implements OnDestroy {
       'partyInviteReceived',
       this.onPartyInviteReceived.bind(this),
     );
+    (skyrimtogether as any).on('setPartyPins', this.onSetPartyPins.bind(this));
   }
 
   /**
@@ -184,6 +189,7 @@ export class ClientService implements OnDestroy {
     skyrimtogether.off('partyCreated');
     skyrimtogether.off('partyLeft');
     skyrimtogether.off('partyInviteReceived');
+    (skyrimtogether as any).off('setPartyPins');
   }
 
   /**
@@ -617,6 +623,15 @@ export class ClientService implements OnDestroy {
     this.zone.run(() => {
       this.partyLeftChange.next();
     });
+  }
+
+  private onSetPartyPins(json: string) {
+    try {
+      const pins = JSON.parse(json) as Array<{ x: number; y: number; id: number }>;
+      this.zone.run(() => this.partyPinsChange.next(pins));
+    } catch (e) {
+      // ignore invalid payloads
+    }
   }
 
   private onPartyInviteReceived(inviterId: number) {

@@ -1,4 +1,6 @@
 <ng-container *ngIf="inGame$ | async">
+  <app-party-pins></app-party-pins>
+
   <ng-container *ngIf="!(menuOpen$ | async)">
     <app-debug></app-debug>
 
@@ -57,9 +59,9 @@
             >
               {{ 'COMPONENT.ROOT.REVEAL_PLAYERS' | transloco }}
             </span>
-            <span 
+            <span
               style="position: absolute; left: 0; top: 0;"
-              class="text-cooldown-effect" 
+              class="text-cooldown-effect"
               [class.cooldown-active]="revealingInProgress$"
               [style.--cooldown-duration]="revealingInProgress$ ? '10s' : '0.3s'"
             >

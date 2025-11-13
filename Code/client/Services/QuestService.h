@@ -10,8 +10,6 @@ struct TESQuest;
 
 /**
  * @brief Handles quest sync
- *
- * This service is currently not in use.
  */
 class QuestService final : public BSTEventSink<TESQuestStartStopEvent>, BSTEventSink<TESQuestStageEvent>
 {
@@ -28,13 +26,16 @@ private:
 
     void OnConnected(const ConnectedEvent&) noexcept;
 
+    // Game quest events
     BSTEventResult OnEvent(const TESQuestStartStopEvent*, const EventDispatcher<TESQuestStartStopEvent>*) override;
     BSTEventResult OnEvent(const TESQuestStageEvent*, const EventDispatcher<TESQuestStageEvent>*) override;
 
+    // Network quest updates
     void OnQuestUpdate(const NotifyQuestUpdate&) noexcept;
 
     World& m_world;
 
+    // Existing connections
     entt::scoped_connection m_joinedConnection;
     entt::scoped_connection m_leftConnection;
     entt::scoped_connection m_questUpdateConnection;

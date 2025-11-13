@@ -64,6 +64,9 @@ struct OverlayService
 
     void SetPlayerHealthPercentage(uint32_t aFormId) const noexcept;
 
+    // Send world map party pins to the CEF UI as a JSON string: [{"x":float,"y":float,"id":number}, ...]
+    void SetPartyPinsJson(const std::string& aJson) noexcept;
+
 protected:
     void OnUpdate(const UpdateEvent&) noexcept;
     void OnConnectedEvent(const ConnectedEvent&) noexcept;

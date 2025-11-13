@@ -12,6 +12,8 @@ if is_plat("windows") then
     add_cxflags("/bigobj")
     add_syslinks("kernel32")
     set_arch("x64")
+    -- Force static runtime to match CEF library
+    set_runtimes(is_mode("debug") and "MTd" or "MT")
 end
 
 if is_plat("linux") then

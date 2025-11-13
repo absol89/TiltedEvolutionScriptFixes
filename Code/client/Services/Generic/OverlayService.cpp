@@ -282,6 +282,16 @@ void OverlayService::SetPlayerHealthPercentage(uint32_t aFormId) const noexcept
     m_pOverlay->ExecuteAsync("setHealth", pArguments);
 }
 
+void OverlayService::SetPartyPinsJson(const std::string& aJson) noexcept
+{
+    if (!m_pOverlay)
+        return;
+
+    auto pArguments = CefListValue::Create();
+    pArguments->SetString(0, aJson);
+    m_pOverlay->ExecuteAsync("setPartyPins", pArguments);
+}
+
 void OverlayService::OnUpdate(const UpdateEvent&) noexcept
 {
     RunDebugDataUpdates();

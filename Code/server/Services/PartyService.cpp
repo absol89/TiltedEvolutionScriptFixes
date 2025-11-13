@@ -18,6 +18,8 @@
 #include <Messages/PartyChangeLeaderRequest.h>
 #include <Messages/PartyKickRequest.h>
 #include <Messages/NotifyPlayerJoined.h>
+#include <Messages/NotifyPartyPositions.h>
+#include <Messages/PartyPositionUpdateRequest.h>
 
 #include <Setting.h>
 namespace
@@ -36,6 +38,7 @@ PartyService::PartyService(World& aWorld, entt::dispatcher& aDispatcher) noexcep
     , m_partyCreateConnection(aDispatcher.sink<PacketEvent<PartyCreateRequest>>().connect<&PartyService::OnPartyCreate>(this))
     , m_partyChangeLeaderConnection(aDispatcher.sink<PacketEvent<PartyChangeLeaderRequest>>().connect<&PartyService::OnPartyChangeLeader>(this))
     , m_partyKickConnection(aDispatcher.sink<PacketEvent<PartyKickRequest>>().connect<&PartyService::OnPartyKick>(this))
+    , m_partyPositionUpdateConnection(aDispatcher.sink<PacketEvent<PartyPositionUpdateRequest>>().connect<&PartyService::OnPartyPositionUpdate>(this))
 {
 }
 
@@ -79,6 +82,45 @@ PartyService::Party* PartyService::GetPlayerParty(Player* const apPlayer) noexce
 void PartyService::OnUpdate(const UpdateEvent& acEvent) noexcept
 {
     const auto cCurrentTick = GameServer::Get()->GetTick();
+    // Periodic broadcast of party member positions (every ~500ms)
+    if (m_nextPositionsBroadcast <= cCurrentTick)
+    {
+        m_nextPositionsBroadcast = cCurrentTick + 500;
+
+        for (auto& [partyId, party] : m_parties)
+        {
+            NotifyPartyPositions msg{};
+            // Build one message containing all members' positions and cells
+            for (auto* pPlayer : party.Members)
+            {
+                NotifyPartyPositions::Entry e{};
+                e.PlayerId = pPlayer->GetId();
+
+                // Position from MovementComponent if character exists
+                if (auto optChar = pPlayer->GetCharacter())
+                {
+                    if (m_world.valid(*optChar) && m_world.any_of<MovementComponent>(*optChar))
+                    {
+                        const auto& move = m_world.get<MovementComponent>(*optChar);
+                        e.Position.x = move.Position.x;
+                        e.Position.y = move.Position.y;
+                        e.Position.z = move.Position.z;
+                    }
+                }
+                // Worldspace / Cell
+                const auto& cell = pPlayer->GetCellComponent();
+                e.WorldSpaceId = cell.WorldSpaceId;
+                e.CellId = cell.Cell;
+
+                msg.Entries.push_back(e);
+            }
+
+            // Send to each party member
+            for (auto* pPlayer : party.Members)
+                pPlayer->Send(msg);
+        }
+    }
+
     if (m_nextInvitationExpire > cCurrentTick)
         return;
 
@@ -101,6 +143,33 @@ void PartyService::OnUpdate(const UpdateEvent& acEvent) noexcept
                 ++itor;
             }
         }
+    }
+}
+
+
+
+void PartyService::OnPartyPositionUpdate(const PacketEvent<PartyPositionUpdateRequest>& acPacket) noexcept
+{
+    Player* const pSender = acPacket.pPlayer;
+    auto* pParty = GetPlayerParty(pSender);
+    if (!pParty)
+        return;
+
+    const auto& msgIn = acPacket.Packet;
+
+    NotifyPartyPositions out{};
+    NotifyPartyPositions::Entry e{};
+    e.PlayerId = pSender->GetId();
+    e.Position = msgIn.Position;
+    e.WorldSpaceId = msgIn.WorldSpaceId;
+    e.CellId = msgIn.CellId;
+    out.Entries.push_back(e);
+
+    for (auto* pMember : pParty->Members)
+    {
+        if (pMember == pSender)
+            continue; // don't need to echo to the sender
+        pMember->Send(out);
     }
 }
 
@@ -237,7 +306,7 @@ void PartyService::OnPlayerJoin(const PlayerJoinEvent& acEvent) noexcept
                 break;
             }
         }
-        
+
     }
 }
 

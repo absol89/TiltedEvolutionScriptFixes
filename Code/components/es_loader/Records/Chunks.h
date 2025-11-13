@@ -330,6 +330,24 @@ struct DNAM
     float m_waterLevel;
 };
 
+// ONAM: Relation of this world to its parent for map markers
+struct ONAM
+{
+    ONAM() {}
+    ONAM(Buffer::Reader& aReader)
+    {
+        aReader.ReadBytes(reinterpret_cast<uint8_t*>(&m_worldMapScale), sizeof(float));
+        aReader.ReadBytes(reinterpret_cast<uint8_t*>(&m_cellOffsetX4096), sizeof(float));
+        aReader.ReadBytes(reinterpret_cast<uint8_t*>(&m_cellOffsetY4096), sizeof(float));
+        aReader.ReadBytes(reinterpret_cast<uint8_t*>(&m_cellOffsetZ4096), sizeof(float));
+    }
+
+    float m_worldMapScale{};   // -1 = hide markers
+    float m_cellOffsetX4096{}; // Cell X Offset * 4096 (in game units)
+    float m_cellOffsetY4096{}; // Cell Y Offset * 4096 (in game units)
+    float m_cellOffsetZ4096{}; // Cell Z Offset * 4096 (in game units)
+};
+
 struct NVNM
 {
     NVNM() {}

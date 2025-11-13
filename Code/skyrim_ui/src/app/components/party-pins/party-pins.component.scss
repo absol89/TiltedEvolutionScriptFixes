@@ -1,0 +1,29 @@
+.party-pins-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none; /* never block input */
+  z-index: 1000; /* ensure on top of other overlay UI */
+}
+
+.pin {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(50, 240, 255, 0.9);
+  transform: translate(-5px, -5px);
+}
+.pin.oob {
+  background: rgba(180, 180, 180, 0.9);
+}
+
+.label {
+  position: absolute;
+  color: #e6e6e6;
+  font-size: 12px;
+  text-shadow: 0 0 2px #000, 0 0 4px #000;
+}
+

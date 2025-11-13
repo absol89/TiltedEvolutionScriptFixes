@@ -1,6 +1,6 @@
 #pragma once
 
-#include <TESFile.h>
+#include "TESFile.h"
 
 namespace fs = std::filesystem;
 

@@ -26,17 +26,23 @@ bool TESFile::LoadFile(const std::filesystem::path& acPath) noexcept
 {
     m_filename = acPath.filename().string();
 
-    const uintmax_t fileSize = std::filesystem::file_size(acPath);
-    m_buffer.Resize(fileSize);
-
-    std::ifstream file(acPath, std::ios::binary);
+    std::ifstream file(acPath, std::ios::binary | std::ios::ate);
     if (file.fail())
     {
-        spdlog::error("Failed to open plugin {}", m_filename);
+        spdlog::warn("Failed to open plugin {} ({}). Skipping.", m_filename, acPath.string());
         return false;
     }
 
+    const auto fileSize = static_cast<size_t>(file.tellg());
+    file.seekg(0, std::ios::beg);
+    m_buffer.Resize(fileSize);
+
     file.read(reinterpret_cast<char*>(m_buffer.GetWriteData()), fileSize);
+    if (!file)
+    {
+        spdlog::error("Short read while loading plugin {} ({}).", m_filename, acPath.string());
+        return false;
+    }
 
     return true;
 }

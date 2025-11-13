@@ -38,6 +38,7 @@ target(name)
         "TiltedReverse",
         "TiltedHooks",
         "TiltedUi",
+        "ESLoader",
         {inherit = true}
     )
 

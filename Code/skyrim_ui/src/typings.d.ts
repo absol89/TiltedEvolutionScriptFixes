@@ -94,6 +94,9 @@ declare namespace SkyrimTogetherTypes {
   type PartyLeftCallback = (inviterId: number) => void;
 
   type PartyInviteReceivedCallback = (inviterId: number) => void;
+
+  /** World-map party pins payload as JSON string */
+  type SetPartyPinsCallback = (json: string) => void;
 }
 
 /** Global Skyrim: Together object. */
