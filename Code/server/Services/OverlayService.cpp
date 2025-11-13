@@ -10,6 +10,10 @@
 #include <Messages/NotifyPlayerDialogue.h>
 #include <Messages/TeleportRequest.h>
 #include <Messages/NotifyTeleport.h>
+#include <algorithm>
+#include <cctype>
+
+
 #include <Messages/RequestPlayerHealthUpdate.h>
 #include <Messages/NotifyPlayerHealthUpdate.h>
 
@@ -18,11 +22,29 @@
 #include <regex>
 
 
+static bool IsVoteTimeCommand(const TiltedPhoques::String& msg) noexcept
+{
+    TiltedPhoques::String text = msg;
+    // trim spaces
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front()))) text.erase(text.begin());
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back()))) text.pop_back();
+    // to lower
+    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+    if (text.rfind("/votetime", 0) == 0)
+        return true;
+    if (text == "/yes" || text == "/no")
+        return true;
+    return false;
+}
+
+
 OverlayService::OverlayService(World& aWorld, entt::dispatcher& aDispatcher)
     : m_world(aWorld)
 {
     m_chatMessageConnection = aDispatcher.sink<PacketEvent<SendChatMessageRequest>>().connect<&OverlayService::HandleChatMessage>(this);
     m_playerDialogueConnection = aDispatcher.sink<PacketEvent<PlayerDialogueRequest>>().connect<&OverlayService::OnPlayerDialogue>(this);
+
+
     m_teleportConnection = aDispatcher.sink<PacketEvent<TeleportRequest>>().connect<&OverlayService::OnTeleport>(this);
     m_playerHealthConnection = aDispatcher.sink<PacketEvent<RequestPlayerHealthUpdate>>().connect<&OverlayService::OnPlayerHealthUpdate>(this);
 }
@@ -61,6 +83,11 @@ void sendPlayerMessage(const ChatMessageType acType, const String acContent, Pla
 
 void OverlayService::HandleChatMessage(const PacketEvent<SendChatMessageRequest>& acMessage) const noexcept
 {
+    // Intercept and suppress vote commands before scripts handle chat,
+    // to avoid third-party script packs printing "unknown command".
+    if (IsVoteTimeCommand(acMessage.Packet.ChatMessage))
+        return;
+
     auto [canceled, reason] = m_world.GetScriptService().HandleChatMessage(*acMessage.pPlayer->GetCharacter(), acMessage.Packet.ChatMessage);
     if (canceled)
         return;

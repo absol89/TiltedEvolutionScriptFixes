@@ -1,4 +1,4 @@
-import { ChatService } from '../chat.service';
+import { ChatService, MessageTypes } from '../chat.service';
 
 export interface Command {
   readonly name: string;
@@ -16,14 +16,14 @@ export class CommandHandler {
       );
     },
   }
-  
+
   private SetTime: Command = {
-    name: 'settime', 
+    name: 'settime',
     executor: async (args) => {
       const cmds = [...this.commands.keys()].join(', ');
       if (args.length != 2) {
         this.chatService.pushSystemMessage(
-          'COMPONENT.CHAT.SET_TIME_ARGUMENT_COUNT', 
+          'COMPONENT.CHAT.SET_TIME_ARGUMENT_COUNT',
           { cmds },
         );
         return;
@@ -43,11 +43,38 @@ export class CommandHandler {
     },
   }
 
+  private VoteTime: Command = {
+    name: 'votetime',
+    executor: async (args) => {
+      // Forward as chat command to server; server handles validation and system messaging
+      const suffix = args.join(' ').trim();
+      const content = suffix.length > 0 ? `/votetime ${suffix}` : '/votetime';
+      skyrimtogether.sendMessage(MessageTypes.GLOBAL_CHAT, content);
+    },
+  }
+
+  private Yes: Command = {
+    name: 'yes',
+    executor: async () => {
+      skyrimtogether.sendMessage(MessageTypes.GLOBAL_CHAT, '/yes');
+    },
+  }
+
+  private No: Command = {
+    name: 'no',
+    executor: async () => {
+      skyrimtogether.sendMessage(MessageTypes.GLOBAL_CHAT, '/no');
+    },
+  }
+
   private readonly commands = new Map<string, Command>();
 
   public constructor(private readonly chatService: ChatService) {
     this.register(this.Help);
     this.register(this.SetTime);
+    this.register(this.VoteTime);
+    this.register(this.Yes);
+    this.register(this.No);
   }
 
   public readonly COMMAND_PREFIX = '/';
