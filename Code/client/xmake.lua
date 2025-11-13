@@ -17,10 +17,13 @@ target(name)
             local bindir = path.join(linkdir, "..", "bin")
             os.cp(bindir, target:installdir())
         end
-        -- copy ui
+        -- copy ui assets needed by overlay/branding
         local uidir = path.join(target:scriptdir(), "..", "skyrim_ui", "src")
         os.cp(path.join(uidir, "assets", "images", "cursor.dds"), path.join(target:installdir(), "bin", "assets", "images", "cursor.dds"))
         os.cp(path.join(uidir, "assets", "images", "cursor.png"), path.join(target:installdir(), "bin", "assets", "images", "cursor.png"))
+        -- font used for Skyrim-like branding
+        os.cp(path.join(uidir, "assets", "fonts", "futura-condensed", "futura-condensed-medium.otf"),
+              path.join(target:installdir(), "bin", "assets", "fonts", "futura-condensed", "futura-condensed-medium.otf"))
         os.rm(path.join(target:installdir(), "bin", "**Tests.exe"))
     end)
 

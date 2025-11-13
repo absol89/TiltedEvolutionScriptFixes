@@ -34,6 +34,21 @@ void ImguiService::Create(RenderSystemD3D11* apRenderSystem, HWND aHwnd)
     d3dDevice->GetImmediateContext(&d3dContext);
 
     ImGui_ImplDX11_Init(d3dDevice, d3dContext);
+
+    // Load "Skyrim"-like font (Futura Condensed) from assets if present
+    ImGuiIO& io = ImGui::GetIO();
+    const char* cFontPath = "assets/fonts/futura-condensed/futura-condensed-medium.otf";
+    if (auto* font = io.Fonts->AddFontFromFileTTF(cFontPath, 24.0f))
+    {
+        m_skyrimFont = font;
+        // Recreate device objects so the new font atlas is uploaded
+        ImGui_ImplDX11_InvalidateDeviceObjects();
+        ImGui_ImplDX11_CreateDeviceObjects();
+    }
+    else
+    {
+        spdlog::warn("ImguiService: failed to load font at {}", cFontPath);
+    }
 }
 
 void ImguiService::Render() const

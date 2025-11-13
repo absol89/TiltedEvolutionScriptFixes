@@ -23,6 +23,7 @@
 #include <Services/MapService.h>
 #include <Services/PartyMarkerOverlayService.h>
 #include <Services/PartyMapOverlayService.h>
+#include <Services/BrandingService.h>
 
 
 
@@ -60,6 +61,7 @@ World::World()
     ctx().emplace<MapService>(*this, m_dispatcher, m_transport);
     ctx().emplace<PartyMarkerOverlayService>(*this, m_dispatcher);
     ctx().emplace<PartyMapOverlayService>(*this, m_dispatcher);
+    ctx().emplace<BrandingService>(*this, m_dispatcher);
 
     BehaviorVar::Get()->Init();
 }
