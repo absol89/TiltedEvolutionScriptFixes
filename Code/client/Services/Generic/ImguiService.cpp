@@ -6,6 +6,9 @@
 #include <imgui/imgui_impl_dx11.h>
 #include <imgui/imgui_impl_win32.h>
 #include <imgui.h>
+#include <TiltedCore/Filesystem.hpp>
+#include <filesystem>
+#include <string>
 
 // According to imgui documentation we have to do it this way in order to avoid link conflicts with windows.h
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -37,8 +40,11 @@ void ImguiService::Create(RenderSystemD3D11* apRenderSystem, HWND aHwnd)
 
     // Load "Skyrim"-like font (Futura Condensed) from assets if present
     ImGuiIO& io = ImGui::GetIO();
-    const char* cFontPath = "assets/fonts/futura-condensed/futura-condensed-medium.otf";
-    if (auto* font = io.Fonts->AddFontFromFileTTF(cFontPath, 24.0f))
+
+    const std::filesystem::path fontPath = TiltedPhoques::GetPath() / "UI" / "assets" / "futura-condensed-medium.otf";
+    const std::string fontPathUtf8 = fontPath.generic_string();
+
+    if (auto* font = io.Fonts->AddFontFromFileTTF(fontPathUtf8.c_str(), 24.0f))
     {
         m_skyrimFont = font;
         // Recreate device objects so the new font atlas is uploaded
@@ -47,7 +53,7 @@ void ImguiService::Create(RenderSystemD3D11* apRenderSystem, HWND aHwnd)
     }
     else
     {
-        spdlog::warn("ImguiService: failed to load font at {}", cFontPath);
+        spdlog::warn("ImguiService: failed to load font at {}", fontPathUtf8);
     }
 }
 
