@@ -21,6 +21,8 @@
 #include <iomanip>
 #include <chrono>
 #include <cmath>
+#include <limits>
+#include <glm/gtx/norm.hpp>
 
 #include <Games/Skyrim/Interface/UI.h>
 #include <Games/Skyrim/Camera/PlayerCamera.h>
@@ -97,7 +99,8 @@ void PartyMapOverlayService::OnPartyPositions(const NotifyPartyPositions& aMsg) 
 
     for (const auto& e : aMsg.Entries)
     {
-        m_last[e.PlayerId] = LastInfo{glm::vec3{e.Position.x, e.Position.y, e.Position.z}, tick};
+        glm::vec3 pos{e.Position.x, e.Position.y, e.Position.z};
+        StoreLastInfo(e.PlayerId, pos, tick);
 
         WorldspaceInfo info{};
         if (e.WorldSpaceId)
@@ -115,7 +118,7 @@ void PartyMapOverlayService::OnPartyPositions(const NotifyPartyPositions& aMsg) 
         // Track last known position per worldspace for cross-world projection
         if (info.HasWorld)
         {
-            m_lastPerWorld[e.PlayerId][info.WorldSpaceFormId] = glm::vec3{e.Position.x, e.Position.y, e.Position.z};
+            m_lastPerWorld[e.PlayerId][info.WorldSpaceFormId] = pos;
         }
     }
 }
@@ -175,13 +178,13 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
     {
         const auto& pc = view.get<PlayerComponent>(e);
         const auto& interp = view.get<InterpolationComponent>(e);
-        m_last[pc.Id] = LastInfo{interp.Position, tick};
+        StoreLastInfo(pc.Id, interp.Position, tick);
     }
 
     // Periodically send our own position to the server for party tracking
     {
         static auto s_lastPosSend = std::chrono::steady_clock::time_point{};
-        constexpr auto cPosInterval = std::chrono::milliseconds(250);
+        constexpr auto cPosInterval = std::chrono::milliseconds(100);
         const auto now = std::chrono::steady_clock::now();
         if (now - s_lastPosSend >= cPosInterval)
 
@@ -222,7 +225,7 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
 
     // Build and send pins to CEF overlay at a throttled rate
     static auto s_lastSend = std::chrono::steady_clock::time_point{};
-    constexpr auto cDelayBetweenUpdates = std::chrono::milliseconds(33); // ~30 FPS for smoother pins
+    constexpr auto cDelayBetweenUpdates = std::chrono::milliseconds(16); // ~60 FPS for tighter tracking
     const auto now = std::chrono::steady_clock::now();
     if (now - s_lastSend < cDelayBetweenUpdates)
         return;
@@ -271,6 +274,7 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
     os.setf(std::ios::fixed); os << std::setprecision(1);
     os << "[";
     bool first = true;
+    const auto sampleNow = std::chrono::steady_clock::now();
 
     for (uint32_t pid : members)
     {
@@ -285,11 +289,29 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
         const bool hasWorld = (itWs != m_worlds.end()) && itWs->second.HasWorld && itWs->second.WorldSpaceFormId != 0;
         float sx = 0.f, sy = 0.f;
         bool drew = false;
+        const auto& lastInfo = itPos->second;
+
+        glm::vec3 worldPos = lastInfo.Pos;
+        float dtSeconds = 0.0f;
+        if (tick > lastInfo.Tick)
+            dtSeconds = static_cast<float>(tick - lastInfo.Tick) / 1000.0f;
+
+        if (lastInfo.SampleTime.time_since_epoch().count() != 0)
+        {
+            const float realDt = std::chrono::duration_cast<std::chrono::duration<float>>(sampleNow - lastInfo.SampleTime).count();
+            dtSeconds = std::max(dtSeconds, realDt);
+        }
+
+        constexpr float cMaxPredictionSeconds = 1.0f;
+        dtSeconds = std::clamp(dtSeconds, 0.0f, cMaxPredictionSeconds);
+        const bool usingPrediction = dtSeconds > 0.0f && glm::length2(lastInfo.Velocity) > std::numeric_limits<float>::epsilon();
+        if (usingPrediction)
+            worldPos += lastInfo.Velocity * dtSeconds;
 
         // 1) If member already in display worldspace, project directly
         if (hasWorld && itWs->second.WorldSpaceFormId == dispWsId)
         {
-            NiPoint3 wpos(itPos->second.Pos);
+            NiPoint3 wpos(worldPos);
             NiPoint3 spos{};
             if (HUDMenuUtils::WorldPtToScreenPt3(wpos, spos))
             {
@@ -305,7 +327,7 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
             if (auto* pFromWs = static_cast<TESWorldSpace*>(TESForm::GetById(itWs->second.WorldSpaceFormId)))
             {
                 glm::vec3 dstPos{};
-                if (WorldMapProjector::Convert(pFromWs, itPos->second.Pos, pDispWs, dstPos))
+                if (WorldMapProjector::Convert(pFromWs, worldPos, pDispWs, dstPos))
                 {
                     NiPoint3 wpos(dstPos);
                     NiPoint3 spos{};
@@ -323,7 +345,7 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
         if (!drew && hasWorld && dispWsId != 0 && itWs->second.WorldSpaceFormId != dispWsId)
         {
             glm::vec3 dstPos{};
-            if (ComputeCrossWorldApprox(pid, itWs->second.WorldSpaceFormId, itPos->second.Pos, dispWsId, dstPos))
+            if (ComputeCrossWorldApprox(pid, itWs->second.WorldSpaceFormId, worldPos, dispWsId, dstPos))
             {
                 NiPoint3 wpos(dstPos);
                 NiPoint3 spos{};
@@ -379,11 +401,24 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
         if (itLS != m_lastScreen.end())
         {
             const uint64_t dt = tick - itLS->second.Tick;
-            // Time constant ~150ms for quick but smooth convergence
-            float alpha = 1.0f - std::exp(-static_cast<float>(dt) / 150.0f);
-            if (alpha < 0.f) alpha = 0.f; if (alpha > 1.f) alpha = 1.f;
-            sx = itLS->second.sx + (sx - itLS->second.sx) * alpha;
-            sy = itLS->second.sy + (sy - itLS->second.sy) * alpha;
+            float alpha = 1.0f;
+            if (dt > 0)
+            {
+                constexpr float cSmoothingMs = 45.0f;
+                alpha = 1.0f - std::exp(-static_cast<float>(dt) / cSmoothingMs);
+                alpha = std::clamp(alpha, 0.7f, 1.0f);
+            }
+
+            const float dx = sx - itLS->second.sx;
+            const float dy = sy - itLS->second.sy;
+            constexpr float cTeleportPixelsSq = 600.0f * 600.0f;
+            if ((dx * dx + dy * dy) > cTeleportPixelsSq)
+                alpha = 1.0f;
+            else if (usingPrediction && dtSeconds >= 0.2f)
+                alpha = 1.0f;
+
+            sx = itLS->second.sx + dx * alpha;
+            sy = itLS->second.sy + dy * alpha;
         }
 
         // Cache last projected (smoothed) position
@@ -444,4 +479,61 @@ void PartyMapOverlayService::SetWaypointFor(uint32_t aPlayerId) noexcept
     m_world.GetDispatcher().trigger(SetWaypointEvent(pos, itWs->second.WorldSpaceFormId));
 }
 
+void PartyMapOverlayService::StoreLastInfo(uint32_t aPlayerId, const glm::vec3& aPos, uint64_t aTick) noexcept
+{
+    constexpr float cMinDtSeconds = 0.001f;
+    constexpr float cMaxDtSeconds = 6.0f;
+    constexpr float cTeleportResetDistanceSq = 4096.0f * 4096.0f;
+    constexpr float cMaxSpeed = 16000.0f; // units per second, avoids runaway extrapolation
+    constexpr float cMaxSpeedSq = cMaxSpeed * cMaxSpeed;
+    constexpr float cVelocityBlend = 0.25f; // keep some of the previous vector to reduce jitter
 
+    const auto now = std::chrono::steady_clock::now();
+
+    LastInfo info{};
+    info.Pos = aPos;
+    info.Tick = aTick;
+    info.Velocity = {};
+    info.SampleTime = now;
+
+    auto itPrev = m_last.find(aPlayerId);
+    if (itPrev != m_last.end())
+    {
+        const uint64_t tickDelta = (aTick > itPrev->second.Tick) ? (aTick - itPrev->second.Tick) : 0ull;
+        float dtSeconds = tickDelta > 0 ? static_cast<float>(tickDelta) / 1000.0f : 0.0f;
+
+        if (itPrev->second.SampleTime.time_since_epoch().count() != 0)
+        {
+            const float realDtSeconds = std::chrono::duration_cast<std::chrono::duration<float>>(now - itPrev->second.SampleTime).count();
+            if (realDtSeconds >= cMinDtSeconds)
+                dtSeconds = std::max(dtSeconds, realDtSeconds);
+        }
+
+        if (dtSeconds < cMinDtSeconds)
+        {
+            info.Velocity = itPrev->second.Velocity;
+        }
+        else
+        {
+            const glm::vec3 delta = aPos - itPrev->second.Pos;
+            const float distSq = glm::length2(delta);
+
+            if (dtSeconds <= cMaxDtSeconds && distSq <= cTeleportResetDistanceSq)
+            {
+                glm::vec3 newVelocity = delta / dtSeconds;
+                if (glm::length2(newVelocity) > cMaxSpeedSq)
+                {
+                    newVelocity = {};
+                }
+                else if (glm::length2(itPrev->second.Velocity) > 0.0f)
+                {
+                    newVelocity = itPrev->second.Velocity * cVelocityBlend + newVelocity * (1.0f - cVelocityBlend);
+                }
+
+                info.Velocity = newVelocity;
+            }
+        }
+    }
+
+    m_last[aPlayerId] = info;
+}

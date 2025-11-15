@@ -2,6 +2,7 @@
 
 #include <unordered_map>
 #include <unordered_set>
+#include <chrono>
 
 #include <Events/UpdateEvent.h>
 #include <Events/DisconnectedEvent.h>
@@ -30,6 +31,8 @@ private:
     {
         glm::vec3 Pos{};
         uint64_t Tick{0};
+        glm::vec3 Velocity{};
+        std::chrono::steady_clock::time_point SampleTime{};
     };
 
     struct WorldspaceInfo
@@ -55,6 +58,7 @@ private:
     void PruneNonPartyEntries() noexcept;
 
     void SetWaypointFor(uint32_t aPlayerId) noexcept;
+    void StoreLastInfo(uint32_t aPlayerId, const glm::vec3& aPos, uint64_t aTick) noexcept;
 
     // Approximate cross-world conversion using per-player anchors
     bool ComputeCrossWorldApprox(uint32_t aPlayerId, uint32_t aSrcWsId, const glm::vec3& aSrcPos,
@@ -78,4 +82,3 @@ private:
     entt::scoped_connection m_cellChangedConnection;
     entt::scoped_connection m_positionsConnection;
 };
-
