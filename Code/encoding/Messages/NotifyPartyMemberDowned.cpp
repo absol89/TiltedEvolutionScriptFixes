@@ -2,6 +2,7 @@
 
 void NotifyPartyMemberDowned::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) const noexcept
 {
+    Serialization::WriteVarInt(aWriter, ServerId);
     Serialization::WriteVarInt(aWriter, PlayerId);
     Serialization::WriteBool(aWriter, IsDowned);
     Serialization::WriteFloat(aWriter, PositionX);
@@ -17,6 +18,7 @@ void NotifyPartyMemberDowned::DeserializeRaw(TiltedPhoques::Buffer::Reader& aRea
 {
     ServerMessage::DeserializeRaw(aReader);
 
+    ServerId = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
     PlayerId = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
     IsDowned = Serialization::ReadBool(aReader);
     PositionX = Serialization::ReadFloat(aReader);

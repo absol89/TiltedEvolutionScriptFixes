@@ -28,6 +28,7 @@ struct NotifyPartyMemberDowned final : ServerMessage
     bool operator==(const NotifyPartyMemberDowned& acRhs) const noexcept
     {
         return PlayerId == acRhs.PlayerId &&
+               ServerId == acRhs.ServerId &&
                IsDowned == acRhs.IsDowned &&
                PositionX == acRhs.PositionX &&
                PositionY == acRhs.PositionY &&
@@ -36,6 +37,9 @@ struct NotifyPartyMemberDowned final : ServerMessage
                CellId == acRhs.CellId &&
                GetOpcode() == acRhs.GetOpcode();
     }
+
+    // Numeric identifier of the party member's actor on the server (entt id)
+    uint32_t ServerId{0};
 
     // Server-side player id of the downed/revived party member
     uint32_t PlayerId{0};

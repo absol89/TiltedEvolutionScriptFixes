@@ -230,12 +230,17 @@ void PlayerService::OnPartyMemberDownedRequest(const PacketEvent<PartyMemberDown
 
     if (auto character = pPlayer->GetCharacter())
     {
+        notify.ServerId = World::ToInteger(*character);
         if (const auto* pMovement = m_world.try_get<MovementComponent>(*character))
         {
             notify.PositionX = pMovement->Position.x;
             notify.PositionY = pMovement->Position.y;
             notify.PositionZ = pMovement->Position.z;
         }
+    }
+    else
+    {
+        notify.ServerId = 0;
     }
 
     const auto& cellComponent = pPlayer->GetCellComponent();

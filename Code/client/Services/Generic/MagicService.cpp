@@ -733,10 +733,13 @@ void MagicService::UpdateRevealOtherPlayersEffect(bool aForceTrigger) noexcept
 void MagicService::OnNotifyPartyMemberDowned(const NotifyPartyMemberDowned& acMessage) noexcept
 {
     // Track downed set
-    if (acMessage.IsDowned)
-        m_downedPartyMembers.insert(acMessage.PlayerId);
-    else
-        m_downedPartyMembers.erase(acMessage.PlayerId);
+    if (acMessage.ServerId != 0)
+    {
+        if (acMessage.IsDowned)
+            m_downedPartyMembers.insert(acMessage.ServerId);
+        else
+            m_downedPartyMembers.erase(acMessage.ServerId);
+    }
 
     // Resolve a nicer display name for the player if we know it, otherwise fall back to the ID.
     std::string playerName;
