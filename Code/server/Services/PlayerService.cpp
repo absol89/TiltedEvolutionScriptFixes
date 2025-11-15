@@ -3,8 +3,12 @@
 #include "Events/PlayerLeaveCellEvent.h"
 
 #include <Services/PlayerService.h>
+
+#include <Components.h>
+
 #include <Services/CharacterService.h>
 #include <GameServer.h>
+
 
 #include <Messages/ShiftGridCellRequest.h>
 #include <Messages/EnterExteriorCellRequest.h>
@@ -17,6 +21,8 @@
 #include <Messages/PlayerLevelRequest.h>
 #include <Messages/NotifyPlayerLevel.h>
 #include <Messages/NotifyPlayerCellChanged.h>
+#include <Messages/PartyMemberDownedRequest.h>
+#include <Messages/NotifyPartyMemberDowned.h>
 
 #include <Setting.h>
 namespace
@@ -31,6 +37,7 @@ PlayerService::PlayerService(World& aWorld, entt::dispatcher& aDispatcher) noexc
     , m_exteriorCellEnterConnection(aDispatcher.sink<PacketEvent<EnterExteriorCellRequest>>().connect<&PlayerService::HandleExteriorCellEnter>(this))
     , m_playerRespawnConnection(aDispatcher.sink<PacketEvent<PlayerRespawnRequest>>().connect<&PlayerService::OnPlayerRespawnRequest>(this))
     , m_playerLevelConnection(aDispatcher.sink<PacketEvent<PlayerLevelRequest>>().connect<&PlayerService::OnPlayerLevelRequest>(this))
+    , m_partyMemberDownedConnection(aDispatcher.sink<PacketEvent<PartyMemberDownedRequest>>().connect<&PlayerService::OnPartyMemberDownedRequest>(this))
 {
 }
 
@@ -209,4 +216,31 @@ void PlayerService::OnPlayerLevelRequest(const PacketEvent<PlayerLevelRequest>& 
     notify.NewLevel = acMessage.Packet.NewLevel;
 
     GameServer::Get()->SendToPlayers(notify, acMessage.pPlayer);
+}
+
+void PlayerService::OnPartyMemberDownedRequest(const PacketEvent<PartyMemberDownedRequest>& acMessage) const noexcept
+{
+    auto* pPlayer = acMessage.pPlayer;
+    if (!pPlayer)
+        return;
+
+    NotifyPartyMemberDowned notify{};
+    notify.PlayerId = pPlayer->GetId();
+    notify.IsDowned = acMessage.Packet.IsDowned;
+
+    if (auto character = pPlayer->GetCharacter())
+    {
+        if (const auto* pMovement = m_world.try_get<MovementComponent>(*character))
+        {
+            notify.PositionX = pMovement->Position.x;
+            notify.PositionY = pMovement->Position.y;
+            notify.PositionZ = pMovement->Position.z;
+        }
+    }
+
+    const auto& cellComponent = pPlayer->GetCellComponent();
+    notify.WorldSpaceId = cellComponent.WorldSpaceId;
+    notify.CellId = cellComponent.Cell;
+
+    GameServer::Get()->SendToParty(notify, pPlayer->GetParty(), acMessage.GetSender());
 }

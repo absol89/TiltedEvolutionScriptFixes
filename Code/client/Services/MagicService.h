@@ -8,6 +8,7 @@
 #include <Messages/NotifyRemoveSpell.h>
 #include <spdlog/spdlog.h>
 #include <chrono>
+#include <unordered_set>
 
 struct World;
 struct TransportService;
@@ -21,6 +22,7 @@ struct RemoveSpellEvent;
 struct NotifySpellCast;
 struct NotifyInterruptCast;
 struct NotifyHealingProximity;
+struct NotifyPartyMemberDowned;
 
 /**
  * @brief Handles magic spell casting and magic effects.
@@ -86,6 +88,10 @@ struct MagicService
      * @brief Handles healing proximity for reviving downed players
      */
     void OnNotifyHealingProximity(const NotifyHealingProximity& acMessage) noexcept;
+    /**
+     * @brief Receives party downed/revived events and triggers UI/chat and per-player reveal effect.
+     */
+    void OnNotifyPartyMemberDowned(const NotifyPartyMemberDowned& acMessage) noexcept;
 
   private:
     /**
@@ -100,11 +106,17 @@ struct MagicService
      * Apply the "reveal players" effect on remote players.
      */
     void UpdateRevealOtherPlayersEffect(bool aForceTrigger = false) noexcept;
+    /**
+     * @brief Apply the reveal effect to currently downed party members only.
+     */
+    void UpdateRevealDownedPlayersEffect() noexcept;
 
     World& m_world;
     entt::dispatcher& m_dispatcher;
     TransportService& m_transport;
     bool m_revealingOtherPlayers = false;
+    bool m_revealingDownedPlayers = false;
+    std::unordered_set<uint32_t> m_downedPartyMembers;
 
     entt::scoped_connection m_updateConnection;
     entt::scoped_connection m_spellCastEventConnection;
@@ -116,6 +128,7 @@ struct MagicService
     entt::scoped_connection m_removeSpellEventConnection;
     entt::scoped_connection m_notifyRemoveSpell;
     entt::scoped_connection m_notifyHealingProximityConnection;
+    entt::scoped_connection m_notifyPartyMemberDownedConnection;
 
     /*
      * @brief Queued magic effects.

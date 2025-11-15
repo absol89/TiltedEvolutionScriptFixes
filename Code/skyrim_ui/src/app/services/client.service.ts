@@ -170,7 +170,10 @@ export class ClientService implements OnDestroy {
     (skyrimtogether as any).on('setPartyPins', this.onSetPartyPins.bind(this));
     skyrimtogether.on('showDeathScreen', this.onShowDeathScreen.bind(this));
     skyrimtogether.on('updateDeathTimer', this.onUpdateDeathTimer.bind(this));
-    skyrimtogether.on('enableRespawnButton', this.onEnableRespawnButton.bind(this));
+    skyrimtogether.on(
+      'enableRespawnButton',
+      this.onEnableRespawnButton.bind(this),
+    );
     skyrimtogether.on('hideDeathScreen', this.onHideDeathScreen.bind(this));
   }
 
@@ -643,7 +646,11 @@ export class ClientService implements OnDestroy {
 
   private onSetPartyPins(json: string) {
     try {
-      const pins = JSON.parse(json) as Array<{ x: number; y: number; id: number }>;
+      const pins = JSON.parse(json) as Array<{
+        x: number;
+        y: number;
+        id: number;
+      }>;
       this.zone.run(() => this.partyPinsChange.next(pins));
     } catch (e) {
       // ignore invalid payloads

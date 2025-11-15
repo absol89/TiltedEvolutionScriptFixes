@@ -1,5 +1,6 @@
 #include <Services/MagicService.h>
 #include <Services/PlayerService.h>
+#include <Messages/NotifyPartyMemberDowned.h>
 
 #include <World.h>
 
@@ -33,6 +34,12 @@
 #include <PlayerCharacter.h>
 
 #include <Games/TES.h>
+#include <OverlayApp.hpp>
+#include <ChatMessageTypes.h>
+#include <unordered_set>
+#include <client/Utils.h>
+
+
 
 MagicService::MagicService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
     : m_world(aWorld)
@@ -49,6 +56,9 @@ MagicService::MagicService(World& aWorld, entt::dispatcher& aDispatcher, Transpo
     m_removeSpellEventConnection = m_dispatcher.sink<RemoveSpellEvent>().connect<&MagicService::OnRemoveSpellEvent>(this);
     m_notifyRemoveSpell = m_dispatcher.sink<NotifyRemoveSpell>().connect<&MagicService::OnNotifyRemoveSpell>(this);
     m_notifyHealingProximityConnection = m_dispatcher.sink<NotifyHealingProximity>().connect<&MagicService::OnNotifyHealingProximity>(this);
+
+    // Listen for party member downed/revived notifications
+    m_notifyPartyMemberDownedConnection = m_dispatcher.sink<NotifyPartyMemberDowned>().connect<&MagicService::OnNotifyPartyMemberDowned>(this);
 }
 
 void MagicService::OnUpdate(const UpdateEvent& acEvent) noexcept
@@ -59,6 +69,7 @@ void MagicService::OnUpdate(const UpdateEvent& acEvent) noexcept
     ApplyQueuedEffects();
 
     UpdateRevealOtherPlayersEffect();
+    UpdateRevealDownedPlayersEffect();
 }
 
 void MagicService::OnSpellCastEvent(const SpellCastEvent& acEvent) const noexcept
@@ -715,6 +726,97 @@ void MagicService::UpdateRevealOtherPlayersEffect(bool aForceTrigger) noexcept
             continue;
 
         pRemotePlayer->magicTarget.AddTarget(data, false, false);
+    }
+}
+
+// Handler for NotifyPartyMemberDowned: updates local state, posts a party chat message, and drives glow logic
+void MagicService::OnNotifyPartyMemberDowned(const NotifyPartyMemberDowned& acMessage) noexcept
+{
+    // Track downed set
+    if (acMessage.IsDowned)
+        m_downedPartyMembers.insert(acMessage.PlayerId);
+    else
+        m_downedPartyMembers.erase(acMessage.PlayerId);
+
+    // Resolve a nicer display name for the player if we know it, otherwise fall back to the ID.
+    std::string playerName;
+    const auto& players = m_world.GetPartyService().GetPlayers();
+    if (auto it = players.find(acMessage.PlayerId); it != players.end())
+        playerName = it->second.c_str();
+    else
+        playerName = "Player " + std::to_string(acMessage.PlayerId);
+
+    // Build a simple party message (no explicit "Party:" prefix, just colored/typed chat on UI side).
+    std::string text = acMessage.IsDowned
+        ? playerName + " is downed! Revive them using Healing Hands."
+        : playerName + " has been revived.";
+
+    // Push to overlay as a system line so it doesn't look like player chat
+    if (auto pOverlay = m_world.GetOverlayService().GetOverlayApp())
+    {
+        auto pArguments = CefListValue::Create();
+        pArguments->SetInt(0, static_cast<int>(kSystemMessage));  // message type
+        pArguments->SetString(1, text);                      // message text
+        pArguments->SetString(2, "");                        // sender label (system)
+        pOverlay->ExecuteAsync("message", pArguments);
+    }
+}
+
+// Periodically re-apply reveal effect to downed party members only
+void MagicService::UpdateRevealDownedPlayersEffect() noexcept
+{
+    using namespace std::chrono_literals;
+
+    if (m_downedPartyMembers.empty())
+        return;
+
+    static std::chrono::steady_clock::time_point s_lastSendTimePoint;
+    constexpr auto cDelayBetweenUpdates = 2s;
+
+    const auto now = std::chrono::steady_clock::now();
+    if (now - s_lastSendTimePoint < cDelayBetweenUpdates)
+        return;
+
+    s_lastSendTimePoint = now;
+
+    Mod* pSkyrimTogether = ModManager::Get()->GetByName("SkyrimTogether.esp");
+    if (!pSkyrimTogether)
+        return;
+
+    MagicItem* pSpell = Cast<MagicItem>(TESForm::GetById((pSkyrimTogether->standardId << 24) | 0x1825));
+    if (!pSpell)
+        return;
+
+    MagicTarget::AddTargetData data{};
+    data.pSpell = pSpell;
+    data.pEffectItem = pSpell->GetEffect((pSkyrimTogether->standardId << 24) | 0x1824);
+    data.fMagnitude = 1.f;
+    data.fUnkFloat1 = 1.f;
+    data.eCastingSource = MagicSystem::CastingSource::CASTING_SOURCE_COUNT;
+
+    // Match Reveal Players targeting: all remote players, then filter by downed server id
+    auto view = m_world.view<FormIdComponent, PlayerComponent>();
+    for (const auto entity : view)
+    {
+        const auto& formIdComponent = view.get<FormIdComponent>(entity);
+
+        // Never glow the local player
+        if (formIdComponent.Id == 0x14)
+            continue;
+
+        // Resolve server id for this actor; skip if we can't
+        auto serverIdOpt = Utils::GetServerId(entity);
+        if (!serverIdOpt.has_value())
+            continue;
+
+        const auto serverId = serverIdOpt.value();
+
+        // Only apply to players currently marked as downed
+        if (m_downedPartyMembers.find(serverId) == m_downedPartyMembers.end())
+            continue;
+
+        if (auto* pRemotePlayer = Cast<Actor>(TESForm::GetById(formIdComponent.Id)))
+            pRemotePlayer->magicTarget.AddTarget(data, false, false);
     }
 }
 

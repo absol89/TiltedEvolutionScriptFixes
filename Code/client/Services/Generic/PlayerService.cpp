@@ -24,6 +24,7 @@
 #include <Messages/EnterInteriorCellRequest.h>
 #include <Messages/PlayerDialogueRequest.h>
 #include <Messages/PlayerLevelRequest.h>
+#include <Messages/PartyMemberDownedRequest.h>
 
 #include <Structs/ServerSettings.h>
 
@@ -258,6 +259,10 @@ void PlayerService::RunRespawnUpdates(const double acDeltaTime) noexcept
             pArgs->SetInt(0, secondsRemaining);
             pOverlayApp->ExecuteAsync("showDeathScreen", pArgs);
         }
+
+        PartyMemberDownedRequest downedRequest{};
+        downedRequest.IsDowned = true;
+        m_transport.Send(downedRequest);
     }
 
     if (!m_waitingForRespawn)
@@ -314,6 +319,10 @@ void PlayerService::RunRespawnUpdates(const double acDeltaTime) noexcept
         m_knockdownStart = true;
 
         m_transport.Send(PlayerRespawnRequest());
+
+        PartyMemberDownedRequest revivedRequest{};
+        revivedRequest.IsDowned = false;
+        m_transport.Send(revivedRequest);
 
         // Restore spells and shouts
         auto* pEquipManager = EquipManager::Get();

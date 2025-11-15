@@ -1,7 +1,6 @@
 <ng-container *ngIf="inGame$ | async">
   <app-party-pins></app-party-pins>
   <app-death-screen></app-death-screen>
-
   <ng-container *ngIf="!(menuOpen$ | async)">
     <app-debug></app-debug>
 
@@ -53,7 +52,7 @@
         </button>
         <button data-style-ornament="inverted" (click)="revealPlayers()">
           <!-- See note in 'root.component.scss' for explanation -->
-          <div style="position: relative;">
+          <div style="position: relative">
             <span
               class="cooldown-supporting-text-normal"
               [class.cooldown-supporting-text-animating]="revealingInProgress$"
@@ -61,10 +60,12 @@
               {{ 'COMPONENT.ROOT.REVEAL_PLAYERS' | transloco }}
             </span>
             <span
-              style="position: absolute; left: 0; top: 0;"
+              style="position: absolute; left: 0; top: 0"
               class="text-cooldown-effect"
               [class.cooldown-active]="revealingInProgress$"
-              [style.--cooldown-duration]="revealingInProgress$ ? '10s' : '0.3s'"
+              [style.--cooldown-duration]="
+                revealingInProgress$ ? '10s' : '0.3s'
+              "
             >
               {{ 'COMPONENT.ROOT.REVEAL_PLAYERS' | transloco }}
             </span>
