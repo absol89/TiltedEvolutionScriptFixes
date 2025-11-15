@@ -1,6 +1,10 @@
 #include <Services/PlayerService.h>
 
 #include <World.h>
+#include <OverlayApp.hpp>
+
+#include <cmath>
+#include <DInputHook.hpp>
 
 #include <Events/UpdateEvent.h>
 #include <Events/ConnectedEvent.h>
@@ -203,11 +207,15 @@ void PlayerService::RunRespawnUpdates(const double acDeltaTime) noexcept
     PlayerCharacter* pPlayer = PlayerCharacter::Get();
     if (!pPlayer->actorState.IsBleedingOut())
     {
+        // Cache equipped spells and shouts so we can restore them after respawn.
         m_cachedMainSpellId = pPlayer->magicItems[0] ? pPlayer->magicItems[0]->formID : 0;
         m_cachedSecondarySpellId = pPlayer->magicItems[1] ? pPlayer->magicItems[1]->formID : 0;
         m_cachedPowerId = pPlayer->equippedShout ? pPlayer->equippedShout->formID : 0;
 
         s_startTimer = false;
+        m_waitingForRespawn = false;
+        m_canRespawn = false;
+        m_respawnTimer = 0.0;
         return;
     }
 
@@ -215,6 +223,9 @@ void PlayerService::RunRespawnUpdates(const double acDeltaTime) noexcept
     {
         s_startTimer = true;
         m_respawnTimer = 5.0;
+        m_waitingForRespawn = true;
+        m_canRespawn = false;
+
         FadeOutGame(true, true, 3.0f, true, 2.0f);
 
         // If a player dies not by its health reaching 0, getting it up from its bleedout state isn't possible
@@ -223,21 +234,88 @@ void PlayerService::RunRespawnUpdates(const double acDeltaTime) noexcept
             pPlayer->ForceActorValue(ActorValueOwner::ForceMode::DAMAGE, ActorValueInfo::kHealth, 0);
 
         pPlayer->PayCrimeGoldToAllFactions();
+
+        // Notify the UI that the player died and show the death screen.
+        if (auto* pOverlayApp = m_world.GetOverlayService().GetOverlayApp())
+        {
+            // Enable overlay input for death screen buttons to work
+            TiltedPhoques::DInputHook::Get().SetEnabled(true);
+            m_world.GetOverlayService().SetActive(true);
+            
+            // Show cursor for death screen
+            if (auto* pClient = pOverlayApp->GetClient())
+            {
+                if (auto pRenderer = pClient->GetOverlayRenderHandler())
+                {
+                    pRenderer->SetCursorVisible(true);
+                }
+            }
+            
+            auto pArgs = CefListValue::Create();
+            int32_t secondsRemaining = static_cast<int32_t>(std::ceil(m_respawnTimer));
+            if (secondsRemaining < 0)
+                secondsRemaining = 0;
+            pArgs->SetInt(0, secondsRemaining);
+            pOverlayApp->ExecuteAsync("showDeathScreen", pArgs);
+        }
+    }
+
+    if (!m_waitingForRespawn)
+    {
+        // Player has already been revived (e.g. via a healing spell).
+        return;
     }
 
     m_respawnTimer -= acDeltaTime;
+    if (m_respawnTimer < 0.0)
+        m_respawnTimer = 0.0;
 
-    if (m_respawnTimer <= 0.0)
+    // Update countdown on the death screen.
+    if (auto* pOverlayApp = m_world.GetOverlayService().GetOverlayApp())
     {
-        pPlayer->RespawnPlayer();
+        auto pArgs = CefListValue::Create();
+        int32_t secondsRemaining = static_cast<int32_t>(std::ceil(m_respawnTimer));
+        if (secondsRemaining < 0)
+            secondsRemaining = 0;
+        pArgs->SetInt(0, secondsRemaining);
+        pOverlayApp->ExecuteAsync("updateDeathTimer", pArgs);
+    }
+
+    if (!m_canRespawn && m_respawnTimer <= 0.0)
+    {
+        m_canRespawn = true;
+
+        // Enable the respawn button on the death screen.
+        if (auto* pOverlayApp = m_world.GetOverlayService().GetOverlayApp())
+        {
+            auto pArgs = CefListValue::Create();
+            pOverlayApp->ExecuteAsync("enableRespawnButton", pArgs);
+        }
+    }
+    
+    // Check if we need to respawn (triggered by button or heal)
+    if (m_shouldRespawnAtEntrance || m_shouldRespawnInPlace)
+    {
+        if (m_shouldRespawnAtEntrance)
+        {
+            // Respawn at entrance
+            pPlayer->RespawnPlayer();
+        }
+        else
+        {
+            // Respawn in place (no teleport)
+            pPlayer->SetNoBleedoutRecovery(false);
+            pPlayer->DispelAllSpells();
+            pPlayer->ForceActorValue(ActorValueOwner::ForceMode::DAMAGE, ActorValueInfo::kHealth, 1000000);
+            pPlayer->SetNoBleedoutRecovery(true);
+        }
 
         m_knockdownTimer = 1.5;
         m_knockdownStart = true;
 
         m_transport.Send(PlayerRespawnRequest());
 
-        s_startTimer = false;
-
+        // Restore spells and shouts
         auto* pEquipManager = EquipManager::Get();
         TESForm* pSpell = TESForm::GetById(m_cachedMainSpellId);
         if (pSpell)
@@ -248,6 +326,93 @@ void PlayerService::RunRespawnUpdates(const double acDeltaTime) noexcept
         pSpell = TESForm::GetById(m_cachedPowerId);
         if (pSpell)
             pEquipManager->EquipShout(pPlayer, pSpell);
+
+        m_waitingForRespawn = false;
+        m_canRespawn = false;
+        m_respawnTimer = 0.0;
+        m_shouldRespawnAtEntrance = false;
+        m_shouldRespawnInPlace = false;
+        s_startTimer = false;
+
+        // Hide death screen
+        if (auto* pOverlayApp = m_world.GetOverlayService().GetOverlayApp())
+        {
+            auto pArgs = CefListValue::Create();
+            pOverlayApp->ExecuteAsync("hideDeathScreen", pArgs);
+            
+            // Disable overlay input and hide cursor after death screen closes
+            TiltedPhoques::DInputHook::Get().SetEnabled(false);
+            m_world.GetOverlayService().SetActive(false);
+            
+            if (auto* pClient = pOverlayApp->GetClient())
+            {
+                if (auto pRenderer = pClient->GetOverlayRenderHandler())
+                {
+                    pRenderer->SetCursorVisible(false);
+                }
+            }
+        }
+    }
+}
+
+void PlayerService::RequestManualRespawn() noexcept
+{
+    try
+    {
+        if (!m_isDeathSystemEnabled)
+        {
+            spdlog::warn("RequestManualRespawn: Death system not enabled");
+            return;
+        }
+
+        // Only allow manual respawn while the death screen is active and the cooldown has finished.
+        if (!m_waitingForRespawn || !m_canRespawn)
+        {
+            spdlog::warn("RequestManualRespawn: Not waiting for respawn or button not enabled. waiting={}, canRespawn={}", m_waitingForRespawn, m_canRespawn);
+            return;
+        }
+
+        // Just set a flag - let RunRespawnUpdates handle the actual respawn
+        m_shouldRespawnAtEntrance = true;
+    }
+    catch (const std::exception& e)
+    {
+        spdlog::error("RequestManualRespawn: Exception occurred: {}", e.what());
+        m_waitingForRespawn = false;
+        m_canRespawn = false;
+        m_respawnTimer = 0.0;
+    }
+    catch (...)
+    {
+        spdlog::error("RequestManualRespawn: Unknown exception occurred");
+        m_waitingForRespawn = false;
+        m_canRespawn = false;
+        m_respawnTimer = 0.0;
+    }
+}
+
+void PlayerService::OnHealRevive() noexcept
+{
+    try
+    {
+        if (!m_isDeathSystemEnabled)
+        {
+            spdlog::warn("OnHealRevive: Death system not enabled");
+            return;
+        }
+
+        // Mark that we should respawn the player in place on the next update.
+        // RunRespawnUpdates will perform the actual revive (health, flags, UI).
+        m_shouldRespawnInPlace = true;
+        spdlog::info("OnHealRevive: queued in-place respawn via healing.");
+    }
+    catch (const std::exception& e)
+    {
+        spdlog::error("OnHealRevive: Exception occurred: {}", e.what());
+    }
+    catch (...)
+    {
+        spdlog::error("OnHealRevive: Unknown exception occurred");
     }
 }
 
@@ -340,7 +505,7 @@ void PlayerService::RunBeastFormDetection() const noexcept
     PlayerCharacter* pPlayer = PlayerCharacter::Get();
     if (!pPlayer->race)
         return;
-    
+
     if (pPlayer->race->formID == lastRaceFormID)
         return;
 

@@ -11,6 +11,7 @@ import { ActionButtonsComponent } from './components/action-buttons/action-butto
 import { ChatComponent } from './components/chat/chat.component';
 import { ConnectComponent } from './components/connect/connect.component';
 import { ConnectPasswordComponent } from './components/connect-password/connect-password.component';
+import { DeathScreenComponent } from './components/death-screen/death-screen.component';
 import { DebugComponent } from './components/debug/debug.component';
 import { DisconnectComponent } from './components/disconnect/disconnect.component';
 import { DropdownOptionComponent } from './components/dropdown/dropdown-option.component';
@@ -52,6 +53,7 @@ import { TranslocoRootModule } from './transloco-root.module';
     ChatComponent,
     ConnectComponent,
     ConnectPasswordComponent,
+    DeathScreenComponent,
     DebugComponent,
     DisconnectComponent,
     DropdownComponent,

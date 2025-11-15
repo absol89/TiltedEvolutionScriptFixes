@@ -55,6 +55,7 @@ enum ClientOpcode : unsigned char
     kRequestRemoveWaypoint,
     kPartyPositionUpdateRequest,
     kSetTimeCommandRequest,
+    kRequestHealingProximity,
     kClientOpcodeMax
 };
 
@@ -117,5 +118,6 @@ enum ServerOpcode : unsigned char
     kNotifyRemoveWaypoint,
     kNotifySetTimeResult,
     kNotifyPartyPositions,
+    kNotifyHealingProximity,
     kServerOpcodeMax
 };

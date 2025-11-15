@@ -5,6 +5,7 @@
 
 #include <Services/OverlayClient.h>
 #include <Services/TransportService.h>
+#include <Services/PlayerService.h>
 
 #include <Messages/SendChatMessageRequest.h>
 #include <Messages/TeleportRequest.h>
@@ -80,6 +81,8 @@ bool OverlayClient::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefR
             ProcessTeleportMessage(eventArgs);
         else if (eventName == "toggleDebugUI")
             ProcessToggleDebugUI();
+        else if (eventName == "respawnButtonClicked")
+            World::Get().GetRunner().Queue([]() { World::Get().ctx().at<PlayerService>().RequestManualRespawn(); });
 
         return true;
     }

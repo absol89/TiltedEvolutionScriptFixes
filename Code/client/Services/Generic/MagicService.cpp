@@ -1,4 +1,5 @@
 #include <Services/MagicService.h>
+#include <Services/PlayerService.h>
 
 #include <World.h>
 
@@ -15,6 +16,8 @@
 
 #include <Messages/NotifySpellCast.h>
 #include <Messages/NotifyInterruptCast.h>
+#include <Messages/NotifyHealingProximity.h>
+#include <Messages/HealingProximityRequest.h>
 
 #include <Actor.h>
 #include <Magic/ActorMagicCaster.h>
@@ -45,6 +48,7 @@ MagicService::MagicService(World& aWorld, entt::dispatcher& aDispatcher, Transpo
     m_notifyAddTargetConnection = m_dispatcher.sink<NotifyAddTarget>().connect<&MagicService::OnNotifyAddTarget>(this);
     m_removeSpellEventConnection = m_dispatcher.sink<RemoveSpellEvent>().connect<&MagicService::OnRemoveSpellEvent>(this);
     m_notifyRemoveSpell = m_dispatcher.sink<NotifyRemoveSpell>().connect<&MagicService::OnNotifyRemoveSpell>(this);
+    m_notifyHealingProximityConnection = m_dispatcher.sink<NotifyHealingProximity>().connect<&MagicService::OnNotifyHealingProximity>(this);
 }
 
 void MagicService::OnUpdate(const UpdateEvent& acEvent) noexcept
@@ -66,6 +70,37 @@ void MagicService::OnSpellCastEvent(const SpellCastEvent& acEvent) const noexcep
     {
         spdlog::warn("Spell cast event has no actor or actor is not loaded");
         return;
+    }
+
+    // Check if this is a healing spell and broadcast healing proximity to server
+    if (SpellItem* pSpell = Cast<SpellItem>(TESForm::GetById(acEvent.SpellId)))
+    {
+        if (pSpell->IsHealingSpell())
+        {
+            Actor* pCaster = acEvent.pCaster->pCasterActor;
+            auto view = m_world.view<FormIdComponent, LocalComponent>();
+            const auto casterIt = std::find_if(std::begin(view), std::end(view), 
+                [formId = pCaster->formID, view](entt::entity entity) { 
+                    return view.get<FormIdComponent>(entity).Id == formId; 
+                });
+
+            if (casterIt != std::end(view))
+            {
+                auto& localComponent = view.get<LocalComponent>(*casterIt);
+                HealingProximityRequest healRequest{};
+                healRequest.CasterId = localComponent.Id;
+                healRequest.CasterX = pCaster->position.x;
+                healRequest.CasterY = pCaster->position.y;
+                healRequest.CasterZ = pCaster->position.z;
+
+                if (m_world.GetModSystem().GetServerModId(acEvent.SpellId, healRequest.SpellFormId))
+                {
+                    spdlog::info("OnSpellCastEvent: Broadcasting healing proximity for spell {:X} at ({:.1f}, {:.1f}, {:.1f})",
+                                 acEvent.SpellId, healRequest.CasterX, healRequest.CasterY, healRequest.CasterZ);
+                    m_transport.Send(healRequest);
+                }
+            }
+        }
     }
 
     // only sync concentration spells through spell cast sync, the rest through projectile sync for accuracy
@@ -680,5 +715,38 @@ void MagicService::UpdateRevealOtherPlayersEffect(bool aForceTrigger) noexcept
             continue;
 
         pRemotePlayer->magicTarget.AddTarget(data, false, false);
+    }
+}
+
+void MagicService::OnNotifyHealingProximity(const NotifyHealingProximity& acMessage) noexcept
+{
+    PlayerCharacter* pLocalPlayer = PlayerCharacter::Get();
+    if (!pLocalPlayer || !pLocalPlayer->actorState.IsBleedingOut())
+    {
+        spdlog::debug("OnNotifyHealingProximity: Local player not downed or not available");
+        return;
+    }
+
+    constexpr float cHealingHandsRange = 300.0f;
+
+    // Calculate distance from local player to healer's position
+    float distance = std::sqrt(
+        std::pow(pLocalPlayer->position.x - acMessage.CasterX, 2.0f) +
+        std::pow(pLocalPlayer->position.y - acMessage.CasterY, 2.0f) +
+        std::pow(pLocalPlayer->position.z - acMessage.CasterZ, 2.0f)
+    );
+
+    spdlog::info("OnNotifyHealingProximity: Local player downed at distance {:.1f} from healer (range: {:.1f})",
+                 distance, cHealingHandsRange);
+
+    if (distance <= cHealingHandsRange)
+    {
+        spdlog::info("OnNotifyHealingProximity: Local player in healing range! Triggering PlayerService heal revive...");
+        World::Get().ctx().at<PlayerService>().OnHealRevive();
+    }
+    else
+    {
+        spdlog::info("OnNotifyHealingProximity: Local player too far away ({:.1f} > {:.1f})",
+                     distance, cHealingHandsRange);
     }
 }

@@ -97,6 +97,18 @@ declare namespace SkyrimTogetherTypes {
 
   /** World-map party pins payload as JSON string */
   type SetPartyPinsCallback = (json: string) => void;
+
+  /** Death screen shown with countdown timer */
+  type ShowDeathScreenCallback = (secondsRemaining: number) => void;
+
+  /** Death screen timer update */
+  type UpdateDeathTimerCallback = (secondsRemaining: number) => void;
+
+  /** Respawn button enabled */
+  type EnableRespawnButtonCallback = () => void;
+
+  /** Death screen hidden */
+  type HideDeathScreenCallback = () => void;
 }
 
 /** Global Skyrim: Together object. */
@@ -220,6 +232,30 @@ interface SkyrimTogether {
   on(
     event: 'partyInviteReceived',
     callback: SkyrimTogetherTypes.PartyInviteReceivedCallback,
+  ): void;
+
+  /** Add listener to when the death screen is shown. */
+  on(
+    event: 'showDeathScreen',
+    callback: SkyrimTogetherTypes.ShowDeathScreenCallback,
+  ): void;
+
+  /** Add listener to when the death screen timer updates. */
+  on(
+    event: 'updateDeathTimer',
+    callback: SkyrimTogetherTypes.UpdateDeathTimerCallback,
+  ): void;
+
+  /** Add listener to when the respawn button is enabled. */
+  on(
+    event: 'enableRespawnButton',
+    callback: SkyrimTogetherTypes.EnableRespawnButtonCallback,
+  ): void;
+
+  /** Add listener to when the death screen is hidden. */
+  on(
+    event: 'hideDeathScreen',
+    callback: SkyrimTogetherTypes.HideDeathScreenCallback,
   ): void;
 
   /** Remove listener from when the application is first initialized. */
@@ -352,6 +388,30 @@ interface SkyrimTogether {
     callback?: SkyrimTogetherTypes.PartyInviteReceivedCallback,
   ): void;
 
+  /** Remove listener from when the death screen is shown. */
+  off(
+    event: 'showDeathScreen',
+    callback?: SkyrimTogetherTypes.ShowDeathScreenCallback,
+  ): void;
+
+  /** Remove listener from when the death screen timer updates. */
+  off(
+    event: 'updateDeathTimer',
+    callback?: SkyrimTogetherTypes.UpdateDeathTimerCallback,
+  ): void;
+
+  /** Remove listener from when the respawn button is enabled. */
+  off(
+    event: 'enableRespawnButton',
+    callback?: SkyrimTogetherTypes.EnableRespawnButtonCallback,
+  ): void;
+
+  /** Remove listener from when the death screen is hidden. */
+  off(
+    event: 'hideDeathScreen',
+    callback?: SkyrimTogetherTypes.HideDeathScreenCallback,
+  ): void;
+
   /**
    * Connect to server at given address and port.
    *
@@ -435,4 +495,9 @@ interface SkyrimTogether {
    * @param playerId Id of the new leader.
    */
   changePartyLeader(playerId: number): void;
+
+  /**
+   * Called when the player clicks the respawn button on the death screen.
+   */
+  respawnButtonClicked(): void;
 }

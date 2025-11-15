@@ -20,6 +20,7 @@ struct RemoveSpellEvent;
 
 struct NotifySpellCast;
 struct NotifyInterruptCast;
+struct NotifyHealingProximity;
 
 /**
  * @brief Handles magic spell casting and magic effects.
@@ -81,6 +82,10 @@ struct MagicService
      * @brief Handles removal of a spell
      */
     void OnNotifyRemoveSpell(const NotifyRemoveSpell& acMessage) noexcept;
+    /**
+     * @brief Handles healing proximity for reviving downed players
+     */
+    void OnNotifyHealingProximity(const NotifyHealingProximity& acMessage) noexcept;
 
   private:
     /**
@@ -110,6 +115,7 @@ struct MagicService
     entt::scoped_connection m_notifyAddTargetConnection;
     entt::scoped_connection m_removeSpellEventConnection;
     entt::scoped_connection m_notifyRemoveSpell;
+    entt::scoped_connection m_notifyHealingProximityConnection;
 
     /*
      * @brief Queued magic effects.

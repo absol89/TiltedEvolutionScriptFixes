@@ -99,6 +99,18 @@ export class ClientService implements OnDestroy {
   /** Used for when a party leader changed. */
   public partyLeaderChange = new Subject<number>();
 
+  /** Death screen shown with countdown. */
+  public deathScreenChange = new Subject<number>();
+
+  /** Death screen timer update. */
+  public deathTimerChange = new Subject<number>();
+
+  /** Respawn button enabled. */
+  public respawnButtonEnabledChange = new Subject<void>();
+
+  /** Death screen hidden. */
+  public deathScreenHiddenChange = new Subject<void>();
+
   public localPlayerId = undefined;
 
   private _host: string;
@@ -156,6 +168,10 @@ export class ClientService implements OnDestroy {
       this.onPartyInviteReceived.bind(this),
     );
     (skyrimtogether as any).on('setPartyPins', this.onSetPartyPins.bind(this));
+    skyrimtogether.on('showDeathScreen', this.onShowDeathScreen.bind(this));
+    skyrimtogether.on('updateDeathTimer', this.onUpdateDeathTimer.bind(this));
+    skyrimtogether.on('enableRespawnButton', this.onEnableRespawnButton.bind(this));
+    skyrimtogether.on('hideDeathScreen', this.onHideDeathScreen.bind(this));
   }
 
   /**
@@ -645,5 +661,74 @@ export class ClientService implements OnDestroy {
     this.zone.run(() => {
       this.partyInviteReceivedChange.next(inviterId);
     });
+  }
+
+  /**
+   * Called when the death screen is shown.
+   */
+  private onShowDeathScreen(secondsRemaining: number): void {
+    if (environment.game) {
+      console.log(
+        `%conShowDeathScreen`,
+        'background: #f44336; color: #fff; padding: 3px; font-size: 9px;',
+        secondsRemaining,
+      );
+    }
+    this.zone.run(() => {
+      this.deathScreenChange.next(secondsRemaining);
+    });
+  }
+
+  /**
+   * Called when the death screen timer updates.
+   */
+  private onUpdateDeathTimer(secondsRemaining: number): void {
+    if (environment.game) {
+      console.log(
+        `%conUpdateDeathTimer`,
+        'background: #f44336; color: #fff; padding: 3px; font-size: 9px;',
+        secondsRemaining,
+      );
+    }
+    this.zone.run(() => {
+      this.deathTimerChange.next(secondsRemaining);
+    });
+  }
+
+  /**
+   * Called when the respawn button is enabled.
+   */
+  private onEnableRespawnButton(): void {
+    if (environment.game) {
+      console.log(
+        `%conEnableRespawnButton`,
+        'background: #4caf50; color: #fff; padding: 3px; font-size: 9px;',
+      );
+    }
+    this.zone.run(() => {
+      this.respawnButtonEnabledChange.next();
+    });
+  }
+
+  /**
+   * Called when the death screen is hidden.
+   */
+  private onHideDeathScreen(): void {
+    if (environment.game) {
+      console.log(
+        `%conHideDeathScreen`,
+        'background: #2196f3; color: #fff; padding: 3px; font-size: 9px;',
+      );
+    }
+    this.zone.run(() => {
+      this.deathScreenHiddenChange.next();
+    });
+  }
+
+  /**
+   * Called when the player clicks the respawn button.
+   */
+  public respawnButtonClicked(): void {
+    skyrimtogether.respawnButtonClicked();
   }
 }

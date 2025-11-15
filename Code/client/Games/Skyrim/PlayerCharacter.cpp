@@ -23,6 +23,7 @@
 #include <Forms/TESObjectCELL.h>
 
 #include <ModCompat/BehaviorVar.h>
+#include <cmath>
 
 int32_t PlayerCharacter::LastUsedCombatSkill = -1;
 

@@ -26,6 +26,12 @@ struct PlayerService
 
     TP_NOCOPYMOVE(PlayerService);
 
+    // Called from UI (CEF) when the player presses the respawn button.
+    void RequestManualRespawn() noexcept;
+
+    // Called when a party member revives the local player with a healing spell.
+    void OnHealRevive() noexcept;
+
 protected:
     void OnUpdate(const UpdateEvent& acEvent) noexcept;
     void OnConnected(const ConnectedEvent& acEvent) noexcept;
@@ -41,7 +47,7 @@ protected:
 
 private:
     /**
-     * @brief Run the respawn timer, and if it hits 0, respawn the player.
+     * @brief Run the respawn timer and drive death screen updates.
      */
     void RunRespawnUpdates(const double acDeltaTime) noexcept;
     void RunPostDeathUpdates(const double acDeltaTime) noexcept;
@@ -63,6 +69,14 @@ private:
     int32_t m_previousDifficulty = 6;
 
     bool m_isDeathSystemEnabled = true;
+
+    // True while the player is in bleedout and the death screen is active.
+    bool m_waitingForRespawn = false;
+    // Becomes true when the cooldown has finished and the respawn button can be pressed.
+    bool m_canRespawn = false;
+    // Set by button click/heal to trigger respawn from RunRespawnUpdates
+    bool m_shouldRespawnAtEntrance = false;
+    bool m_shouldRespawnInPlace = false;
 
     bool m_knockdownStart = false;
     double m_knockdownTimer = 0.0;
