@@ -47,6 +47,21 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
     notify.Item = message.Item;
 
     notify.Drop = bEnableItemDrops ? message.Drop : false;
+    if (message.HasDropInstanceId)
+    {
+        notify.HasDropInstanceId = true;
+        notify.DropInstanceId = message.DropInstanceId;
+    }
+    if (message.HasDropLocation)
+    {
+        notify.HasDropLocation = true;
+        notify.DropLocation = message.DropLocation;
+    }
+    if (message.HasDropRotation)
+    {
+        notify.HasDropRotation = true;
+        notify.DropRotation = message.DropRotation;
+    }
 
     const entt::entity cOrigin = static_cast<entt::entity>(message.ServerId);
     if (!GameServer::Get()->SendToPlayersInRange(notify, cOrigin, acMessage.GetSender()))

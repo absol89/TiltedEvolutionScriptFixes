@@ -1,3 +1,5 @@
+#include <TiltedOnlinePCH.h>
+
 #include <Games/References.h>
 #include <Games/Skyrim/EquipManager.h>
 #include <AI/AIProcess.h>
@@ -31,6 +33,9 @@
 #include <Games/Skyrim/Misc/InventoryEntry.h>
 #include <Games/Skyrim/ExtraData/ExtraCount.h>
 #include <Games/Misc/ActorKnowledge.h>
+#include <Games/Skyrim/TESObjectREFR.h>
+
+#include <optional>
 
 #include <ExtraData/ExtraDataList.h>
 #include <ExtraData/ExtraCharge.h>
@@ -54,6 +59,144 @@
 #include <Forms/TESObjectARMO.h>
 
 #include <ModCompat/BehaviorVar.h>
+
+namespace
+{
+constexpr float kDropSearchRadiusSquared = 200.0f * 200.0f;
+using DropHandleMap = TiltedPhoques::Map<uint32_t, TiltedPhoques::Map<uint32_t, uint32_t>>;
+DropHandleMap s_actorDropHandles;
+TiltedPhoques::Map<uint32_t, uint32_t> s_actorNextDropId;
+
+TESObjectREFR* FindDroppedReferenceNear(const TESBoundObject* apObject, const NiPoint3& acCenter)
+{
+    if (!apObject)
+        return nullptr;
+
+    TES* pTes = TES::Get();
+    if (!pTes || !pTes->cells || !pTes->cells->arr)
+        return nullptr;
+
+    const int dimension = pTes->cells->dimension;
+    if (dimension <= 0)
+        return nullptr;
+
+    auto evaluateCell = [&](TESObjectCELL* apCell, TESObjectREFR*& apBestMatch, float& aBestDistanceSq) {
+        if (!apCell || !apCell->IsValid())
+            return;
+
+        auto* pReferences = apCell->refData.refArray;
+        if (!pReferences)
+            return;
+
+        const uint32_t referenceCount = apCell->refData.Count();
+        for (uint32_t j = 0; j < referenceCount; ++j)
+        {
+            TESObjectREFR* pCandidate = pReferences[j].Get();
+            if (!pCandidate || pCandidate->baseForm != apObject || pCandidate->formType == Actor::Type)
+                continue;
+
+            const float diffX = pCandidate->position.x - acCenter.x;
+            const float diffY = pCandidate->position.y - acCenter.y;
+            const float diffZ = pCandidate->position.z - acCenter.z;
+            const float distanceSq = diffX * diffX + diffY * diffY + diffZ * diffZ;
+
+            if (distanceSq < aBestDistanceSq)
+            {
+                aBestDistanceSq = distanceSq;
+                apBestMatch = pCandidate;
+            }
+        }
+    };
+
+    TESObjectREFR* pClosest = nullptr;
+    float closestDistanceSq = kDropSearchRadiusSquared;
+
+    const int cellCount = dimension * dimension;
+    for (int i = 0; i < cellCount; ++i)
+    {
+        TESObjectCELL* pCell = pTes->cells->arr[i];
+        evaluateCell(pCell, pClosest, closestDistanceSq);
+    }
+
+    if (!pClosest)
+        evaluateCell(pTes->interiorCell, pClosest, closestDistanceSq);
+
+    return pClosest;
+}
+} // namespace
+
+namespace DropSync
+{
+    thread_local std::optional<uint32_t> PendingDropId{};
+    thread_local uint32_t PendingDropActorFormId = 0;
+} // namespace DropSync
+
+uint32_t Actor::RegisterLocalDrop(uint32_t aActorFormId, uint32_t aHandleBits) noexcept
+{
+    if (aHandleBits == 0)
+        return 0;
+
+    auto& nextId = s_actorNextDropId[aActorFormId];
+    uint32_t dropId = ++nextId;
+    s_actorDropHandles[aActorFormId][dropId] = aHandleBits;
+    return dropId;
+}
+
+void Actor::TrackRemoteDrop(uint32_t aActorFormId, uint32_t aDropId, uint32_t aHandleBits) noexcept
+{
+    if (aDropId == 0 || aHandleBits == 0)
+        return;
+
+    s_actorDropHandles[aActorFormId][aDropId] = aHandleBits;
+    auto& nextId = s_actorNextDropId[aActorFormId];
+    if (aDropId > nextId)
+        nextId = aDropId;
+}
+
+std::optional<uint32_t> Actor::ConsumeTrackedDrop(uint32_t aActorFormId, uint32_t aDropId) noexcept
+{
+    if (aDropId == 0)
+        return std::nullopt;
+
+    if (s_actorDropHandles.find(aActorFormId) == s_actorDropHandles.end())
+        return std::nullopt;
+
+    auto& bucket = s_actorDropHandles.at(aActorFormId);
+    auto handleIt = bucket.find(aDropId);
+    if (handleIt == bucket.end())
+        return std::nullopt;
+
+    uint32_t handleBits = handleIt->second;
+    bucket.erase(handleIt);
+    if (bucket.empty())
+        s_actorDropHandles.erase(aActorFormId);
+
+    return handleBits;
+}
+
+std::optional<uint32_t> Actor::ConsumeTrackedDropByHandle(uint32_t aActorFormId, uint32_t aHandleBits) noexcept
+{
+    if (aHandleBits == 0)
+        return std::nullopt;
+
+    if (s_actorDropHandles.find(aActorFormId) == s_actorDropHandles.end())
+        return std::nullopt;
+
+    auto& bucket = s_actorDropHandles.at(aActorFormId);
+    for (auto it = bucket.begin(); it != bucket.end(); ++it)
+    {
+        if (it->second == aHandleBits)
+        {
+            uint32_t dropId = it->first;
+            bucket.erase(dropId);
+            if (bucket.empty())
+                s_actorDropHandles.erase(aActorFormId);
+            return dropId;
+        }
+    }
+
+    return std::nullopt;
+}
 
 #ifdef SAVE_STUFF
 
@@ -1098,7 +1241,19 @@ void* TP_MAKE_THISCALL(HookPickUpObject, Actor, TESObjectREFR* apObject, int32_t
         // The inventory change event should always be sent to the server, otherwise the server inventory won't be updated.
         bool shouldUpdateClients = apObject->IsTemporary() && !ScopedActivateOverride::IsOverriden();
 
-        World::Get().GetRunner().Trigger(InventoryChangeEvent(apThis->formID, std::move(item), false, shouldUpdateClients));
+        std::optional<NiPoint3> pickupLocation{};
+        std::optional<NiPoint3> pickupRotation{};
+        std::optional<uint32_t> dropInstanceId{};
+        if (apObject)
+        {
+            pickupLocation.emplace(apObject->position);
+            pickupRotation.emplace(apObject->rotation);
+            auto handle = apObject->GetHandle();
+            if (handle && handle.handle.iBits)
+                dropInstanceId = Actor::ConsumeTrackedDropByHandle(apThis->formID, handle.handle.iBits);
+        }
+
+        World::Get().GetRunner().Trigger(InventoryChangeEvent(apThis->formID, std::move(item), false, shouldUpdateClients, std::move(pickupLocation), std::move(pickupRotation), dropInstanceId));
     }
 
     return TiltedPhoques::ThisCall(RealPickUpObject, apThis, apObject, aCount, aUnk1, aUnk2);
@@ -1120,11 +1275,66 @@ void* TP_MAKE_THISCALL(HookDropObject, Actor, void* apResult, TESBoundObject* ap
     if (apExtraData)
         apThis->GetItemFromExtraData(item, apExtraData);
 
-    World::Get().GetRunner().Trigger(InventoryChangeEvent(apThis->formID, std::move(item), true));
+    const bool shouldSend = !ScopedInventoryOverride::IsOverriden();
 
-    ScopedInventoryOverride _;
+    void* pReturn = nullptr;
+    {
+        ScopedInventoryOverride _;
+        pReturn = TiltedPhoques::ThisCall(RealDropObject, apThis, apResult, apObject, apExtraData, aCount, apLocation, apRotation);
+    }
 
-    return TiltedPhoques::ThisCall(RealDropObject, apThis, apResult, apObject, apExtraData, aCount, apLocation, apRotation);
+    uint32_t handleBits = 0;
+    TESObjectREFR* pDroppedRef = nullptr;
+    if (auto* pHandle = static_cast<BSPointerHandle<TESObjectREFR>*>(apResult); pHandle && *pHandle)
+    {
+        handleBits = pHandle->handle.iBits;
+        if (handleBits)
+            pDroppedRef = TESObjectREFR::GetByHandle(handleBits);
+    }
+
+    if (DropSync::PendingDropId)
+    {
+        if (handleBits)
+            Actor::TrackRemoteDrop(DropSync::PendingDropActorFormId, *DropSync::PendingDropId, handleBits);
+        DropSync::PendingDropId.reset();
+        DropSync::PendingDropActorFormId = 0;
+    }
+
+    std::optional<NiPoint3> dropLocation{};
+    std::optional<NiPoint3> dropRotation{};
+
+    if (pDroppedRef)
+    {
+        dropLocation.emplace(pDroppedRef->position);
+        dropRotation.emplace(pDroppedRef->rotation);
+    }
+
+    if (!dropLocation)
+    {
+        if (apLocation)
+            dropLocation.emplace(*apLocation);
+        else
+            dropLocation.emplace(apThis->position);
+    }
+
+    if (!dropRotation)
+    {
+        if (apRotation)
+            dropRotation.emplace(*apRotation);
+        else
+            dropRotation.emplace(apThis->rotation);
+    }
+
+    std::optional<uint32_t> dropInstanceId{};
+    if (shouldSend && handleBits)
+        dropInstanceId = Actor::RegisterLocalDrop(apThis->formID, handleBits);
+
+    if (shouldSend)
+    {
+        World::Get().GetRunner().Trigger(InventoryChangeEvent(apThis->formID, std::move(item), true, true, std::move(dropLocation), std::move(dropRotation), dropInstanceId));
+    }
+
+    return pReturn;
 }
 
 void Actor::DropOrPickUpObject(const Inventory::Entry& arEntry, NiPoint3* apLocation, NiPoint3* apRotation) noexcept
@@ -1143,7 +1353,23 @@ void Actor::DropOrPickUpObject(const Inventory::Entry& arEntry, NiPoint3* apLoca
 
     if (arEntry.Count < 0)
         DropObject(pObject, pExtraData, -arEntry.Count, apLocation, apRotation);
-    // TODO: pick up
+    else if (arEntry.Count > 0)
+    {
+        NiPoint3 searchLocation = apLocation ? *apLocation : position;
+        TESObjectREFR* pDroppedRef = FindDroppedReferenceNear(pObject, searchLocation);
+
+        if (!pDroppedRef && apLocation)
+            pDroppedRef = FindDroppedReferenceNear(pObject, position);
+
+        if (!pDroppedRef)
+        {
+            spdlog::warn("Object to pick up not found near target location, {:X}:{:X}.", arEntry.BaseId.ModId, arEntry.BaseId.BaseId);
+            return;
+        }
+
+        spdlog::debug("Picking up object, form id: {:X}, count: {}, actor: {:X}", pObject->formID, arEntry.Count, formID);
+        PickUpObject(pDroppedRef, arEntry.Count, false, 0.0f);
+    }
 }
 
 void Actor::DropObject(TESBoundObject* apObject, ExtraDataList* apExtraData, int32_t aCount, NiPoint3* apLocation, NiPoint3* apRotation) noexcept

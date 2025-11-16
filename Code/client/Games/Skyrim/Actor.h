@@ -3,6 +3,8 @@
 #include <Games/Events.h>
 #include <TESObjectREFR.h>
 
+#include <optional>
+
 #include <Magic/MagicTarget.h>
 #include <Forms/TESActorBase.h>
 #include <Misc/ActorState.h>
@@ -241,8 +243,12 @@ struct Actor : TESObjectREFR
     void Kill() noexcept;
     void Respawn() noexcept;
     void PickUpObject(TESObjectREFR* apObject, int32_t aCount, bool aUnk1, float aUnk2) noexcept;
-    void DropObject(TESBoundObject* apObject, ExtraDataList* apExtraData, int32_t aCount, NiPoint3* apLocation, NiPoint3* apRotation) noexcept;
     void DropOrPickUpObject(const Inventory::Entry& arEntry, NiPoint3* apPoint, NiPoint3* apRotate) noexcept;
+    void DropObject(TESBoundObject* apObject, ExtraDataList* apExtraData, int32_t aCount, NiPoint3* apLocation, NiPoint3* apRotation) noexcept;
+    static uint32_t RegisterLocalDrop(uint32_t aActorFormId, uint32_t aHandleBits) noexcept;
+    static void TrackRemoteDrop(uint32_t aActorFormId, uint32_t aDropId, uint32_t aHandleBits) noexcept;
+    static std::optional<uint32_t> ConsumeTrackedDrop(uint32_t aActorFormId, uint32_t aDropId) noexcept;
+    static std::optional<uint32_t> ConsumeTrackedDropByHandle(uint32_t aActorFormId, uint32_t aHandleBits) noexcept;
     void SpeakSound(const char* pFile);
     void StartCombatEx(Actor* apTarget) noexcept;
     void SetCombatTargetEx(Actor* apTarget) noexcept;
@@ -366,7 +372,6 @@ public:
 };
 
 static_assert(offsetof(Actor, currentProcess) == 0xF8);
-static_assert(offsetof(Actor, flags1) == 0xE8);
 static_assert(offsetof(Actor, actorValueOwner) == 0xB8);
 static_assert(offsetof(Actor, actorState) == 0xC0);
 static_assert(offsetof(Actor, flags2) == 0x204);
@@ -380,3 +385,9 @@ static_assert(offsetof(Actor, equippedShout) == 0x1E8);
 static_assert(offsetof(Actor, actorLock) == 0x284);
 static_assert(sizeof(Actor) == 0x2B8);
 static_assert(sizeof(Actor::SpellItemEntry) == 0x18);
+
+namespace DropSync
+{
+    extern thread_local std::optional<uint32_t> PendingDropId;
+    extern thread_local uint32_t PendingDropActorFormId;
+}

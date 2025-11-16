@@ -1,5 +1,7 @@
 #include <Services/InventoryService.h>
 
+#include <cstdlib>
+
 #include <Messages/RequestObjectInventoryChanges.h>
 #include <Messages/NotifyObjectInventoryChanges.h>
 #include <Messages/RequestInventoryChanges.h>
@@ -26,6 +28,7 @@
 #include <Games/ActorExtension.h>
 #include <Forms/TESNPC.h>
 #include <DefaultObjectManager.h>
+#include <Games/Primitives.h>
 
 InventoryService::InventoryService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
     : m_world(aWorld)
@@ -69,6 +72,21 @@ void InventoryService::OnInventoryChangeEvent(const InventoryChangeEvent& acEven
     request.Item = acEvent.Item;
     request.Drop = acEvent.Drop;
     request.UpdateClients = acEvent.UpdateClients;
+    if (acEvent.DropLocation)
+    {
+        request.HasDropLocation = true;
+        request.DropLocation = *acEvent.DropLocation;
+    }
+    if (acEvent.DropRotation)
+    {
+        request.HasDropRotation = true;
+        request.DropRotation = *acEvent.DropRotation;
+    }
+    if (acEvent.DropInstanceId)
+    {
+        request.HasDropInstanceId = true;
+        request.DropInstanceId = *acEvent.DropInstanceId;
+    }
 
     m_transport.Send(request);
 
@@ -122,29 +140,97 @@ void InventoryService::OnEquipmentChangeEvent(const EquipmentChangeEvent& acEven
 
 void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& acMessage) noexcept
 {
+    std::optional<uint32_t> dropInstanceId{};
+    if (acMessage.HasDropInstanceId)
+        dropInstanceId = acMessage.DropInstanceId;
+
+    NiPoint3 dropLocation{};
+    NiPoint3 dropRotation{};
+    NiPoint3* pDropLocation = nullptr;
+    NiPoint3* pDropRotation = nullptr;
+
+    if (acMessage.HasDropLocation)
+    {
+        dropLocation = NiPoint3(acMessage.DropLocation);
+        pDropLocation = &dropLocation;
+    }
+
+    if (acMessage.HasDropRotation)
+    {
+        dropRotation = NiPoint3(acMessage.DropRotation);
+        pDropRotation = &dropRotation;
+    }
+
+    Actor* pActor = Utils::GetByServerId<Actor>(acMessage.ServerId);
+
     if (acMessage.Drop)
     {
-        Actor* pActor = Utils::GetByServerId<Actor>(acMessage.ServerId);
         if (!pActor)
         {
             spdlog::error("{}: could not find actor server id {:X}", __FUNCTION__, acMessage.ServerId);
             return;
         }
 
-        ScopedInventoryOverride _;
+        struct DropSyncScope
+        {
+            DropSyncScope(uint32_t aActorFormId, const std::optional<uint32_t>& aDropId)
+            {
+                if (aDropId)
+                {
+                    DropSync::PendingDropActorFormId = aActorFormId;
+                    DropSync::PendingDropId = aDropId;
+                    bActive = true;
+                }
+            }
 
-        pActor->DropOrPickUpObject(acMessage.Item, nullptr, nullptr);
+            ~DropSyncScope()
+            {
+                if (bActive)
+                {
+                    DropSync::PendingDropId.reset();
+                    DropSync::PendingDropActorFormId = 0;
+                }
+            }
+
+            bool bActive{false};
+        } dropScope(pActor->formID, dropInstanceId);
+
+        ScopedInventoryOverride _;
+        pActor->DropOrPickUpObject(acMessage.Item, pDropLocation, pDropRotation);
+        return;
     }
-    else
+
+    if (dropInstanceId && pActor)
     {
-        TESObjectREFR* pObject = Utils::GetByServerId<TESObjectREFR>(acMessage.ServerId);
-        if (!pObject)
-            return;
-
-        ScopedInventoryOverride _;
-
-        pObject->AddOrRemoveItem(acMessage.Item);
+        if (auto handleOpt = Actor::ConsumeTrackedDrop(pActor->formID, *dropInstanceId))
+        {
+            uint32_t handleBits = *handleOpt;
+            if (auto* pDroppedRef = TESObjectREFR::GetByHandle(handleBits))
+            {
+                ScopedInventoryOverride _;
+                int32_t count = acMessage.Item.Count > 0 ? acMessage.Item.Count : -acMessage.Item.Count;
+                if (count <= 0)
+                    count = 1;
+                pActor->PickUpObject(pDroppedRef, count, false, 0.0f);
+                return;
+            }
+            else
+            {
+                Actor::TrackRemoteDrop(pActor->formID, *dropInstanceId, handleBits);
+            }
+        }
     }
+
+    TESObjectREFR* pObject = Utils::GetByServerId<TESObjectREFR>(acMessage.ServerId);
+    if (!pObject)
+        return;
+
+    ScopedInventoryOverride _;
+
+    if (auto* pActorObject = Cast<Actor>(pObject))
+        pActorObject->DropOrPickUpObject(acMessage.Item, pDropLocation, pDropRotation);
+    else
+        pObject->AddOrRemoveItem(acMessage.Item);
 }
 
 void InventoryService::OnNotifyEquipmentChanges(const NotifyEquipmentChanges& acMessage) noexcept
