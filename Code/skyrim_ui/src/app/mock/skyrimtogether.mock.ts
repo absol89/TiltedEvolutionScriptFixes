@@ -33,13 +33,16 @@ export class SkyrimtogetherMock extends EventEmitter implements SkyrimTogether {
   connect(
     host: string,
     port: number,
-    _username: string,
+    username: string,
     password: string,
     serverPassword = '',
   ): void {
     if (!this.connected) {
       let error: ErrorEvents | boolean;
       const effectivePassword = serverPassword || password;
+      if (username && username.length > 0) {
+        this.playerName = username;
+      }
       switch (host) {
         case 't-port':
         case 't-host':

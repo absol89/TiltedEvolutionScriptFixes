@@ -21,8 +21,11 @@
 #include <Messages/NotifyPlayerJoined.h>
 #include <Messages/NotifyPlayerLeft.h>
 #include <Messages/NotifySettingsChange.h>
+#include <Messages/NotifyChatMessageBroadcast.h>
+#include <ChatMessageTypes.h>
 #include <console/ConsoleRegistry.h>
 #include <resources/ResourceCollection.h>
+#include <fmt/format.h>
 
 constexpr size_t kMaxServerNameLength = 128u;
 
@@ -983,6 +986,12 @@ void GameServer::HandleAuthenticationRequest(const ConnectionId_t aConnectionId,
 
         serverResponse.Type = AuthenticationResponse::ResponseType::kAccepted;
         Send(aConnectionId, serverResponse);
+
+        NotifyChatMessageBroadcast joinMessage{};
+        joinMessage.MessageType = ChatMessageType::kSystemMessage;
+        joinMessage.PlayerName = pPlayer->GetUsername();
+        joinMessage.ChatMessage = fmt::format("{} connected to the server.", pPlayer->GetUsername().c_str());
+        SendToPlayers(joinMessage);
 
         uint32_t startId = 0;
         auto initStringCache = StringCache::Get().Serialize(startId);

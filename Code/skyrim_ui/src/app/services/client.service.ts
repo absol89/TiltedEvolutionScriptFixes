@@ -425,7 +425,9 @@ export class ClientService implements OnDestroy {
    */
   private onSetName(name: string): void {
     this.zone.run(() => {
-      this.nameChange.next(name);
+      const effectiveName =
+        this._username && this._username.length > 0 ? this._username : name;
+      this.nameChange.next(effectiveName);
     });
   }
 
