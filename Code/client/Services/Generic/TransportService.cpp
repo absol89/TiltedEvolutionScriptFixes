@@ -125,7 +125,11 @@ void TransportService::OnConnected()
     // TODO: think about user opt out
     request.DiscordId = m_world.ctx().at<DiscordService>().GetUser().id;
     auto* pNpc = Cast<TESNPC>(pPlayer->baseForm);
-    if (pNpc)
+    if (!m_loginUsername.empty())
+    {
+        request.Username = m_loginUsername;
+    }
+    else if (pNpc)
     {
         request.Username = pNpc->fullName.value.AsAscii();
     }
@@ -133,6 +137,8 @@ void TransportService::OnConnected()
     {
         request.Username = "Some dragon boi";
     }
+    request.Password = m_loginPassword;
+    m_loginPassword.clear();
 
     auto* const cpModManager = ModManager::Get();
 
@@ -247,9 +253,14 @@ void TransportService::HandleAuthenticationResponse(const AuthenticationResponse
         ErrorInfo += "]}";
         break;
     }
-    case AR::kWrongPassword:
+    case AR::kWrongAccountPassword:
     {
-        ErrorInfo += "\"error\": \"wrong_password\"";
+        ErrorInfo += "\"error\": \"wrong_account_password\"";
+        break;
+    }
+    case AR::kWrongServerPassword:
+    {
+        ErrorInfo += "\"error\": \"wrong_server_password\"";
         break;
     }
     case AR::kServerFull:

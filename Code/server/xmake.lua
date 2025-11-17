@@ -1,6 +1,7 @@
 local function istable(t) return type(t) == 'table' end
 
 add_requires("sol2 v3.3.0", {configs = {lua = "lua"}})
+add_requires("sqlite3")
 
 local function build_server()
     set_kind("shared")

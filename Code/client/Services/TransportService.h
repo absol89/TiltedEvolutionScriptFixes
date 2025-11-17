@@ -35,6 +35,11 @@ struct TransportService : Client
 
     [[nodiscard]] bool IsOnline() const noexcept { return m_connected; }
     void SetServerPassword(const std::string& acPassword) noexcept { m_serverPassword = acPassword; }
+    void SetLoginCredentials(const std::string& acUsername, const std::string& acPassword) noexcept
+    {
+        m_loginUsername = acUsername;
+        m_loginPassword = acPassword;
+    }
     const uint32_t& GetLocalPlayerId() const noexcept { return m_localPlayerId; }
 
 protected:
@@ -52,6 +57,8 @@ private:
     entt::dispatcher& m_dispatcher;
     bool m_connected;
     String m_serverPassword{};
+    String m_loginUsername{};
+    String m_loginPassword{};
     uint32_t m_localPlayerId;
 
     entt::scoped_connection m_updateConnection;

@@ -30,17 +30,24 @@ export class SkyrimtogetherMock extends EventEmitter implements SkyrimTogether {
   private localPlayerId: number;
   public readonly players$ = playerStore.pipe(selectAllEntities());
 
-  connect(host: string, port: number, password: string): void {
+  connect(
+    host: string,
+    port: number,
+    _username: string,
+    password: string,
+    serverPassword = '',
+  ): void {
     if (!this.connected) {
       let error: ErrorEvents | boolean;
+      const effectivePassword = serverPassword || password;
       switch (host) {
         case 't-port':
         case 't-host':
           error = true;
           break;
         case 't-password':
-          if (password !== 'test') {
-            error = { error: 'wrong_password' };
+          if (effectivePassword !== 'test') {
+            error = { error: 'wrong_server_password' };
           }
           break;
         case 't-version':
@@ -106,11 +113,14 @@ export class SkyrimtogetherMock extends EventEmitter implements SkyrimTogether {
   }
 
   revealPlayers(): void {
-    this.sendMessage(MessageTypes.SYSTEM_MESSAGE, "Revealing players...");
+    this.sendMessage(MessageTypes.SYSTEM_MESSAGE, 'Revealing players...');
   }
 
   setTime(hours: number, minutes: number): void {
-    this.sendMessage(MessageTypes.SYSTEM_MESSAGE, `Setting time to "${hours}:${minutes}"!`);
+    this.sendMessage(
+      MessageTypes.SYSTEM_MESSAGE,
+      `Setting time to "${hours}:${minutes}"!`,
+    );
   }
 
   sendMessage(type: MessageTypes, message: string): void {

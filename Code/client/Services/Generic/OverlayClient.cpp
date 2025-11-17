@@ -33,10 +33,7 @@ bool OverlayClient::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefR
         auto eventName = pArguments->GetString(0).ToString();
         auto eventArgs = pArguments->GetList(1);
 
-        spdlog::info(eventName);
-        spdlog::info(eventArgs->GetString(0).ToString());
-        spdlog::info(std::to_string(eventArgs->GetInt(1)));
-        spdlog::info(eventArgs->GetString(2).ToString());
+        spdlog::info("ui-event '{}' ({} args)", eventName, eventArgs->GetSize());
 
 #ifndef PUBLIC_BUILD
         LOG(INFO) << "event=ui_event name=" << eventName;
@@ -98,8 +95,20 @@ void OverlayClient::ProcessConnectMessage(CefRefPtr<CefListValue> aEventArgs)
         baseIp = "127.0.0.1";
     }
 
-    uint16_t port = aEventArgs->GetInt(1) ? aEventArgs->GetInt(1) : 10578;
-    World::Get().GetTransport().SetServerPassword(aEventArgs->GetString(2));
+    const uint16_t port = aEventArgs->GetInt(1) ? static_cast<uint16_t>(aEventArgs->GetInt(1)) : 10578;
+    std::string username;
+    std::string password;
+
+    if (aEventArgs->GetSize() >= 3)
+        username = aEventArgs->GetString(2);
+    if (aEventArgs->GetSize() >= 4)
+        password = aEventArgs->GetString(3);
+
+    if (aEventArgs->GetSize() >= 5)
+        World::Get().GetTransport().SetServerPassword(aEventArgs->GetString(4));
+    else
+        World::Get().GetTransport().SetServerPassword("");
+    World::Get().GetTransport().SetLoginCredentials(username, password);
 
     std::string endpoint = baseIp + ":" + std::to_string(port);
 

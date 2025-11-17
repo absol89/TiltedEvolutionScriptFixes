@@ -417,9 +417,17 @@ interface SkyrimTogether {
    *
    * @param host IP address or hostname.
    * @param port Port.
-   * @param password Server password.
+   * @param username Account username.
+   * @param password Account password.
+   * @param serverPassword Optional legacy server password.
    */
-  connect(host: string, port: number, password: string): void;
+  connect(
+    host: string,
+    port: number,
+    username: string,
+    password: string,
+    serverPassword?: string,
+  ): void;
 
   /**
    * Disconnect from server or cancel connection.

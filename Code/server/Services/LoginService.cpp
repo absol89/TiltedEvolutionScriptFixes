@@ -1,0 +1,228 @@
+#include <Services/LoginService.h>
+
+#include <spdlog/spdlog.h>
+#include <sqlite3.h>
+
+#include <cstdlib>
+#include <filesystem>
+#include <functional>
+#include <sstream>
+#include <array>
+
+#if defined(_WIN32)
+#    ifndef WIN32_LEAN_AND_MEAN
+#        define WIN32_LEAN_AND_MEAN
+#    endif
+#    ifndef NOMINMAX
+#        define NOMINMAX
+#    endif
+#    include <windows.h>
+#else
+#    include <unistd.h>
+#endif
+
+namespace
+{
+constexpr const char* kCreateUsersTableSql = R"SQL(
+    CREATE TABLE IF NOT EXISTS users(
+        username TEXT PRIMARY KEY,
+        password_hash TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+)SQL";
+
+std::filesystem::path ResolveExecutableDirectory() noexcept
+{
+    namespace fs = std::filesystem;
+
+#if defined(_WIN32)
+    std::array<wchar_t, MAX_PATH> buffer{};
+    const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+    if (length != 0 && length < buffer.size())
+    {
+        return fs::path(buffer.data()).parent_path();
+    }
+#else
+    std::error_code ec;
+    auto exePath = fs::canonical("/proc/self/exe", ec);
+    if (!ec)
+        return exePath.parent_path();
+#endif
+
+    std::error_code ec;
+    const auto current = fs::current_path(ec);
+    if (!ec)
+        return current;
+
+    return {};
+}
+
+std::filesystem::path ResolveDatabasePath() noexcept
+{
+    namespace fs = std::filesystem;
+
+    if (auto exeDirectory = ResolveExecutableDirectory(); !exeDirectory.empty())
+    {
+        return exeDirectory / "logins.db";
+    }
+
+#if defined(_WIN32)
+    if (const char* localAppData = std::getenv("LOCALAPPDATA"); localAppData && localAppData[0] != '\0')
+    {
+        return fs::path(localAppData) / "SkyrimTogether" / "Server" / "logins.db";
+    }
+#else
+    if (const char* xdgDataHome = std::getenv("XDG_DATA_HOME"); xdgDataHome && xdgDataHome[0] != '\0')
+    {
+        return fs::path(xdgDataHome) / "skyrimtogether" / "server" / "logins.db";
+    }
+
+    if (const char* home = std::getenv("HOME"); home && home[0] != '\0')
+    {
+        return fs::path(home) / ".local" / "share" / "skyrimtogether" / "server" / "logins.db";
+    }
+#endif
+
+    std::error_code ec;
+    const auto current = fs::current_path(ec);
+    if (!ec)
+        return current / "data" / "logins.db";
+
+    return fs::path("logins.db");
+}
+} // namespace
+
+LoginService::LoginService(World& aWorld, entt::dispatcher& aDispatcher) noexcept
+{
+    (void)aWorld;
+    (void)aDispatcher;
+
+    const auto databasePath = ResolveDatabasePath();
+    const auto dataDirectory = databasePath.parent_path();
+    std::error_code ec;
+    if (!dataDirectory.empty() && !std::filesystem::exists(dataDirectory, ec))
+    {
+        std::filesystem::create_directories(dataDirectory, ec);
+        if (ec)
+        {
+            spdlog::error("LoginService: failed to create data directory '{}': {}", dataDirectory.string(), ec.message());
+            return;
+        }
+    }
+    else if (ec)
+    {
+        spdlog::error("LoginService: failed to access data directory '{}': {}", dataDirectory.string(), ec.message());
+        return;
+    }
+
+    spdlog::info("LoginService: using login database at '{}'", databasePath.string());
+    if (sqlite3_open(databasePath.string().c_str(), &m_pDatabase) != SQLITE_OK)
+    {
+        spdlog::error("LoginService: unable to open database at '{}': {}", databasePath.string(), sqlite3_errmsg(m_pDatabase));
+        return;
+    }
+
+    if (!InitializeSchema())
+        spdlog::error("LoginService: failed to initialize sqlite schema");
+}
+
+LoginService::~LoginService() noexcept
+{
+    if (m_pDatabase)
+    {
+        sqlite3_close(m_pDatabase);
+        m_pDatabase = nullptr;
+    }
+}
+
+LoginService::LoginResult LoginService::VerifyOrCreateUser(const TiltedPhoques::String& aUsername, const TiltedPhoques::String& aPassword) noexcept
+{
+    if (!m_pDatabase)
+        return LoginResult::InternalError;
+
+    if (aUsername.empty() || aPassword.empty())
+        return LoginResult::InvalidCredentials;
+
+    const auto passwordHash = HashPassword(aPassword.c_str());
+
+    sqlite3_stmt* pStatement = nullptr;
+    constexpr const char* cLookupSql = "SELECT password_hash FROM users WHERE username = ?1;";
+    if (sqlite3_prepare_v2(m_pDatabase, cLookupSql, -1, &pStatement, nullptr) != SQLITE_OK)
+    {
+        spdlog::error("LoginService: failed to prepare lookup statement: {}", sqlite3_errmsg(m_pDatabase));
+        return LoginResult::InternalError;
+    }
+
+    sqlite3_bind_text(pStatement, 1, aUsername.c_str(), -1, SQLITE_TRANSIENT);
+
+    const int stepResult = sqlite3_step(pStatement);
+    if (stepResult == SQLITE_ROW)
+    {
+        const auto* storedHash = reinterpret_cast<const char*>(sqlite3_column_text(pStatement, 0));
+        const bool match = storedHash && passwordHash == storedHash;
+        sqlite3_finalize(pStatement);
+        return match ? LoginResult::Ok : LoginResult::InvalidCredentials;
+    }
+
+    sqlite3_finalize(pStatement);
+
+    if (stepResult != SQLITE_DONE)
+    {
+        spdlog::error("LoginService: unexpected sqlite step result {}", stepResult);
+        return LoginResult::InternalError;
+    }
+
+    return InsertUser(aUsername, passwordHash);
+}
+
+bool LoginService::InitializeSchema() noexcept
+{
+    if (!m_pDatabase)
+        return false;
+
+    char* pErrorMessage = nullptr;
+    if (sqlite3_exec(m_pDatabase, kCreateUsersTableSql, nullptr, nullptr, &pErrorMessage) != SQLITE_OK)
+    {
+        spdlog::error("LoginService: failed to create users table: {}", pErrorMessage ? pErrorMessage : "unknown error");
+        sqlite3_free(pErrorMessage);
+        return false;
+    }
+
+    return true;
+}
+
+LoginService::LoginResult LoginService::InsertUser(const TiltedPhoques::String& aUsername, const TiltedPhoques::String& aPasswordHash) noexcept
+{
+    sqlite3_stmt* pStatement = nullptr;
+    constexpr const char* cInsertSql = "INSERT INTO users(username, password_hash) VALUES(?1, ?2);";
+    if (sqlite3_prepare_v2(m_pDatabase, cInsertSql, -1, &pStatement, nullptr) != SQLITE_OK)
+    {
+        spdlog::error("LoginService: failed to prepare insert statement: {}", sqlite3_errmsg(m_pDatabase));
+        return LoginResult::InternalError;
+    }
+
+    sqlite3_bind_text(pStatement, 1, aUsername.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(pStatement, 2, aPasswordHash.c_str(), -1, SQLITE_TRANSIENT);
+
+    const int stepResult = sqlite3_step(pStatement);
+    sqlite3_finalize(pStatement);
+
+    if (stepResult != SQLITE_DONE)
+    {
+        spdlog::error("LoginService: failed to insert user '{}': {}", aUsername.c_str(), sqlite3_errmsg(m_pDatabase));
+        return LoginResult::InternalError;
+    }
+
+    spdlog::info("LoginService: registered new user '{}'", aUsername.c_str());
+    return LoginResult::Ok;
+}
+
+TiltedPhoques::String LoginService::HashPassword(std::string_view aPassword) noexcept
+{
+    const auto hashValue = std::hash<std::string_view>{}(aPassword);
+
+    std::ostringstream stream;
+    stream << std::hex << std::nouppercase << hashValue;
+
+    return stream.str().c_str();
+}

@@ -18,14 +18,6 @@
     [class.background-element]="view$ | async"
   >
     <app-window border="strip" class="app-root-menu">
-      <button
-        *ngIf="!(connected$ | async) && !(connectionInProgress$ | async)"
-        data-style-ornament="inverted"
-        [attr.data-style-active]="(view$ | async) === RootView.CONNECT"
-        (click)="setView(RootView.CONNECT)"
-      >
-        {{ 'COMPONENT.ROOT.CONNECT' | transloco }}
-      </button>
       <ng-container *ngIf="connected$ | async">
         <button
           data-style-ornament="inverted"
@@ -72,6 +64,14 @@
           </div>
         </button>
       </ng-container>
+      <button
+        *ngIf="!(connected$ | async) && !(connectionInProgress$ | async)"
+        data-style-ornament="inverted"
+        [attr.data-style-active]="(view$ | async) === RootView.CONNECT"
+        (click)="setView(RootView.CONNECT)"
+      >
+        {{ 'COMPONENT.ROOT.CONNECT' | transloco }}
+      </button>
       <button
         data-style-ornament="inverted"
         [attr.data-style-active]="(view$ | async) === RootView.SETTINGS"

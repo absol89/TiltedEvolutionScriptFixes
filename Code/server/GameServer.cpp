@@ -12,6 +12,8 @@
 #include <Events/UpdateEvent.h>
 #include <steam/isteamnetworkingutils.h>
 
+#include <Services/LoginService.h>
+
 #include <AdminMessages/AdminSessionOpen.h>
 #include <AdminMessages/ClientAdminMessageFactory.h>
 #include <Messages/AuthenticationResponse.h>
@@ -858,6 +860,20 @@ void GameServer::HandleAuthenticationRequest(const ConnectionId_t aConnectionId,
         return;
     }
 
+    const auto sanitizedUsername = SanitizeUsername(acRequest->Username);
+    auto& loginService = m_pWorld->ctx().at<LoginService>();
+    const auto loginResult = loginService.VerifyOrCreateUser(sanitizedUsername, acRequest->Password);
+
+    if (loginResult != LoginService::LoginResult::Ok)
+    {
+        spdlog::info("New player {:x} '{}' failed to authenticate for user '{}'", aConnectionId, remoteAddress, sanitizedUsername.c_str());
+        sendKick(RT::kWrongAccountPassword);
+        return;
+    }
+
+    acRequest->Username = sanitizedUsername;
+    acRequest->Password.clear();
+
     bool adminPasswordUsed = acRequest->Token == sAdminPassword.value() && !sAdminPassword.empty();
 
     // check if the proper server password was supplied.
@@ -1007,8 +1023,8 @@ void GameServer::HandleAuthenticationRequest(const ConnectionId_t aConnectionId,
     } */
     else
     {
-        spdlog::info("New player {:x} '{}' has a bad password, kicking.", aConnectionId, remoteAddress);
-        sendKick(RT::kWrongPassword);
+        spdlog::info("New player {:x} '{}' supplied an incorrect server password, kicking.", aConnectionId, remoteAddress);
+        sendKick(RT::kWrongServerPassword);
     }
 }
 

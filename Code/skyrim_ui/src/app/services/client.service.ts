@@ -5,10 +5,12 @@ import { environment } from '../../environments/environment';
 import { Debug } from '../models/debug';
 import { PartyInfo } from '../models/party-info';
 import { Player } from '../models/player';
+import { View } from '../models/view.enum';
 import { ChatService } from './chat.service';
 import { ErrorEvents, ErrorService } from './error.service';
 import { LoadingService } from './loading.service';
 import { PartyPin } from '../models/party-pin';
+import { UiRepository } from '../store/ui.repository';
 
 /** Client game service. */
 @Injectable({
@@ -113,11 +115,15 @@ export class ClientService implements OnDestroy {
 
   public localPlayerId = undefined;
 
-  private _host: string;
+  private _host = '';
 
-  private _port: number;
+  private _port = 0;
 
-  private _password: string;
+  private _username = '';
+
+  private _password = '';
+
+  private _serverPassword = '';
 
   private _remainingReconnectionAttempt = environment.nbReconnectionAttempts;
 
@@ -130,6 +136,7 @@ export class ClientService implements OnDestroy {
     private readonly loadingService: LoadingService,
     private readonly translocoService: TranslocoService,
     private readonly chatService: ChatService,
+    private readonly uiRepository: UiRepository,
   ) {
     skyrimtogether.on('init', this.onInit.bind(this));
     skyrimtogether.on('activate', this.onActivate.bind(this));
@@ -216,14 +223,28 @@ export class ClientService implements OnDestroy {
    *
    * @param host IP address or hostname.
    * @param port Port.
-   * @param password Password or admin password
+   * @param username Account username used for server-side authentication.
+   * @param password Account password used for server-side authentication.
+   * @param serverPassword Optional legacy server password/admin token.
    */
-  public connect(host: string, port: number, password = ''): void {
-    skyrimtogether.connect(host, port, password);
+  public connect(
+    host: string,
+    port: number,
+    username: string,
+    password: string,
+    serverPassword = '',
+  ): void {
+    if (serverPassword && serverPassword.length > 0) {
+      skyrimtogether.connect(host, port, username, password, serverPassword);
+    } else {
+      skyrimtogether.connect(host, port, username, password);
+    }
     this.isConnectionInProgressChange.next(true);
     this._host = host;
     this._port = port;
+    this._username = username;
     this._password = password;
+    this._serverPassword = serverPassword;
   }
 
   /**
@@ -384,7 +405,13 @@ export class ClientService implements OnDestroy {
       if (isError && this._remainingReconnectionAttempt > 0) {
         this._remainingReconnectionAttempt--;
         this.chatService.pushSystemMessage('SERVICE.CLIENT.CONNECTION_LOST');
-        this.connect(this._host, this._port, this._password);
+        this.connect(
+          this._host,
+          this._port,
+          this._username ?? '',
+          this._password ?? '',
+          this._serverPassword ?? '',
+        );
       } else {
         this.chatService.pushSystemMessage('SERVICE.CLIENT.DISCONNECTED');
       }
@@ -578,6 +605,30 @@ export class ClientService implements OnDestroy {
     this.zone.run(() => {
       const error = JSON.parse(rawError) as ErrorEvents;
       this.triggerError.next(error);
+      if (error.error === 'wrong_server_password' && this._host) {
+        this._serverPassword = '';
+        const currentView = this.uiRepository.getView();
+        const defaultReturnView =
+          currentView === View.SERVER_LIST ? View.SERVER_LIST : View.CONNECT;
+        const storedReturnView = this.uiRepository.getConnectReturnView();
+        const returnView =
+          currentView === View.CONNECT
+            ? defaultReturnView
+            : storedReturnView ?? defaultReturnView;
+        const storedName = this.uiRepository.getConnectName();
+        const connectName =
+          storedName && storedName.length > 0 ? storedName : this._host;
+        this.uiRepository.openConnectWithPasswordView(
+          this._host,
+          this._port,
+          connectName,
+          returnView,
+          this._username,
+          this._password,
+        );
+      } else if (error.error === 'wrong_account_password') {
+        this.uiRepository.openView(View.CONNECT);
+      }
       void this.errorService.setError(error);
     });
   }

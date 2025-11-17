@@ -346,6 +346,8 @@ TEST_CASE("Packets", "[encoding.packets]")
         sendMessage.UserMods.ModList.push_back({"Hi", 14});
         sendMessage.UserMods.ModList.push_back({"Test", 8});
         sendMessage.UserMods.ModList.push_back({"Toast", 49});
+        sendMessage.Username = "TestUser";
+        sendMessage.Password = "SuperSecret";
 
         Buffer::Writer writer(&buff);
         sendMessage.Serialize(writer);
@@ -486,6 +488,7 @@ TEST_CASE("Packets", "[encoding.packets]")
 
         REQUIRE(recvMessage.Updates[1].UpdatedMovement == sendMessage.Updates[1].UpdatedMovement);
     }
+
 }
 
 TEST_CASE("StringCache", "[encoding.string_cache]")

@@ -17,6 +17,7 @@
 #include <Services/ScriptService.h>
 #include <Services/MapService.h>
 #include <Services/VoteTimeService.h>
+#include <Services/LoginService.h>
 
 #include <es_loader/ESLoader.h>
 
@@ -43,6 +44,7 @@ World::World()
     ctx().emplace<WeatherService>(*this, m_dispatcher);
     ctx().emplace<MapService>(*this, m_dispatcher);
     ctx().emplace<VoteTimeService>(*this, m_dispatcher);
+    ctx().emplace<LoginService>(*this, m_dispatcher);
 
     ESLoader::ESLoader loader;
     // emplace loaded mods into modscomponent.
