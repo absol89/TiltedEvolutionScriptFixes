@@ -2,6 +2,7 @@
 
 struct World;
 struct TransportService;
+struct PlayerCharacter;
 
 struct UpdateEvent;
 struct ConnectedEvent;
@@ -57,6 +58,7 @@ private:
     void RunDifficultyUpdates() const noexcept;
     void RunLevelUpdates() const noexcept;
     void RunBeastFormDetection() const noexcept;
+    void SyncCachedEquipment(PlayerCharacter* apPlayer) noexcept;
 
     void ToggleDeathSystem(bool aSet) noexcept;
 
@@ -84,8 +86,12 @@ private:
     bool m_godmodeStart = false;
     double m_godmodeTimer = 0.0;
 
-    uint32_t m_cachedMainSpellId = 0;
-    uint32_t m_cachedSecondarySpellId = 0;
+    uint32_t m_cachedLeftHandSpellId = 0;
+    uint32_t m_cachedRightHandSpellId = 0;
+    uint32_t m_cachedLeftHandItemId = 0;
+    uint32_t m_cachedRightHandItemId = 0;
+    uint32_t m_cachedTwoHandedItemId = 0;
+    uint32_t m_cachedAmmoId = 0;
     uint32_t m_cachedPowerId = 0;
 
     entt::scoped_connection m_updateConnection;

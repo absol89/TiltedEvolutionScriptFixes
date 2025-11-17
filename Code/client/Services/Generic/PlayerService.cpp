@@ -16,6 +16,7 @@
 #include <Events/PartyJoinedEvent.h>
 #include <Events/PartyLeftEvent.h>
 #include <Events/BeastFormChangeEvent.h>
+#include <Events/EquipmentChangeEvent.h>
 
 #include <Messages/PlayerRespawnRequest.h>
 #include <Messages/NotifyPlayerRespawn.h>
@@ -35,6 +36,7 @@
 #include <Games/References.h>
 #include <AI/AIProcess.h>
 #include <EquipManager.h>
+#include <DefaultObjectManager.h>
 #include <Forms/TESRace.h>
 
 PlayerService::PlayerService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
@@ -208,9 +210,32 @@ void PlayerService::RunRespawnUpdates(const double acDeltaTime) noexcept
     PlayerCharacter* pPlayer = PlayerCharacter::Get();
     if (!pPlayer->actorState.IsBleedingOut())
     {
-        // Cache equipped spells and shouts so we can restore them after respawn.
-        m_cachedMainSpellId = pPlayer->magicItems[0] ? pPlayer->magicItems[0]->formID : 0;
-        m_cachedSecondarySpellId = pPlayer->magicItems[1] ? pPlayer->magicItems[1]->formID : 0;
+        // Cache equipped items, spells, and shouts so we can restore them after respawn.
+        m_cachedLeftHandSpellId = pPlayer->magicItems[0] ? pPlayer->magicItems[0]->formID : 0;
+        m_cachedRightHandSpellId = pPlayer->magicItems[1] ? pPlayer->magicItems[1]->formID : 0;
+
+        TESForm* pLeftEquipped = nullptr;
+        TESForm* pRightEquipped = nullptr;
+
+        if (m_cachedLeftHandSpellId == 0)
+            pLeftEquipped = pPlayer->GetEquippedWeapon(0);
+        if (m_cachedRightHandSpellId == 0)
+            pRightEquipped = pPlayer->GetEquippedWeapon(1);
+
+        m_cachedLeftHandItemId = pLeftEquipped ? pLeftEquipped->formID : 0;
+        m_cachedRightHandItemId = pRightEquipped ? pRightEquipped->formID : 0;
+
+        // Detect two-handed weapons so we can equip them via the either-hand slot.
+        if (pLeftEquipped && pRightEquipped && pLeftEquipped == pRightEquipped)
+            m_cachedTwoHandedItemId = pLeftEquipped->formID;
+        else
+            m_cachedTwoHandedItemId = 0;
+
+        if (auto* pAmmo = pPlayer->GetEquippedAmmo())
+            m_cachedAmmoId = pAmmo->formID;
+        else
+            m_cachedAmmoId = 0;
+
         m_cachedPowerId = pPlayer->equippedShout ? pPlayer->equippedShout->formID : 0;
 
         s_startTimer = false;
@@ -318,23 +343,56 @@ void PlayerService::RunRespawnUpdates(const double acDeltaTime) noexcept
         m_knockdownTimer = 1.5;
         m_knockdownStart = true;
 
+        // Restore cached equipment
+        auto* pEquipManager = EquipManager::Get();
+        auto& defaultObjects = DefaultObjectManager::Get();
+
+        if (m_cachedLeftHandSpellId)
+        {
+            if (TESForm* pSpell = TESForm::GetById(m_cachedLeftHandSpellId))
+                pEquipManager->EquipSpell(pPlayer, pSpell, 0);
+        }
+        else if (m_cachedLeftHandItemId && m_cachedTwoHandedItemId == 0)
+        {
+            if (TESForm* pItem = TESForm::GetById(m_cachedLeftHandItemId))
+                pEquipManager->Equip(pPlayer, pItem, nullptr, 1, defaultObjects.leftEquipSlot, false, true, false, false);
+        }
+
+        if (m_cachedRightHandSpellId)
+        {
+            if (TESForm* pSpell = TESForm::GetById(m_cachedRightHandSpellId))
+                pEquipManager->EquipSpell(pPlayer, pSpell, 1);
+        }
+        else if (m_cachedTwoHandedItemId)
+        {
+            if (TESForm* pItem = TESForm::GetById(m_cachedTwoHandedItemId))
+                pEquipManager->Equip(pPlayer, pItem, nullptr, 1, defaultObjects.eitherEquipSlot, false, true, false, false);
+        }
+        else if (m_cachedRightHandItemId)
+        {
+            if (TESForm* pItem = TESForm::GetById(m_cachedRightHandItemId))
+                pEquipManager->Equip(pPlayer, pItem, nullptr, 1, defaultObjects.rightEquipSlot, false, true, false, false);
+        }
+
+        if (m_cachedAmmoId)
+        {
+            if (TESForm* pAmmo = TESForm::GetById(m_cachedAmmoId))
+                pEquipManager->Equip(pPlayer, pAmmo, nullptr, 1, defaultObjects.rightEquipSlot, false, true, false, false);
+        }
+
+        if (m_cachedPowerId)
+        {
+            if (TESForm* pShout = TESForm::GetById(m_cachedPowerId))
+                pEquipManager->EquipShout(pPlayer, pShout);
+        }
+
+        SyncCachedEquipment(pPlayer);
+
         m_transport.Send(PlayerRespawnRequest());
 
         PartyMemberDownedRequest revivedRequest{};
         revivedRequest.IsDowned = false;
         m_transport.Send(revivedRequest);
-
-        // Restore spells and shouts
-        auto* pEquipManager = EquipManager::Get();
-        TESForm* pSpell = TESForm::GetById(m_cachedMainSpellId);
-        if (pSpell)
-            pEquipManager->EquipSpell(pPlayer, pSpell, 0);
-        pSpell = TESForm::GetById(m_cachedSecondarySpellId);
-        if (pSpell)
-            pEquipManager->EquipSpell(pPlayer, pSpell, 1);
-        pSpell = TESForm::GetById(m_cachedPowerId);
-        if (pSpell)
-            pEquipManager->EquipShout(pPlayer, pSpell);
 
         m_waitingForRespawn = false;
         m_canRespawn = false;
@@ -362,6 +420,53 @@ void PlayerService::RunRespawnUpdates(const double acDeltaTime) noexcept
             }
         }
     }
+}
+
+void PlayerService::SyncCachedEquipment(PlayerCharacter* apPlayer) noexcept
+{
+    if (!apPlayer)
+        return;
+
+    auto& defaultObjects = DefaultObjectManager::Get();
+
+    const auto dispatch = [&](uint32_t itemId, TESForm* pSlot, bool isSpell, bool isShout, bool isAmmo = false)
+    {
+        if (!itemId)
+            return;
+
+        if (!TESForm::GetById(itemId))
+            return;
+
+        EquipmentChangeEvent evt{};
+        evt.ActorId = apPlayer->formID;
+        evt.ItemId = itemId;
+        evt.EquipSlotId = pSlot ? pSlot->formID : 0;
+        evt.IsSpell = isSpell;
+        evt.IsShout = isShout;
+        evt.IsAmmo = isAmmo;
+        if (!isSpell && !isShout)
+            evt.Count = 1;
+
+        m_world.GetRunner().Trigger(evt);
+    };
+
+    dispatch(m_cachedLeftHandSpellId, defaultObjects.leftEquipSlot, true, false);
+    dispatch(m_cachedRightHandSpellId, defaultObjects.rightEquipSlot, true, false);
+
+    if (m_cachedTwoHandedItemId)
+    {
+        dispatch(m_cachedTwoHandedItemId, defaultObjects.eitherEquipSlot, false, false);
+    }
+    else
+    {
+        if (m_cachedLeftHandSpellId == 0)
+            dispatch(m_cachedLeftHandItemId, defaultObjects.leftEquipSlot, false, false);
+        if (m_cachedRightHandSpellId == 0)
+            dispatch(m_cachedRightHandItemId, defaultObjects.rightEquipSlot, false, false);
+    }
+
+    dispatch(m_cachedAmmoId, defaultObjects.rightEquipSlot, false, false, true);
+    dispatch(m_cachedPowerId, nullptr, false, true);
 }
 
 void PlayerService::RequestManualRespawn() noexcept
