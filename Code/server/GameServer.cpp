@@ -990,7 +990,7 @@ void GameServer::HandleAuthenticationRequest(const ConnectionId_t aConnectionId,
 
         NotifyChatMessageBroadcast joinMessage{};
         joinMessage.MessageType = ChatMessageType::kSystemMessage;
-        joinMessage.PlayerName = pPlayer->GetUsername();
+        joinMessage.PlayerName = "Server";
         joinMessage.ChatMessage = fmt::format("{} connected to the server.", pPlayer->GetUsername().c_str());
         SendToPlayers(joinMessage);
 
