@@ -11,6 +11,7 @@ import { ErrorEvents, ErrorService } from './error.service';
 import { LoadingService } from './loading.service';
 import { PartyPin } from '../models/party-pin';
 import { UiRepository } from '../store/ui.repository';
+import { OverlayBannerService } from './overlay-banner.service';
 
 /** Client game service. */
 @Injectable({
@@ -149,6 +150,7 @@ export class ClientService implements OnDestroy {
     private readonly translocoService: TranslocoService,
     private readonly chatService: ChatService,
     private readonly uiRepository: UiRepository,
+    private readonly overlayBannerService: OverlayBannerService,
   ) {
     skyrimtogether.on('init', this.onInit.bind(this));
     skyrimtogether.on('activate', this.onActivate.bind(this));
@@ -181,6 +183,7 @@ export class ClientService implements OnDestroy {
     skyrimtogether.on('dummyData', this.onDummyData.bind(this));
     skyrimtogether.on('partyInfo', this.onPartyInfo.bind(this));
     skyrimtogether.on('teleportRequest', this.onTeleportRequest.bind(this));
+    skyrimtogether.on('teleportCountdown', this.onTeleportCountdown.bind(this));
     skyrimtogether.on('partyCreated', this.onPartyCreated.bind(this));
     skyrimtogether.on('partyLeft', this.onPartyLeft.bind(this));
     skyrimtogether.on(
@@ -226,6 +229,7 @@ export class ClientService implements OnDestroy {
     skyrimtogether.off('dummyData');
     skyrimtogether.off('partyInfo');
     skyrimtogether.off('teleportRequest');
+    skyrimtogether.off('teleportCountdown');
     skyrimtogether.off('partyCreated');
     skyrimtogether.off('partyLeft');
     skyrimtogether.off('partyInviteReceived');
@@ -736,6 +740,58 @@ export class ClientService implements OnDestroy {
   private onTeleportRequest(requesterId: number, requesterName: string): void {
     this.zone.run(() => {
       this.teleportRequestChange.next({ requesterId, requesterName });
+    });
+  }
+
+  private onTeleportCountdown(
+    targetPlayerId: number,
+    targetName: string,
+    secondsRemaining: number,
+    cancelled: boolean,
+    reason: string,
+  ): void {
+    if (environment.game) {
+      console.log(
+        `%conTeleportCountdown`,
+        'background: #3f51b5; color: #fff; padding: 3px; font-size: 9px;',
+        targetPlayerId,
+        targetName,
+        secondsRemaining,
+        cancelled,
+        reason,
+      );
+    }
+
+    this.zone.run(() => {
+      if (cancelled) {
+        if (reason && reason.length > 0) {
+          this.overlayBannerService.show(
+            {
+              primary: reason,
+              tone: 'error',
+            },
+            4000,
+          );
+        } else {
+          this.overlayBannerService.hide();
+        }
+        return;
+      }
+
+      const safeSeconds = Math.max(0, secondsRemaining);
+      const primary = this.translocoService.translate(
+        'SERVICE.OVERLAY_BANNER.TELEPORT_COUNTDOWN_TITLE',
+        { name: targetName },
+      );
+      const secondary = this.translocoService.translate(
+        'SERVICE.OVERLAY_BANNER.TELEPORT_COUNTDOWN_SUBTITLE',
+        { seconds: safeSeconds },
+      );
+      this.overlayBannerService.show({
+        primary,
+        secondary,
+        tone: 'info',
+      });
     });
   }
 

@@ -22,6 +22,7 @@
 #include <Messages/NotifyPlayerLevel.h>
 #include <Messages/NotifyPlayerCellChanged.h>
 #include <Messages/NotifyTeleport.h>
+#include <Messages/NotifyTeleportCountdown.h>
 #include <Messages/NotifyTeleportRequest.h>
 #include <Messages/RequestPlayerHealthUpdate.h>
 #include <Messages/NotifyPlayerHealthUpdate.h>
@@ -124,6 +125,7 @@ OverlayService::OverlayService(World& aWorld, TransportService& transport, entt:
     m_cellChangedConnection = aDispatcher.sink<NotifyPlayerCellChanged>().connect<&OverlayService::OnPlayerCellChanged>(this);
     m_teleportRequestConnection = aDispatcher.sink<NotifyTeleportRequest>().connect<&OverlayService::OnNotifyTeleportRequest>(this);
     m_teleportConnection = aDispatcher.sink<NotifyTeleport>().connect<&OverlayService::OnNotifyTeleport>(this);
+    m_teleportCountdownConnection = aDispatcher.sink<NotifyTeleportCountdown>().connect<&OverlayService::OnNotifyTeleportCountdown>(this);
     m_playerHealthConnection = aDispatcher.sink<NotifyPlayerHealthUpdate>().connect<&OverlayService::OnNotifyPlayerHealthUpdate>(this);
     m_partyJoinedConnection = aDispatcher.sink<PartyJoinedEvent>().connect<&OverlayService::OnPartyJoinedEvent>(this);
     m_partyLeftConnection = aDispatcher.sink<PartyLeftEvent>().connect<&OverlayService::OnPartyLeftEvent>(this);
@@ -428,6 +430,20 @@ void OverlayService::OnNotifyTeleportRequest(const NotifyTeleportRequest& acMess
     pArguments->SetInt(0, acMessage.RequesterId);
     pArguments->SetString(1, acMessage.RequesterName.c_str());
     m_pOverlay->ExecuteAsync("teleportRequest", pArguments);
+}
+
+void OverlayService::OnNotifyTeleportCountdown(const NotifyTeleportCountdown& acMessage) noexcept
+{
+    if (!m_pOverlay)
+        return;
+
+    auto pArguments = CefListValue::Create();
+    pArguments->SetInt(0, acMessage.TargetPlayerId);
+    pArguments->SetString(1, acMessage.TargetName.c_str());
+    pArguments->SetInt(2, acMessage.DurationSeconds);
+    pArguments->SetBool(3, acMessage.Cancelled);
+    pArguments->SetString(4, acMessage.Reason.c_str());
+    m_pOverlay->ExecuteAsync("teleportCountdown", pArguments);
 }
 
 void OverlayService::OnNotifyTeleport(const NotifyTeleport& acMessage) noexcept

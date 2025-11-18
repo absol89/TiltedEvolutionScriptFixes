@@ -33,6 +33,7 @@ import { SettingsComponent } from './components/settings/settings.component';
 import { ToggleComponent } from './components/toggle/toggle.component';
 import { WindowComponent } from './components/window/window.component';
 import { PartyPinsComponent } from './components/party-pins/party-pins.component';
+import { OverlayBannerComponent } from './components/overlay-banner/overlay-banner.component';
 import { HealthDirective } from './directives/health.directive';
 import { RadioDirective } from './directives/radio.directive';
 import { SliderDirective } from './directives/slider.directive';
@@ -76,6 +77,7 @@ import { TranslocoRootModule } from './transloco-root.module';
     ToggleComponent,
     WindowComponent,
     PartyPinsComponent,
+    OverlayBannerComponent,
 
     CheckboxDirective,
     HealthDirective,

@@ -175,6 +175,10 @@
     "PLAYER_LIST": {
       "PARTY_INVITE": "{{from}} vous a invité à jouer.",
       "TELEPORT_REQUEST": "{{from}} souhaite se téléporter jusqu'à vous."
+    },
+    "OVERLAY_BANNER": {
+      "TELEPORT_COUNTDOWN_TITLE": "Téléportation vers {{name}}",
+      "TELEPORT_COUNTDOWN_SUBTITLE": "Téléportation dans {{seconds}} s"
     }
   }
 }

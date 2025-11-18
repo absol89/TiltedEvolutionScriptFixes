@@ -11,11 +11,13 @@
 #include <Messages/TeleportRequest.h>
 #include <Messages/NotifyTeleport.h>
 #include <Messages/NotifyTeleportRequest.h>
+#include <Messages/NotifyTeleportCountdown.h>
 #include <Messages/TeleportResponse.h>
 #include <fmt/format.h>
 #include <algorithm>
 #include <cctype>
 
+#include <Events/UpdateEvent.h>
 
 #include <Messages/RequestPlayerHealthUpdate.h>
 #include <Messages/NotifyPlayerHealthUpdate.h>
@@ -27,6 +29,8 @@
 #include <regex>
 #include <string_view>
 
+#include <glm/gtx/norm.hpp>
+#include <cmath>
 
 namespace
 {
@@ -78,6 +82,8 @@ bool PopulateTeleportDestination(World& aWorld, Player* apTarget, NotifyTeleport
     aOutMessage.WorldSpaceId = cellComponent.WorldSpaceId;
     return true;
 }
+
+constexpr float kTeleportMovementCancelDistanceSquared = 9.f; // 3 units squared
 } // namespace
 
 
@@ -90,6 +96,7 @@ OverlayService::OverlayService(World& aWorld, entt::dispatcher& aDispatcher)
     m_teleportResponseConnection = aDispatcher.sink<PacketEvent<TeleportResponse>>().connect<&OverlayService::OnTeleportResponse>(this);
     m_playerHealthConnection = aDispatcher.sink<PacketEvent<RequestPlayerHealthUpdate>>().connect<&OverlayService::OnPlayerHealthUpdate>(this);
     m_playerLeaveConnection = aDispatcher.sink<PlayerLeaveEvent>().connect<&OverlayService::OnPlayerLeave>(this);
+    m_updateConnection = aDispatcher.sink<UpdateEvent>().connect<&OverlayService::OnUpdate>(this);
 }
 
 void sendPlayerMessage(const ChatMessageType acType, const String acContent, Player* aSendingPlayer) noexcept
@@ -171,8 +178,8 @@ void OverlayService::OnTeleport(const PacketEvent<TeleportRequest>& acMessage) n
 
     NotifyTeleportRequest notify{};
     notify.RequesterId = static_cast<uint16_t>(pRequester->GetId());
-   notify.RequesterName = pRequester->GetUsername();
-   pTargetPlayer->Send(notify);
+    notify.RequesterName = pRequester->GetUsername();
+    pTargetPlayer->Send(notify);
 
     SendSystemMessage(pTargetPlayer, fmt::format("{} wants to teleport to you.", pRequester->GetUsername().c_str()));
     SendSystemMessage(pRequester, fmt::format("Teleport request sent to {}.", pTargetPlayer->GetUsername().c_str()));
@@ -218,17 +225,130 @@ void OverlayService::OnTeleportResponse(const PacketEvent<TeleportResponse>& acM
         return;
     }
 
-    NotifyTeleport response{};
-    if (!PopulateTeleportDestination(m_world, pResponder, response))
+    NotifyTeleport teleportMessage{};
+    if (!PopulateTeleportDestination(m_world, pResponder, teleportMessage))
     {
         SendSystemMessage(pResponder, "Unable to locate your position for teleport.");
         SendSystemMessage(pRequester, "Teleport request failed.");
         return;
     }
 
-    pRequester->Send(response);
-    SendSystemMessage(pRequester, fmt::format("{} accepted your teleport request.", pResponder->GetUsername().c_str()));
-    SendSystemMessage(pResponder, fmt::format("You accepted {}'s teleport request.", pRequester->GetUsername().c_str()));
+    OverlayService::PendingTeleportCountdown pending{};
+    pending.RequesterId = requesterId;
+    pending.ResponderId = responderId;
+    pending.TeleportMessage = teleportMessage;
+    pending.TimeRemaining = 5.f;
+    pending.TargetName = pResponder->GetUsername();
+    pending.LastAnnouncedSeconds = 5;
+
+    if (const auto character = pRequester->GetCharacter())
+    {
+        if (const auto* pMovement = m_world.try_get<MovementComponent>(*character))
+        {
+            pending.InitialPosition = pMovement->Position;
+            pending.HasInitialPosition = true;
+        }
+    }
+
+    m_activeTeleportCountdowns[pending.RequesterId] = pending;
+
+    NotifyTeleportCountdown countdown{};
+    countdown.TargetPlayerId = static_cast<uint16_t>(responderId);
+    countdown.TargetName = pending.TargetName;
+    countdown.DurationSeconds = 5;
+    countdown.Cancelled = false;
+    pRequester->Send(countdown);
+
+    SendSystemMessage(pRequester, fmt::format("{} accepted your teleport request. Teleporting in {} seconds. Do not move!", pending.TargetName.c_str(), countdown.DurationSeconds));
+    SendSystemMessage(pResponder, fmt::format("You accepted {}'s teleport request. Teleporting them in {} seconds.", pRequester->GetUsername().c_str(), countdown.DurationSeconds));
+}
+
+void OverlayService::OnUpdate(const UpdateEvent& acEvent) noexcept
+{
+    if (m_activeTeleportCountdowns.empty())
+        return;
+
+    for (auto it = m_activeTeleportCountdowns.begin(); it != m_activeTeleportCountdowns.end();)
+    {
+        auto& pending = it->second;
+
+        Player* pRequester = m_world.GetPlayerManager().GetById(pending.RequesterId);
+        if (!pRequester)
+        {
+            it = m_activeTeleportCountdowns.erase(it);
+            continue;
+        }
+
+        Player* pResponder = m_world.GetPlayerManager().GetById(pending.ResponderId);
+        bool cancelTeleport = pResponder == nullptr;
+
+        if (!cancelTeleport && pending.HasInitialPosition)
+        {
+            if (const auto character = pRequester->GetCharacter())
+            {
+                if (const auto* pMovement = m_world.try_get<MovementComponent>(*character))
+                {
+                    const float distanceSquared = glm::distance2(pMovement->Position, pending.InitialPosition);
+                    if (distanceSquared > kTeleportMovementCancelDistanceSquared)
+                        cancelTeleport = true;
+                }
+            }
+        }
+
+        if (cancelTeleport)
+        {
+            NotifyTeleportCountdown cancelMessage{};
+            cancelMessage.TargetPlayerId = static_cast<uint16_t>(pending.ResponderId);
+            cancelMessage.TargetName = pending.TargetName;
+            cancelMessage.DurationSeconds = 0;
+            cancelMessage.Cancelled = true;
+            cancelMessage.Reason = pResponder ? "Teleport cancelled: you moved." : "Teleport cancelled: target player disconnected.";
+            pRequester->Send(cancelMessage);
+
+            SendSystemMessage(pRequester, cancelMessage.Reason.c_str());
+            if (pResponder)
+                SendSystemMessage(pResponder, fmt::format("{} moved. Teleport cancelled.", pRequester->GetUsername().c_str()));
+
+            it = m_activeTeleportCountdowns.erase(it);
+            continue;
+        }
+
+        pending.TimeRemaining -= acEvent.Delta;
+        if (pending.TimeRemaining <= 0.f)
+        {
+            pRequester->Send(pending.TeleportMessage);
+
+            NotifyTeleportCountdown clearMessage{};
+            clearMessage.TargetPlayerId = static_cast<uint16_t>(pending.ResponderId);
+            clearMessage.TargetName = pending.TargetName;
+            clearMessage.DurationSeconds = 0;
+            clearMessage.Cancelled = true;
+            clearMessage.Reason = "";
+            pRequester->Send(clearMessage);
+
+            SendSystemMessage(pRequester, fmt::format("Teleporting to {}.", pending.TargetName.c_str()));
+            if (pResponder)
+                SendSystemMessage(pResponder, fmt::format("{} is teleporting to you.", pRequester->GetUsername().c_str()));
+
+            it = m_activeTeleportCountdowns.erase(it);
+            continue;
+        }
+
+        const auto secondsRemaining = static_cast<uint16_t>(std::ceil(pending.TimeRemaining));
+        if (secondsRemaining != pending.LastAnnouncedSeconds && secondsRemaining > 0)
+        {
+            NotifyTeleportCountdown update{};
+            update.TargetPlayerId = static_cast<uint16_t>(pending.ResponderId);
+            update.TargetName = pending.TargetName;
+            update.DurationSeconds = secondsRemaining;
+            update.Cancelled = false;
+            update.Reason = "";
+            pRequester->Send(update);
+            pending.LastAnnouncedSeconds = secondsRemaining;
+        }
+
+        ++it;
+    }
 }
 
 void OverlayService::OnPlayerHealthUpdate(const PacketEvent<RequestPlayerHealthUpdate>& acMessage) const noexcept
@@ -255,5 +375,41 @@ void OverlayService::OnPlayerLeave(const PlayerLeaveEvent& acEvent) noexcept
             it = m_pendingTeleportRequests.erase(it);
         else
             ++it;
+    }
+
+    for (auto it = m_activeTeleportCountdowns.begin(); it != m_activeTeleportCountdowns.end();)
+    {
+        const auto& pending = it->second;
+        const bool involvesPlayer = pending.RequesterId == playerId || pending.ResponderId == playerId;
+        if (!involvesPlayer)
+        {
+            ++it;
+            continue;
+        }
+
+        const bool requesterLeft = pending.RequesterId == playerId;
+        const bool responderLeft = pending.ResponderId == playerId;
+
+        if (!requesterLeft)
+        {
+            if (Player* pRequester = m_world.GetPlayerManager().GetById(pending.RequesterId))
+            {
+                NotifyTeleportCountdown cancelMessage{};
+                cancelMessage.TargetPlayerId = static_cast<uint16_t>(pending.ResponderId);
+                cancelMessage.TargetName = pending.TargetName;
+                cancelMessage.DurationSeconds = 0;
+                cancelMessage.Cancelled = true;
+                cancelMessage.Reason = responderLeft ? "Teleport cancelled: target player disconnected." : "Teleport cancelled.";
+                pRequester->Send(cancelMessage);
+
+                SendSystemMessage(pRequester, cancelMessage.Reason.c_str());
+            }
+        }
+        else if (Player* pResponder = m_world.GetPlayerManager().GetById(pending.ResponderId))
+        {
+            SendSystemMessage(pResponder, fmt::format("{} disconnected. Teleport request cancelled.", acEvent.pPlayer->GetUsername().c_str()));
+        }
+
+        it = m_activeTeleportCountdowns.erase(it);
     }
 }

@@ -113,6 +113,7 @@ enum ServerOpcode : unsigned char
     kNotifyPlayerLevel,
     kNotifyPlayerCellChanged,
     kNotifyTeleportRequest,
+    kNotifyTeleportCountdown,
     kNotifyTeleport,
     kNotifyPlayerHealthUpdate,
     kNotifySettingsChange,

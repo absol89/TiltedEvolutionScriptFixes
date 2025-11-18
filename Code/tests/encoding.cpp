@@ -17,6 +17,7 @@
 #include <Messages/ServerMessageFactory.h>
 #include <Messages/TeleportResponse.h>
 #include <Messages/NotifyTeleportRequest.h>
+#include <Messages/NotifyTeleportCountdown.h>
 #include <CredentialHash.h>
 #include <Structs/Vector2_NetQuantize.h>
 
@@ -417,6 +418,30 @@ TEST_CASE("Packets", "[encoding.packets]")
         NotifyTeleportRequest sendMessage, recvMessage;
         sendMessage.RequesterId = 91;
         sendMessage.RequesterName = "RequesterName";
+
+        Buffer::Writer writer(&buff);
+        sendMessage.Serialize(writer);
+
+        Buffer::Reader reader(&buff);
+
+        uint64_t opcode;
+        reader.ReadBits(opcode, 8);
+
+        recvMessage.DeserializeRaw(reader);
+
+        REQUIRE(sendMessage == recvMessage);
+    }
+
+    SECTION("NotifyTeleportCountdown")
+    {
+        Buffer buff(128);
+
+        NotifyTeleportCountdown sendMessage, recvMessage;
+        sendMessage.TargetPlayerId = 77;
+        sendMessage.TargetName = "Target";
+        sendMessage.DurationSeconds = 5;
+        sendMessage.Cancelled = true;
+        sendMessage.Reason = "Movement detected";
 
         Buffer::Writer writer(&buff);
         sendMessage.Serialize(writer);

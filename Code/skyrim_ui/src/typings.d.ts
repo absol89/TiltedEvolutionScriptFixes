@@ -115,6 +115,15 @@ declare namespace SkyrimTogetherTypes {
     requesterId: number,
     requesterName: string,
   ) => void;
+
+  /** Teleport countdown update */
+  type TeleportCountdownCallback = (
+    targetPlayerId: number,
+    targetName: string,
+    secondsRemaining: number,
+    cancelled: boolean,
+    reason: string,
+  ) => void;
 }
 
 /** Global Skyrim: Together object. */
@@ -243,6 +252,11 @@ interface SkyrimTogether {
   on(
     event: 'teleportRequest',
     callback: SkyrimTogetherTypes.TeleportRequestCallback,
+  ): void;
+
+  on(
+    event: 'teleportCountdown',
+    callback: SkyrimTogetherTypes.TeleportCountdownCallback,
   ): void;
 
   /** Add listener to when the death screen is shown. */
@@ -402,6 +416,11 @@ interface SkyrimTogether {
   off(
     event: 'teleportRequest',
     callback?: SkyrimTogetherTypes.TeleportRequestCallback,
+  ): void;
+
+  off(
+    event: 'teleportCountdown',
+    callback?: SkyrimTogetherTypes.TeleportCountdownCallback,
   ): void;
 
   /** Remove listener from when the death screen is shown. */

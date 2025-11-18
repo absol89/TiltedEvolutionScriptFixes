@@ -157,12 +157,21 @@ export class SkyrimtogetherMock extends EventEmitter implements SkyrimTogether {
     }
 
     this.pendingTeleportRequests.delete(requesterId);
+    const player = playerStore.query(getEntity(requesterId));
+    const name = player ? player.name : `Player ${requesterId}`;
     this.sendMessage(
       MessageTypes.SYSTEM_MESSAGE,
       accepted
         ? `Accepted teleport request from player ${requesterId}.`
         : `Declined teleport request from player ${requesterId}.`,
     );
+
+    if (accepted) {
+      this.emit('teleportCountdown', requesterId, name, 5, false, '');
+      setTimeout(() => {
+        this.emit('teleportCountdown', requesterId, name, 0, true, '');
+      }, 1000);
+    }
   }
 
   setMockTeleportRequest(requesterId: number, requesterName: string): void {
@@ -172,6 +181,27 @@ export class SkyrimtogetherMock extends EventEmitter implements SkyrimTogether {
 
     this.pendingTeleportRequests.add(requesterId);
     this.emit('teleportRequest', requesterId, requesterName);
+  }
+
+  setMockTeleportCountdown(
+    targetPlayerId: number,
+    targetName: string,
+    secondsRemaining: number,
+    cancelled = false,
+    reason = '',
+  ): void {
+    if (!this.connected) {
+      return;
+    }
+
+    this.emit(
+      'teleportCountdown',
+      targetPlayerId,
+      targetName,
+      secondsRemaining,
+      cancelled,
+      reason,
+    );
   }
 
   launchParty(): void {
