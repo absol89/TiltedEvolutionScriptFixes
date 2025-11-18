@@ -15,6 +15,7 @@
 
 #include <Messages/ClientMessageFactory.h>
 #include <Messages/ServerMessageFactory.h>
+#include <CredentialHash.h>
 #include <Structs/Vector2_NetQuantize.h>
 
 #include <TiltedCore/Math.hpp>
@@ -347,7 +348,7 @@ TEST_CASE("Packets", "[encoding.packets]")
         sendMessage.UserMods.ModList.push_back({"Test", 8});
         sendMessage.UserMods.ModList.push_back({"Toast", 49});
         sendMessage.Username = "TestUser";
-        sendMessage.Password = "SuperSecret";
+        sendMessage.Password = Credential::HashPassword("SuperSecret");
 
         Buffer::Writer writer(&buff);
         sendMessage.Serialize(writer);

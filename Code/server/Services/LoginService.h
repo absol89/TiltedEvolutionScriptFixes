@@ -31,7 +31,6 @@ public:
 private:
     [[nodiscard]] bool InitializeSchema() noexcept;
     [[nodiscard]] LoginResult InsertUser(const TiltedPhoques::String& aUsername, const TiltedPhoques::String& aPasswordHash) noexcept;
-    [[nodiscard]] static TiltedPhoques::String HashPassword(std::string_view aPassword) noexcept;
 
 private:
     sqlite3* m_pDatabase{nullptr};

@@ -20,6 +20,7 @@
 #include <Messages/AuthenticationRequest.h>
 #include <Messages/ServerMessageFactory.h>
 #include <Messages/NotifySettingsChange.h>
+#include <CredentialHash.h>
 #include <Packet.hpp>
 
 #include <ScriptExtender.h>
@@ -91,6 +92,15 @@ bool TransportService::Send(const ClientMessage& acMessage) const noexcept
     }
 
     return false;
+}
+
+void TransportService::SetLoginCredentials(const std::string& acUsername, const std::string& acPassword) noexcept
+{
+    m_loginUsername = acUsername;
+    if (Credential::LooksLikePasswordHash(acPassword))
+        m_loginPassword = acPassword;
+    else
+        m_loginPassword = Credential::HashPassword(acPassword);
 }
 
 void TransportService::OnConsume(const void* apData, uint32_t aSize)

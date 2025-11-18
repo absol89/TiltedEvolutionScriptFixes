@@ -23,6 +23,7 @@
 #include <Messages/NotifySettingsChange.h>
 #include <Messages/NotifyChatMessageBroadcast.h>
 #include <ChatMessageTypes.h>
+#include <fmt/format.h>
 #include <console/ConsoleRegistry.h>
 #include <resources/ResourceCollection.h>
 #include <fmt/format.h>

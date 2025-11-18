@@ -3,11 +3,12 @@
 #include <spdlog/spdlog.h>
 #include <sqlite3.h>
 
+#include <CredentialHash.h>
+
+#include <array>
 #include <cstdlib>
 #include <filesystem>
-#include <functional>
-#include <sstream>
-#include <array>
+#include <string_view>
 
 #if defined(_WIN32)
 #    ifndef WIN32_LEAN_AND_MEAN
@@ -27,6 +28,7 @@ constexpr const char* kCreateUsersTableSql = R"SQL(
     CREATE TABLE IF NOT EXISTS users(
         username TEXT PRIMARY KEY,
         password_hash TEXT NOT NULL,
+        password_salt TEXT NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 )SQL";
@@ -143,10 +145,14 @@ LoginService::LoginResult LoginService::VerifyOrCreateUser(const TiltedPhoques::
     if (aUsername.empty() || aPassword.empty())
         return LoginResult::InvalidCredentials;
 
-    const auto passwordHash = HashPassword(aPassword.c_str());
+    if (!Credential::LooksLikePasswordHash(aPassword.c_str()))
+    {
+        spdlog::error("LoginService: rejecting authentication for '{}' due to unhashed password payload", aUsername.c_str());
+        return LoginResult::InvalidCredentials;
+    }
 
     sqlite3_stmt* pStatement = nullptr;
-    constexpr const char* cLookupSql = "SELECT password_hash FROM users WHERE username = ?1;";
+    constexpr const char* cLookupSql = "SELECT password_hash, password_salt FROM users WHERE username = ?1;";
     if (sqlite3_prepare_v2(m_pDatabase, cLookupSql, -1, &pStatement, nullptr) != SQLITE_OK)
     {
         spdlog::error("LoginService: failed to prepare lookup statement: {}", sqlite3_errmsg(m_pDatabase));
@@ -159,7 +165,13 @@ LoginService::LoginResult LoginService::VerifyOrCreateUser(const TiltedPhoques::
     if (stepResult == SQLITE_ROW)
     {
         const auto* storedHash = reinterpret_cast<const char*>(sqlite3_column_text(pStatement, 0));
-        const bool match = storedHash && passwordHash == storedHash;
+        const auto* storedSalt = reinterpret_cast<const char*>(sqlite3_column_text(pStatement, 1));
+        bool match = false;
+        if (storedHash && storedSalt)
+        {
+            auto derived = Credential::DeriveServerPassword(aPassword.c_str(), storedSalt);
+            match = derived == storedHash;
+        }
         sqlite3_finalize(pStatement);
         return match ? LoginResult::Ok : LoginResult::InvalidCredentials;
     }
@@ -172,7 +184,7 @@ LoginService::LoginResult LoginService::VerifyOrCreateUser(const TiltedPhoques::
         return LoginResult::InternalError;
     }
 
-    return InsertUser(aUsername, passwordHash);
+    return InsertUser(aUsername, aPassword);
 }
 
 bool LoginService::InitializeSchema() noexcept
@@ -188,21 +200,37 @@ bool LoginService::InitializeSchema() noexcept
         return false;
     }
 
+    pErrorMessage = nullptr;
+    if (sqlite3_exec(m_pDatabase, "ALTER TABLE users ADD COLUMN password_salt TEXT;", nullptr, nullptr, &pErrorMessage) != SQLITE_OK)
+    {
+        if (pErrorMessage)
+        {
+            std::string_view message(pErrorMessage);
+            if (message.find("duplicate column name") == std::string_view::npos)
+                spdlog::error("LoginService: failed to ensure password_salt column: {}", message);
+            sqlite3_free(pErrorMessage);
+        }
+    }
+
     return true;
 }
 
 LoginService::LoginResult LoginService::InsertUser(const TiltedPhoques::String& aUsername, const TiltedPhoques::String& aPasswordHash) noexcept
 {
     sqlite3_stmt* pStatement = nullptr;
-    constexpr const char* cInsertSql = "INSERT INTO users(username, password_hash) VALUES(?1, ?2);";
+    constexpr const char* cInsertSql = "INSERT INTO users(username, password_hash, password_salt) VALUES(?1, ?2, ?3);";
     if (sqlite3_prepare_v2(m_pDatabase, cInsertSql, -1, &pStatement, nullptr) != SQLITE_OK)
     {
         spdlog::error("LoginService: failed to prepare insert statement: {}", sqlite3_errmsg(m_pDatabase));
         return LoginResult::InternalError;
     }
 
+    const auto salt = Credential::GenerateSalt();
+    const auto storedHash = Credential::DeriveServerPassword(aPasswordHash.c_str(), salt.c_str());
+
     sqlite3_bind_text(pStatement, 1, aUsername.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(pStatement, 2, aPasswordHash.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(pStatement, 2, storedHash.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(pStatement, 3, salt.c_str(), -1, SQLITE_TRANSIENT);
 
     const int stepResult = sqlite3_step(pStatement);
     sqlite3_finalize(pStatement);
@@ -215,14 +243,4 @@ LoginService::LoginResult LoginService::InsertUser(const TiltedPhoques::String& 
 
     spdlog::info("LoginService: registered new user '{}'", aUsername.c_str());
     return LoginResult::Ok;
-}
-
-TiltedPhoques::String LoginService::HashPassword(std::string_view aPassword) noexcept
-{
-    const auto hashValue = std::hash<std::string_view>{}(aPassword);
-
-    std::ostringstream stream;
-    stream << std::hex << std::nouppercase << hashValue;
-
-    return stream.str().c_str();
 }
