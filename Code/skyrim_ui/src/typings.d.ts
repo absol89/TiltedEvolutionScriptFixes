@@ -62,6 +62,12 @@ declare namespace SkyrimTogetherTypes {
     username: string,
     level: number,
     cellName: string,
+    avatar: string,
+  ) => void;
+
+  type PlayerAvatarUpdatedCallback = (
+    playerId: number,
+    avatar: string,
   ) => void;
 
   type PlayerDisconnectedCallback = (
@@ -200,6 +206,11 @@ interface SkyrimTogether {
   on(
     event: 'playerDisconnected',
     callback: SkyrimTogetherTypes.PlayerDisconnectedCallback,
+  ): void;
+
+  on(
+    event: 'playerAvatarUpdated',
+    callback: SkyrimTogetherTypes.PlayerAvatarUpdatedCallback,
   ): void;
 
   on(event: 'setHealth', callback: SkyrimTogetherTypes.SetHealthCallback): void;
@@ -349,6 +360,11 @@ interface SkyrimTogether {
   off(
     event: 'playerDisconnected',
     callback?: SkyrimTogetherTypes.PlayerDisconnectedCallback,
+  ): void;
+
+  off(
+    event: 'playerAvatarUpdated',
+    callback?: SkyrimTogetherTypes.PlayerAvatarUpdatedCallback,
   ): void;
 
   off(
@@ -546,6 +562,13 @@ interface SkyrimTogether {
    * @param playerId Id of the new leader.
    */
   changePartyLeader(playerId: number): void;
+
+  /**
+   * Upload or clear the local profile picture shown to party members.
+   *
+   * @param imageData Data URL (e.g. "data:image/png;base64,...") or empty string to clear.
+   */
+  setProfilePicture(imageData: string): void;
 
   /**
    * Called when the player clicks the respawn button on the death screen.

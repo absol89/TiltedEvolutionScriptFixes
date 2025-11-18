@@ -29,6 +29,7 @@ constexpr const char* kCreateUsersTableSql = R"SQL(
         username TEXT PRIMARY KEY,
         password_hash TEXT NOT NULL,
         password_salt TEXT NOT NULL,
+        avatar TEXT DEFAULT '',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 )SQL";
@@ -187,6 +188,60 @@ LoginService::LoginResult LoginService::VerifyOrCreateUser(const TiltedPhoques::
     return InsertUser(aUsername, aPassword);
 }
 
+TiltedPhoques::String LoginService::GetAvatar(const TiltedPhoques::String& aUsername) const noexcept
+{
+    TiltedPhoques::String avatar;
+    if (!m_pDatabase || aUsername.empty())
+        return avatar;
+
+    sqlite3_stmt* pStatement = nullptr;
+    constexpr const char* cSelectSql = "SELECT avatar FROM users WHERE username = ?1;";
+    if (sqlite3_prepare_v2(m_pDatabase, cSelectSql, -1, &pStatement, nullptr) != SQLITE_OK)
+    {
+        spdlog::error("LoginService: failed to prepare avatar lookup for '{}': {}", aUsername.c_str(), sqlite3_errmsg(m_pDatabase));
+        return avatar;
+    }
+
+    sqlite3_bind_text(pStatement, 1, aUsername.c_str(), -1, SQLITE_TRANSIENT);
+
+    const int stepResult = sqlite3_step(pStatement);
+    if (stepResult == SQLITE_ROW)
+    {
+        if (const auto* pText = reinterpret_cast<const char*>(sqlite3_column_text(pStatement, 0)))
+            avatar = pText;
+    }
+    else if (stepResult != SQLITE_DONE)
+    {
+        spdlog::error("LoginService: avatar lookup for '{}' failed with sqlite code {}", aUsername.c_str(), stepResult);
+    }
+
+    sqlite3_finalize(pStatement);
+    return avatar;
+}
+
+void LoginService::SetAvatar(const TiltedPhoques::String& aUsername, const TiltedPhoques::String& aAvatar) noexcept
+{
+    if (!m_pDatabase || aUsername.empty())
+        return;
+
+    sqlite3_stmt* pStatement = nullptr;
+    constexpr const char* cUpdateSql = "UPDATE users SET avatar = ?2 WHERE username = ?1;";
+    if (sqlite3_prepare_v2(m_pDatabase, cUpdateSql, -1, &pStatement, nullptr) != SQLITE_OK)
+    {
+        spdlog::error("LoginService: failed to prepare avatar update for '{}': {}", aUsername.c_str(), sqlite3_errmsg(m_pDatabase));
+        return;
+    }
+
+    sqlite3_bind_text(pStatement, 1, aUsername.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(pStatement, 2, aAvatar.c_str(), -1, SQLITE_TRANSIENT);
+
+    const int stepResult = sqlite3_step(pStatement);
+    if (stepResult != SQLITE_DONE)
+        spdlog::error("LoginService: failed to update avatar for '{}': {}", aUsername.c_str(), sqlite3_errmsg(m_pDatabase));
+
+    sqlite3_finalize(pStatement);
+}
+
 bool LoginService::InitializeSchema() noexcept
 {
     if (!m_pDatabase)
@@ -208,6 +263,18 @@ bool LoginService::InitializeSchema() noexcept
             std::string_view message(pErrorMessage);
             if (message.find("duplicate column name") == std::string_view::npos)
                 spdlog::error("LoginService: failed to ensure password_salt column: {}", message);
+            sqlite3_free(pErrorMessage);
+        }
+    }
+
+    pErrorMessage = nullptr;
+    if (sqlite3_exec(m_pDatabase, "ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT '';", nullptr, nullptr, &pErrorMessage) != SQLITE_OK)
+    {
+        if (pErrorMessage)
+        {
+            std::string_view message(pErrorMessage);
+            if (message.find("duplicate column name") == std::string_view::npos)
+                spdlog::error("LoginService: failed to ensure avatar column: {}", message);
             sqlite3_free(pErrorMessage);
         }
     }

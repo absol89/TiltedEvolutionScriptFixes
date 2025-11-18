@@ -24,6 +24,9 @@ export class PlayerListService implements OnDestroy {
   private partyInviteReceivedSubscription: Subscription;
   private teleportRequestSubscription: Subscription;
   private teleportRequestHandledSubscription: Subscription;
+  private avatarSubscription: Subscription;
+  private nameSubscription: Subscription;
+  private localPlayerSubscription: Subscription;
 
   private isConnect = false;
 
@@ -42,6 +45,8 @@ export class PlayerListService implements OnDestroy {
     this.onPartyInviteReceived();
     this.onTeleportRequest();
     this.onTeleportRequestHandled();
+    this.onAvatarChange();
+    this.onLocalPlayerMetadata();
   }
 
   ngOnDestroy() {
@@ -53,6 +58,9 @@ export class PlayerListService implements OnDestroy {
     this.partyInviteReceivedSubscription.unsubscribe();
     this.teleportRequestSubscription.unsubscribe();
     this.teleportRequestHandledSubscription.unsubscribe();
+    this.avatarSubscription.unsubscribe();
+    this.nameSubscription.unsubscribe();
+    this.localPlayerSubscription.unsubscribe();
   }
 
   private onDebug() {
@@ -71,6 +79,9 @@ export class PlayerListService implements OnDestroy {
         this.playerList.next(undefined);
 
         this.updatePlayerList();
+        if (connect) {
+          this.ensureLocalPlayerEntry();
+        }
       });
   }
 
@@ -80,8 +91,19 @@ export class PlayerListService implements OnDestroy {
         const playerList = this.getPlayerList();
 
         if (playerList) {
-          playerList.players.push(player);
-
+          const existing = playerList.players.find(
+            entry => entry.id === player.id,
+          );
+          if (existing) {
+            existing.name = player.name;
+            existing.level = player.level;
+            existing.cellName = player.cellName;
+            existing.connected = player.connected;
+            existing.online = player.online;
+            existing.avatar = player.avatar;
+          } else {
+            playerList.players.push(player);
+          }
           this.playerList.next(playerList);
         }
       });
@@ -203,6 +225,74 @@ export class PlayerListService implements OnDestroy {
           }
         },
       );
+  }
+
+  private onAvatarChange() {
+    this.avatarSubscription = this.clientService.avatarChange.subscribe(
+      (player: Player) => {
+        const playerList = this.playerList.getValue();
+        if (!playerList) {
+          return;
+        }
+
+        const existing = playerList.players.find(
+          entry => entry.id === player.id,
+        );
+
+        if (!existing) {
+          return;
+        }
+
+        existing.avatar = player.avatar;
+        this.playerList.next(playerList);
+      },
+    );
+  }
+
+  private onLocalPlayerMetadata() {
+    this.nameSubscription = this.clientService.nameChange.subscribe(() => {
+      this.ensureLocalPlayerEntry();
+    });
+
+    this.localPlayerSubscription = this.clientService.localPlayerIdChange.subscribe(
+      () => {
+        this.ensureLocalPlayerEntry();
+      },
+    );
+  }
+
+  private ensureLocalPlayerEntry() {
+    const localId = this.clientService.localPlayerId;
+    if (localId === undefined || localId === null) {
+      return;
+    }
+
+    const playerList = this.playerList.getValue() ?? this.getPlayerList();
+    if (!playerList) {
+      return;
+    }
+
+    const displayName = this.clientService.nameChange.getValue();
+    let existing = playerList.players.find(player => player.id === localId);
+
+    if (!existing) {
+      existing = new Player({
+        id: localId,
+        name: displayName && displayName.length > 0 ? displayName : 'You',
+        connected: true,
+        online: true,
+        cellName: '',
+        isLoaded: true,
+      });
+      playerList.players.push(existing);
+    } else if (displayName && displayName.length > 0) {
+      existing.name = displayName;
+    }
+
+    existing.connected = true;
+    existing.online = true;
+
+    this.playerList.next(playerList);
   }
 
   public getLocalPlayer(): Player {

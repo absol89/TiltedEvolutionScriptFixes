@@ -27,6 +27,8 @@ public:
     TP_NOCOPYMOVE(LoginService);
 
     [[nodiscard]] LoginResult VerifyOrCreateUser(const TiltedPhoques::String& aUsername, const TiltedPhoques::String& aPassword) noexcept;
+    [[nodiscard]] TiltedPhoques::String GetAvatar(const TiltedPhoques::String& aUsername) const noexcept;
+    void SetAvatar(const TiltedPhoques::String& aUsername, const TiltedPhoques::String& aAvatar) noexcept;
 
 private:
     [[nodiscard]] bool InitializeSchema() noexcept;

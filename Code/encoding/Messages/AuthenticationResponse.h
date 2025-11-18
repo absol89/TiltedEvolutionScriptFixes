@@ -16,6 +16,7 @@ struct AuthenticationResponse final : ServerMessage
         kClientModsDisallowed,
         kWrongAccountPassword,
         kWrongServerPassword,
+        kDuplicateUser,
         kServerFull
     };
 

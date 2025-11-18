@@ -36,6 +36,7 @@ export class GroupComponent implements OnInit, OnDestroy {
 
   groupMembers$: Observable<(Player & { isOwner: boolean })[]>;
   group$: Observable<Group>;
+  readonly defaultAvatar = 'assets/images/group/avatar-placeholder.png';
 
   public isAutoHide = new BehaviorSubject(true);
   public isShown = new BehaviorSubject(true);

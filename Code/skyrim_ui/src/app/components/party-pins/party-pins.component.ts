@@ -1,5 +1,5 @@
 import { Component, OnDestroy } from '@angular/core';
-import { Subscription } from 'rxjs';
+import { Subscription, combineLatest } from 'rxjs';
 import { PartyPin } from '../../models/party-pin';
 import { ClientService } from '../../services/client.service';
 import { PlayerListService } from '../../services/player-list.service';
@@ -10,19 +10,33 @@ import { PlayerListService } from '../../services/player-list.service';
   styleUrls: ['./party-pins.component.scss'],
 })
 export class PartyPinsComponent implements OnDestroy {
-  pins: Array<PartyPin & { name?: string }> = [];
+  pins: PartyPin[] = [];
+  readonly defaultAvatar = 'assets/images/group/avatar-placeholder.png';
   private sub: Subscription;
 
   constructor(
     private readonly client: ClientService,
     private readonly playerList: PlayerListService,
   ) {
-    this.sub = this.client.partyPinsChange.subscribe(pins => {
-      // Attach names lazily using current player list if available
-      this.pins = pins.map(p => ({
-        ...p,
-        name: this.playerList.getPlayerById(p.id)?.name,
-      }));
+    this.sub = combineLatest([
+      this.client.partyPinsChange,
+      this.playerList.playerList.asObservable(),
+    ]).subscribe(([pins, list]) => {
+      const players = list?.players ?? [];
+      const playerMap = new Map(players.map(player => [player.id, player]));
+
+      this.pins = pins.map(pin => {
+        const player = playerMap.get(pin.id);
+        const resolvedName = pin.name ?? player?.name;
+        const resolvedAvatar =
+          pin.avatar !== undefined ? pin.avatar : player?.avatar;
+
+        return {
+          ...pin,
+          name: resolvedName,
+          avatar: resolvedAvatar,
+        };
+      });
     });
   }
 
@@ -30,4 +44,3 @@ export class PartyPinsComponent implements OnDestroy {
     this.sub.unsubscribe();
   }
 }
-

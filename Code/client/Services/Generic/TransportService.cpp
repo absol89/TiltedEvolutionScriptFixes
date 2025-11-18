@@ -274,6 +274,11 @@ void TransportService::HandleAuthenticationResponse(const AuthenticationResponse
         ErrorInfo += "\"error\": \"wrong_server_password\"";
         break;
     }
+    case AR::kDuplicateUser:
+    {
+        ErrorInfo += "\"error\": \"duplicate_user\"";
+        break;
+    }
     case AR::kServerFull:
     {
         ErrorInfo += "\"error\": \"server_full\"";

@@ -20,6 +20,7 @@ struct NotifyChatMessageBroadcast;
 struct NotifyPlayerList;
 struct NotifyPlayerJoined;
 struct NotifyPlayerLeft;
+struct NotifyPlayerProfileImage;
 struct NotifyPlayerDialogue;
 struct ConnectionErrorEvent;
 struct NotifyPlayerLevel;
@@ -80,6 +81,7 @@ protected:
     void OnPlayerDialogue(const NotifyPlayerDialogue&) noexcept;
     void OnPlayerJoined(const NotifyPlayerJoined&) noexcept;
     void OnPlayerLeft(const NotifyPlayerLeft&) noexcept;
+    void OnPlayerProfileImage(const NotifyPlayerProfileImage&) noexcept;
     void OnPlayerLevel(const NotifyPlayerLevel&) noexcept;
     void OnPlayerCellChanged(const NotifyPlayerCellChanged& acMessage) const noexcept;
     void OnNotifyTeleportRequest(const NotifyTeleportRequest& acMessage) noexcept;
@@ -111,6 +113,7 @@ private:
     entt::scoped_connection m_playerDialogueConnection;
     entt::scoped_connection m_playerJoinedConnection;
     entt::scoped_connection m_playerLeftConnection;
+    entt::scoped_connection m_playerAvatarConnection;
     entt::scoped_connection m_playerAddedConnection;
     entt::scoped_connection m_playerRemovedConnection;
     entt::scoped_connection m_playerLevelConnection;

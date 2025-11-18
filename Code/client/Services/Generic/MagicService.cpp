@@ -745,7 +745,7 @@ void MagicService::OnNotifyPartyMemberDowned(const NotifyPartyMemberDowned& acMe
     std::string playerName;
     const auto& players = m_world.GetPartyService().GetPlayers();
     if (auto it = players.find(acMessage.PlayerId); it != players.end())
-        playerName = it->second.c_str();
+        playerName = it->second.Name.c_str();
     else
         playerName = "Player " + std::to_string(acMessage.PlayerId);
 

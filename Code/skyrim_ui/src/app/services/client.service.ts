@@ -62,6 +62,9 @@ export class ClientService implements OnDestroy {
   /** Connect party invite received. */
   public partyInviteReceivedChange = new Subject<number>();
 
+  /** Player avatar update. */
+  public avatarChange = new Subject<Player>();
+
   /** Disconnect player to server change. */
   public playerDisconnectedChange = new Subject<Player>();
 
@@ -127,6 +130,9 @@ export class ClientService implements OnDestroy {
   public deathScreenHiddenChange = new Subject<void>();
 
   public localPlayerId = undefined;
+  public localPlayerIdChange = new BehaviorSubject<number | undefined>(
+    undefined,
+  );
 
   private _host = '';
 
@@ -168,6 +174,10 @@ export class ClientService implements OnDestroy {
     skyrimtogether.on(
       'playerDisconnected',
       this.onPlayerDisconnected.bind(this),
+    );
+    skyrimtogether.on(
+      'playerAvatarUpdated',
+      this.onPlayerAvatar.bind(this),
     );
     skyrimtogether.on('setHealth', this.onSetHealth.bind(this));
     skyrimtogether.on('setLevel', this.onSetLevel.bind(this));
@@ -218,6 +228,7 @@ export class ClientService implements OnDestroy {
     skyrimtogether.off('debugData');
     skyrimtogether.off('playerConnected');
     skyrimtogether.off('playerDisconnected');
+    skyrimtogether.off('playerAvatarUpdated');
     skyrimtogether.off('setHealth');
     skyrimtogether.off('setLevel');
     skyrimtogether.off('setCell');
@@ -320,6 +331,11 @@ export class ClientService implements OnDestroy {
    */
   public changePartyLeader(playerId: number): void {
     skyrimtogether.changePartyLeader(playerId);
+  }
+
+  /** Upload or clear the local profile picture. */
+  public setProfilePicture(imageData: string): void {
+    skyrimtogether.setProfilePicture(imageData);
   }
 
   /**
@@ -439,6 +455,7 @@ export class ClientService implements OnDestroy {
   private onDisconnect(isError: boolean): void {
     void this.zone.run(async () => {
       this.localPlayerId = undefined;
+      this.localPlayerIdChange.next(undefined);
       this.connectionStateChange.next(false);
       this.isConnectionInProgressChange.next(false);
 
@@ -524,6 +541,7 @@ export class ClientService implements OnDestroy {
     username: string,
     level: number,
     cellName: string,
+    avatar: string,
   ) {
     if (environment.game) {
       console.log(
@@ -540,6 +558,7 @@ export class ClientService implements OnDestroy {
           connected: true,
           level: level,
           cellName: cellName,
+          avatar: avatar,
         }),
       );
     });
@@ -559,6 +578,24 @@ export class ClientService implements OnDestroy {
           name: username,
           id: playerId,
           connected: false,
+        }),
+      );
+    });
+  }
+
+  private onPlayerAvatar(playerId: number, avatar: string) {
+    if (environment.game) {
+      console.log(
+        `%conPlayerAvatar`,
+        'background: #009688; color: #fff; padding: 3px; font-size: 9px;',
+        ...Array.from(arguments).map(v => JSON.stringify(v)),
+      );
+    }
+    this.zone.run(() => {
+      this.avatarChange.next(
+        new Player({
+          id: playerId,
+          avatar: avatar,
         }),
       );
     });
@@ -634,6 +671,7 @@ export class ClientService implements OnDestroy {
     }
     this.zone.run(() => {
       this.localPlayerId = playerId;
+      this.localPlayerIdChange.next(playerId);
     });
   }
 
@@ -669,6 +707,8 @@ export class ClientService implements OnDestroy {
           this._password,
         );
       } else if (error.error === 'wrong_account_password') {
+        this.uiRepository.openView(View.CONNECT);
+      } else if (error.error === 'duplicate_user') {
         this.uiRepository.openView(View.CONNECT);
       }
       void this.errorService.setError(error);
@@ -798,11 +838,32 @@ export class ClientService implements OnDestroy {
   private onSetPartyPins(json: string) {
     try {
       const pins = JSON.parse(json) as Array<{
-        x: number;
-        y: number;
-        id: number;
+        x: unknown;
+        y: unknown;
+        id: unknown;
+        oob?: unknown;
+        name?: unknown;
+        avatar?: unknown;
       }>;
-      this.zone.run(() => this.partyPinsChange.next(pins));
+      const normalized = pins.map(pin => {
+        const asNumber = (value: unknown) => {
+          if (typeof value === 'number') {
+            return value;
+          }
+          const parsed = Number(value);
+          return Number.isFinite(parsed) ? parsed : 0;
+        };
+
+        return {
+          x: asNumber(pin.x),
+          y: asNumber(pin.y),
+          id: Math.trunc(asNumber(pin.id)),
+          oob: Boolean(pin.oob),
+          name: typeof pin.name === 'string' ? pin.name : undefined,
+          avatar: typeof pin.avatar === 'string' ? pin.avatar : undefined,
+        };
+      });
+      this.zone.run(() => this.partyPinsChange.next(normalized));
     } catch (e) {
       // ignore invalid payloads
     }

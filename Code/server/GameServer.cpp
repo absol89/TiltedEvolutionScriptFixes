@@ -19,9 +19,11 @@
 #include <Messages/AuthenticationResponse.h>
 #include <Messages/ClientMessageFactory.h>
 #include <Messages/NotifyPlayerJoined.h>
+#include <Messages/NotifyPlayerProfileImage.h>
 #include <Messages/NotifyPlayerLeft.h>
 #include <Messages/NotifySettingsChange.h>
 #include <Messages/NotifyChatMessageBroadcast.h>
+#include <cctype>
 #include <ChatMessageTypes.h>
 #include <fmt/format.h>
 #include <console/ConsoleRegistry.h>
@@ -865,6 +867,32 @@ void GameServer::HandleAuthenticationRequest(const ConnectionId_t aConnectionId,
     }
 
     const auto sanitizedUsername = SanitizeUsername(acRequest->Username);
+    if (!sanitizedUsername.empty())
+    {
+        auto iequals = [](const String& a, const String& b) -> bool {
+            if (a.size() != b.size())
+                return false;
+            for (size_t i = 0; i < a.size(); ++i)
+            {
+                if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i])))
+                    return false;
+            }
+            return true;
+        };
+
+        for (auto* pExisting : m_pWorld->GetPlayerManager())
+        {
+            if (!pExisting)
+                continue;
+
+            if (iequals(pExisting->GetUsername(), sanitizedUsername))
+            {
+                spdlog::info("New player {:x} '{}' denied: username '{}' already connected", aConnectionId, remoteAddress, sanitizedUsername.c_str());
+                sendKick(RT::kDuplicateUser);
+                return;
+            }
+        }
+    }
     auto& loginService = m_pWorld->ctx().at<LoginService>();
     const auto loginResult = loginService.VerifyOrCreateUser(sanitizedUsername, acRequest->Password);
 
@@ -874,6 +902,8 @@ void GameServer::HandleAuthenticationRequest(const ConnectionId_t aConnectionId,
         sendKick(RT::kWrongAccountPassword);
         return;
     }
+
+    const auto storedAvatar = loginService.GetAvatar(sanitizedUsername);
 
     acRequest->Username = sanitizedUsername;
     acRequest->Password.clear();
@@ -967,6 +997,7 @@ void GameServer::HandleAuthenticationRequest(const ConnectionId_t aConnectionId,
         pPlayer->SetMods(playerMods);
         pPlayer->SetModIds(playerModsIds);
         pPlayer->SetLevel(acRequest->Level);
+        pPlayer->SetAvatar(storedAvatar);
 
         // this event is shit, needs to be fixed, i know
         auto [canceled, reason] = m_pWorld->GetScriptService().HandlePlayerJoin(aConnectionId);
@@ -1001,6 +1032,13 @@ void GameServer::HandleAuthenticationRequest(const ConnectionId_t aConnectionId,
 
         Send(aConnectionId, initStringCache);
 
+        {
+            NotifyPlayerProfileImage avatarNotify{};
+            avatarNotify.PlayerId = pPlayer->GetId();
+            avatarNotify.Avatar = pPlayer->GetAvatar();
+            Send(pPlayer->GetConnectionId(), avatarNotify);
+        }
+
         for (auto* pOtherPlayer : m_pWorld->GetPlayerManager())
         {
             if (pOtherPlayer == pPlayer)
@@ -1009,6 +1047,7 @@ void GameServer::HandleAuthenticationRequest(const ConnectionId_t aConnectionId,
             NotifyPlayerJoined notify{};
             notify.PlayerId = pOtherPlayer->GetId();
             notify.Username = pOtherPlayer->GetUsername();
+            notify.Avatar = pOtherPlayer->GetAvatar();
 
             auto& cellComponent = pOtherPlayer->GetCellComponent();
             notify.WorldSpaceId = cellComponent.WorldSpaceId;

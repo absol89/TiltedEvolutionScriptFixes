@@ -277,6 +277,7 @@ void PartyService::OnPlayerJoin(const PlayerJoinEvent& acEvent) noexcept
     NotifyPlayerJoined notify{};
     notify.PlayerId = acEvent.pPlayer->GetId();
     notify.Username = acEvent.pPlayer->GetUsername();
+    notify.Avatar = acEvent.pPlayer->GetAvatar();
 
     notify.WorldSpaceId = acEvent.WorldSpaceId;
     notify.CellId = acEvent.CellId;
@@ -473,7 +474,10 @@ void PartyService::BroadcastPlayerList(Player* apPlayer) const noexcept
             if (pIgnoredPlayer == pPlayer)
                 continue;
 
-            playerList.Players[pPlayer->GetId()] = pPlayer->GetUsername();
+            NotifyPlayerList::PlayerListEntry entry{};
+            entry.Name = pPlayer->GetUsername();
+            entry.Avatar = pPlayer->GetAvatar();
+            playerList.Players[pPlayer->GetId()] = std::move(entry);
         }
 
         pSelf->Send(playerList);

@@ -18,6 +18,7 @@
 #include <Messages/NotifyPlayerList.h>
 #include <Messages/NotifyPlayerLeft.h>
 #include <Messages/NotifyPlayerJoined.h>
+#include <Messages/NotifyPlayerProfileImage.h>
 #include <Messages/NotifyPlayerDialogue.h>
 #include <Messages/NotifyPlayerLevel.h>
 #include <Messages/NotifyPlayerCellChanged.h>
@@ -118,6 +119,7 @@ OverlayService::OverlayService(World& aWorld, TransportService& transport, entt:
     m_chatMessageConnection = aDispatcher.sink<NotifyChatMessageBroadcast>().connect<&OverlayService::OnChatMessageReceived>(this);
     m_playerJoinedConnection = aDispatcher.sink<NotifyPlayerJoined>().connect<&OverlayService::OnPlayerJoined>(this);
     m_playerLeftConnection = aDispatcher.sink<NotifyPlayerLeft>().connect<&OverlayService::OnPlayerLeft>(this);
+    m_playerAvatarConnection = aDispatcher.sink<NotifyPlayerProfileImage>().connect<&OverlayService::OnPlayerProfileImage>(this);
     m_playerDialogueConnection = aDispatcher.sink<NotifyPlayerDialogue>().connect<&OverlayService::OnPlayerDialogue>(this);
     m_playerAddedConnection = m_world.on_destroy<WaitingFor3D>().connect<&OverlayService::OnWaitingFor3DRemoved>(this);
     m_playerRemovedConnection = m_world.on_destroy<PlayerComponent>().connect<&OverlayService::OnPlayerComponentRemoved>(this);
@@ -392,6 +394,7 @@ void OverlayService::OnPlayerJoined(const NotifyPlayerJoined& acMessage) noexcep
 
     String cellName = GetCellName(acMessage.WorldSpaceId, acMessage.CellId);
     pArguments->SetString(3, cellName.c_str());
+    pArguments->SetString(4, acMessage.Avatar.c_str());
 
     m_pOverlay->ExecuteAsync("playerConnected", pArguments);
 }
@@ -402,6 +405,17 @@ void OverlayService::OnPlayerLeft(const NotifyPlayerLeft& acMessage) noexcept
     pArguments->SetInt(0, acMessage.PlayerId);
     pArguments->SetString(1, acMessage.Username.c_str());
     m_pOverlay->ExecuteAsync("playerDisconnected", pArguments);
+}
+
+void OverlayService::OnPlayerProfileImage(const NotifyPlayerProfileImage& acMessage) noexcept
+{
+    if (!m_pOverlay)
+        return;
+
+    auto pArguments = CefListValue::Create();
+    pArguments->SetInt(0, acMessage.PlayerId);
+    pArguments->SetString(1, acMessage.Avatar.c_str());
+    m_pOverlay->ExecuteAsync("playerAvatarUpdated", pArguments);
 }
 
 void OverlayService::OnPlayerLevel(const NotifyPlayerLevel& acMessage) noexcept

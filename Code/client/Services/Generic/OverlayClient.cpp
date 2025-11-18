@@ -10,6 +10,7 @@
 #include <Messages/SendChatMessageRequest.h>
 #include <Messages/TeleportRequest.h>
 #include <Messages/TeleportResponse.h>
+#include <Messages/PlayerProfileImageUpdateRequest.h>
 
 #include <Events/SetTimeCommandEvent.h>
 
@@ -75,6 +76,8 @@ bool OverlayClient::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefR
             uint32_t aPlayerId = eventArgs->GetInt(0);
             World::Get().GetPartyService().ChangePartyLeader(aPlayerId);
         }
+        else if (eventName == "setProfilePicture")
+            ProcessSetProfilePicture(eventArgs);
         else if (eventName == "teleportToPlayer" || eventName == "requestTeleport")
             ProcessTeleportRequestMessage(eventArgs);
         else if (eventName == "respondTeleportRequest")
@@ -167,6 +170,24 @@ void OverlayClient::ProcessTeleportResponseMessage(CefRefPtr<CefListValue> aEven
     response.Accepted = aEventArgs->GetBool(1);
 
     m_transport.Send(response);
+}
+
+void OverlayClient::ProcessSetProfilePicture(CefRefPtr<CefListValue> aEventArgs)
+{
+    std::string payload;
+    if (aEventArgs->GetSize() > 0)
+        payload = aEventArgs->GetString(0).ToString();
+
+    constexpr size_t cMaxAvatarBytes = 256u * 1024u;
+    if (payload.size() > cMaxAvatarBytes)
+    {
+        spdlog::warn("[OverlayClient] Ignoring avatar upload larger than {} bytes", cMaxAvatarBytes);
+        return;
+    }
+
+    PlayerProfileImageUpdateRequest request{};
+    request.ImageData = payload;
+    m_transport.Send(request);
 }
 
 void OverlayClient::ProcessToggleDebugUI()

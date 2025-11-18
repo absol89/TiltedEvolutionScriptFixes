@@ -13,11 +13,42 @@
     width: 16vw;
 
     .group-member {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.6vw;
       font-size: 1.5em;
       color: rgb(192, 192, 192);
 
       &.not-loaded {
         opacity: 0.6;
+
+        .member-avatar {
+          filter: grayscale(0.6);
+        }
+      }
+
+      .member-avatar {
+        width: 3.2vw;
+        height: 3.2vw;
+        border-radius: 50%;
+        border: 2px solid rgba(50, 240, 255, 0.85);
+        object-fit: cover;
+        background: rgba(18, 18, 20, 0.9);
+        box-shadow: 0 0 6px rgba(0, 0, 0, 0.6);
+      }
+
+      .member-details {
+        display: flex;
+        flex-direction: column;
+        gap: 0.3vw;
+        flex: 1 1 auto;
+      }
+
+      .member-header {
+        display: flex;
+        align-items: center;
+        gap: 0.4vw;
+        flex-wrap: wrap;
       }
 
       .member-name {

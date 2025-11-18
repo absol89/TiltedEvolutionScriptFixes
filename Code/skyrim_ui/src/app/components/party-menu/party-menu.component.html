@@ -1,3 +1,43 @@
+<div class="profile-picture-panel">
+  <h3 class="panel-title">
+    {{ 'COMPONENT.PARTY_MENU.PROFILE_PICTURE.TITLE' | transloco }}
+  </h3>
+  <p class="panel-description">
+    {{ 'COMPONENT.PARTY_MENU.PROFILE_PICTURE.DESCRIPTION' | transloco }}
+  </p>
+  <div class="profile-picture-preview" (click)="resetUploadError()">
+    <img
+      [src]="(profilePreview$ | async) || defaultAvatar"
+      [alt]="'Profile picture preview'"
+      draggable="false"
+    />
+  </div>
+  <div class="profile-picture-actions">
+    <label class="upload-button" (click)="resetUploadError()">
+      <input
+        type="file"
+        accept="image/png,image/jpeg"
+        (change)="onProfilePictureSelected($event)"
+      />
+      {{ 'COMPONENT.PARTY_MENU.PROFILE_PICTURE.UPLOAD' | transloco }}
+    </label>
+    <button
+      type="button"
+      class="remove-button"
+      (click)="clearProfilePicture()"
+      [disabled]="!(profilePreview$ | async)"
+    >
+      {{ 'COMPONENT.PARTY_MENU.PROFILE_PICTURE.REMOVE' | transloco }}
+    </button>
+  </div>
+  <p class="hint">
+    {{ 'COMPONENT.PARTY_MENU.PROFILE_PICTURE.SIZE_LIMIT' | transloco }}
+  </p>
+  <p class="error" *ngIf="uploadError$ | async as errorKey">
+    {{ errorKey | transloco }}
+  </p>
+</div>
+
 <div *ngIf="!(group$ | async)?.isEnabled; else inParty">
   <p
     class="optional-info"

@@ -30,10 +30,13 @@ export class PlayerListComponent {
         if (!players) {
           return [];
         }
-        return players.map(player => ({
-          ...player,
-          isMember: members.includes(player.id),
-        }));
+        const localId = this.clientService.localPlayerId;
+        return players
+          .filter(player => player.id !== localId)
+          .map(player => ({
+            ...player,
+            isMember: members.includes(player.id),
+          }));
       }),
       share({
         connector: () => new ReplaySubject(1),

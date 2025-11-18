@@ -3,5 +3,6 @@ export interface PartyPin {
   y: number; // screen-space Y in pixels
   id: number; // player id
   oob?: boolean; // true if placed as an edge indicator (different worldspace/interior)
+  name?: string;
+  avatar?: string;
 }
-

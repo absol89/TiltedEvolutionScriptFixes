@@ -23,6 +23,9 @@
 #include <Messages/NotifyPlayerCellChanged.h>
 #include <Messages/PartyMemberDownedRequest.h>
 #include <Messages/NotifyPartyMemberDowned.h>
+#include <Messages/PlayerProfileImageUpdateRequest.h>
+#include <Messages/NotifyPlayerProfileImage.h>
+#include <Services/LoginService.h>
 
 #include <Setting.h>
 namespace
@@ -38,6 +41,7 @@ PlayerService::PlayerService(World& aWorld, entt::dispatcher& aDispatcher) noexc
     , m_playerRespawnConnection(aDispatcher.sink<PacketEvent<PlayerRespawnRequest>>().connect<&PlayerService::OnPlayerRespawnRequest>(this))
     , m_playerLevelConnection(aDispatcher.sink<PacketEvent<PlayerLevelRequest>>().connect<&PlayerService::OnPlayerLevelRequest>(this))
     , m_partyMemberDownedConnection(aDispatcher.sink<PacketEvent<PartyMemberDownedRequest>>().connect<&PlayerService::OnPartyMemberDownedRequest>(this))
+    , m_playerProfileImageUpdateConnection(aDispatcher.sink<PacketEvent<PlayerProfileImageUpdateRequest>>().connect<&PlayerService::OnPlayerProfileImageUpdate>(this))
 {
 }
 
@@ -248,4 +252,44 @@ void PlayerService::OnPartyMemberDownedRequest(const PacketEvent<PartyMemberDown
     notify.CellId = cellComponent.Cell;
 
     GameServer::Get()->SendToParty(notify, pPlayer->GetParty(), acMessage.GetSender());
+}
+
+void PlayerService::OnPlayerProfileImageUpdate(const PacketEvent<PlayerProfileImageUpdateRequest>& acMessage) const noexcept
+{
+    auto* pPlayer = acMessage.pPlayer;
+    if (!pPlayer)
+        return;
+
+    const auto& imageData = acMessage.Packet.ImageData;
+
+    constexpr size_t cMaxAvatarBytes = 256u * 1024u;
+    if (imageData.size() > cMaxAvatarBytes)
+    {
+        spdlog::warn("[PlayerService] Avatar upload from player {} exceeded {} bytes ({} received)", pPlayer->GetId(), cMaxAvatarBytes, imageData.size());
+        return;
+    }
+
+    auto sanitized = imageData;
+    if (!sanitized.empty())
+    {
+        if (sanitized.rfind("data:image", 0) != 0)
+        {
+            spdlog::warn("[PlayerService] Avatar upload from player {} rejected due to invalid data URI prefix", pPlayer->GetId());
+            return;
+        }
+    }
+
+    pPlayer->SetAvatar(std::move(sanitized));
+
+    NotifyPlayerProfileImage notify{};
+    notify.PlayerId = pPlayer->GetId();
+    notify.Avatar = pPlayer->GetAvatar();
+
+    GameServer::Get()->SendToPlayers(notify);
+
+    if (m_world.ctx().contains<LoginService>())
+    {
+        auto& loginService = m_world.ctx().at<LoginService>();
+        loginService.SetAvatar(pPlayer->GetUsername(), pPlayer->GetAvatar());
+    }
 }
