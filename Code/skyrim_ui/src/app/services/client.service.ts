@@ -84,6 +84,18 @@ export class ClientService implements OnDestroy {
   /** Used purely for debugging. */
   public debugChange = new Subject<void>();
 
+  /** Teleport request received. */
+  public teleportRequestChange = new Subject<{
+    requesterId: number;
+    requesterName: string;
+  }>();
+
+  /** Teleport request handled. */
+  public teleportRequestHandledChange = new Subject<{
+    requesterId: number;
+    accepted: boolean;
+  }>();
+
   // The below emitters are used in the mocking service
 
   /** Used for when a party leader changed. */
@@ -168,6 +180,7 @@ export class ClientService implements OnDestroy {
     skyrimtogether.on('triggerError', this.onTriggerError.bind(this));
     skyrimtogether.on('dummyData', this.onDummyData.bind(this));
     skyrimtogether.on('partyInfo', this.onPartyInfo.bind(this));
+    skyrimtogether.on('teleportRequest', this.onTeleportRequest.bind(this));
     skyrimtogether.on('partyCreated', this.onPartyCreated.bind(this));
     skyrimtogether.on('partyLeft', this.onPartyLeft.bind(this));
     skyrimtogether.on(
@@ -212,6 +225,7 @@ export class ClientService implements OnDestroy {
     skyrimtogether.off('triggerError');
     skyrimtogether.off('dummyData');
     skyrimtogether.off('partyInfo');
+    skyrimtogether.off('teleportRequest');
     skyrimtogether.off('partyCreated');
     skyrimtogether.off('partyLeft');
     skyrimtogether.off('partyInviteReceived');
@@ -319,8 +333,30 @@ export class ClientService implements OnDestroy {
     this._remainingReconnectionAttempt = 0;
   }
 
-  public teleportToPlayer(playerId: number): void {
+  /**
+   * Request teleportation to another player.
+   *
+   * @param playerId Target player identifier.
+   */
+  public requestTeleport(playerId: number): void {
     skyrimtogether.teleportToPlayer(playerId);
+  }
+
+  /**
+   * Respond to an incoming teleport request.
+   *
+   * @param requesterId Requesting player's identifier.
+   * @param accepted Whether the request is accepted.
+   */
+  public respondTeleportRequest(requesterId: number, accepted: boolean): void {
+    skyrimtogether.respondTeleportRequest(requesterId, accepted);
+    this.zone.run(() => {
+      this.teleportRequestHandledChange.next({ requesterId, accepted });
+    });
+  }
+
+  public teleportToPlayer(playerId: number): void {
+    this.requestTeleport(playerId);
   }
 
   /**
@@ -694,6 +730,12 @@ export class ClientService implements OnDestroy {
     }
     this.zone.run(() => {
       this.partyLeftChange.next();
+    });
+  }
+
+  private onTeleportRequest(requesterId: number, requesterName: string): void {
+    this.zone.run(() => {
+      this.teleportRequestChange.next({ requesterId, requesterName });
     });
   }
 

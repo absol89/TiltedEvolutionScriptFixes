@@ -25,6 +25,7 @@
 
 #include <ScriptExtender.h>
 #include <Services/DiscordService.h>
+#include <fmt/format.h>
 
 // #include <imgui_internal.h>
 

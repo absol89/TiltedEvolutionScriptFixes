@@ -109,6 +109,12 @@ declare namespace SkyrimTogetherTypes {
 
   /** Death screen hidden */
   type HideDeathScreenCallback = () => void;
+
+  /** Teleport request received */
+  type TeleportRequestCallback = (
+    requesterId: number,
+    requesterName: string,
+  ) => void;
 }
 
 /** Global Skyrim: Together object. */
@@ -232,6 +238,11 @@ interface SkyrimTogether {
   on(
     event: 'partyInviteReceived',
     callback: SkyrimTogetherTypes.PartyInviteReceivedCallback,
+  ): void;
+
+  on(
+    event: 'teleportRequest',
+    callback: SkyrimTogetherTypes.TeleportRequestCallback,
   ): void;
 
   /** Add listener to when the death screen is shown. */
@@ -388,6 +399,11 @@ interface SkyrimTogether {
     callback?: SkyrimTogetherTypes.PartyInviteReceivedCallback,
   ): void;
 
+  off(
+    event: 'teleportRequest',
+    callback?: SkyrimTogetherTypes.TeleportRequestCallback,
+  ): void;
+
   /** Remove listener from when the death screen is shown. */
   off(
     event: 'showDeathScreen',
@@ -455,11 +471,19 @@ interface SkyrimTogether {
   deactivate(): void;
 
   /**
-   * Teleport to given player
+   * Request teleportation to a given player.
    *
-   * @param playerId Id of the player to which the requester should be teleported to
+   * @param playerId Id of the player to whom the request should be sent.
    */
   teleportToPlayer(playerId: number): void;
+
+  /**
+   * Respond to an incoming teleport request.
+   *
+   * @param requesterId Id of the player that issued the request.
+   * @param accepted Whether the request is accepted.
+   */
+  respondTeleportRequest(requesterId: number, accepted: boolean): void;
 
   /**
    * Reconnect the client.

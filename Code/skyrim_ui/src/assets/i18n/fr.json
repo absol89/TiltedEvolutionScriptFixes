@@ -62,7 +62,9 @@
       },
       "ACTIONS": {
         "KICK": "Exclure",
-        "TELEPORT": "Téléporter",
+        "ASK_TELEPORT": "Demander une téléportation",
+        "ACCEPT_TELEPORT": "Accepter la téléportation",
+        "DENY_TELEPORT": "Refuser la téléportation",
         "MAKE_LEADER": "En faire le chef de groupe"
       },
       "LEAVE_PARTY": "Quitter le groupe"
@@ -171,7 +173,8 @@
       }
     },
     "PLAYER_LIST": {
-      "PARTY_INVITE": "{{from}} vous a invité à jouer."
+      "PARTY_INVITE": "{{from}} vous a invité à jouer.",
+      "TELEPORT_REQUEST": "{{from}} souhaite se téléporter jusqu'à vous."
     }
   }
 }

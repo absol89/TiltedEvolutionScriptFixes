@@ -2,6 +2,9 @@
 
 #include <Messages/SendChatMessageRequest.h>
 
+#include <unordered_map>
+#include <unordered_set>
+
 #include <Events/PacketEvent.h>
 #include <Events/PlayerEnterWorldEvent.h>
 
@@ -10,6 +13,8 @@ struct World;
 struct PlayerDialogueRequest;
 struct TeleportRequest;
 struct RequestPlayerHealthUpdate;
+struct TeleportResponse;
+struct PlayerLeaveEvent;
 
 /**
  * @brief Dispatches UI events that modify the UI view of other cients.
@@ -26,8 +31,10 @@ protected:
     void HandleChatMessage(const PacketEvent<SendChatMessageRequest>& acMessage) const noexcept;
     void HandlePlayerJoin(const PlayerEnterWorldEvent& acEvent) const noexcept;
     void OnPlayerDialogue(const PacketEvent<PlayerDialogueRequest>& acMessage) const noexcept;
-    void OnTeleport(const PacketEvent<TeleportRequest>& acMessage) const noexcept;
+    void OnTeleport(const PacketEvent<TeleportRequest>& acMessage) noexcept;
+    void OnTeleportResponse(const PacketEvent<TeleportResponse>& acMessage) noexcept;
     void OnPlayerHealthUpdate(const PacketEvent<RequestPlayerHealthUpdate>& acMessage) const noexcept;
+    void OnPlayerLeave(const PlayerLeaveEvent& acEvent) noexcept;
 
 private:
     World& m_world;
@@ -35,5 +42,8 @@ private:
     entt::scoped_connection m_chatMessageConnection;
     entt::scoped_connection m_playerDialogueConnection;
     entt::scoped_connection m_teleportConnection;
+    entt::scoped_connection m_teleportResponseConnection;
     entt::scoped_connection m_playerHealthConnection;
+    entt::scoped_connection m_playerLeaveConnection;
+    std::unordered_map<uint32_t, std::unordered_set<uint32_t>> m_pendingTeleportRequests;
 };

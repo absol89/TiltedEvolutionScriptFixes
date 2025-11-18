@@ -1,5 +1,8 @@
 import { Injectable } from '@angular/core';
-import { faHandshakeSimple } from '@fortawesome/free-solid-svg-icons';
+import {
+  faHandshakeSimple,
+  faLocationArrow,
+} from '@fortawesome/free-solid-svg-icons';
 import { Subject } from 'rxjs';
 import { PopupNotification } from '../models/popup-notification';
 import { Sound, SoundService } from './sound.service';
@@ -30,6 +33,29 @@ export class PopupNotificationService {
         {
           nameKey: 'COMPONENT.NOTIFICATIONS.ACCEPT',
           callback,
+        },
+      ],
+    });
+  }
+
+  public addTeleportRequest(
+    from: string,
+    acceptCallback: () => void,
+    declineCallback: () => void,
+  ) {
+    this.addMessage({
+      messageKey: 'SERVICE.PLAYER_LIST.TELEPORT_REQUEST',
+      messageParams: { from },
+      icon: faLocationArrow,
+      duration: 30000,
+      actions: [
+        {
+          nameKey: 'COMPONENT.NOTIFICATIONS.ACCEPT',
+          callback: acceptCallback,
+        },
+        {
+          nameKey: 'COMPONENT.NOTIFICATIONS.DECLINE',
+          callback: declineCallback,
         },
       ],
     });

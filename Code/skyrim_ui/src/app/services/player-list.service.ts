@@ -22,6 +22,8 @@ export class PlayerListService implements OnDestroy {
   private memberKickedSubscription: Subscription;
   private cellSubscription: Subscription;
   private partyInviteReceivedSubscription: Subscription;
+  private teleportRequestSubscription: Subscription;
+  private teleportRequestHandledSubscription: Subscription;
 
   private isConnect = false;
 
@@ -38,6 +40,8 @@ export class PlayerListService implements OnDestroy {
     this.onMemberKicked();
     this.onCellChange();
     this.onPartyInviteReceived();
+    this.onTeleportRequest();
+    this.onTeleportRequestHandled();
   }
 
   ngOnDestroy() {
@@ -47,6 +51,8 @@ export class PlayerListService implements OnDestroy {
     this.playerDisconnectedSubscription.unsubscribe();
     this.cellSubscription.unsubscribe();
     this.partyInviteReceivedSubscription.unsubscribe();
+    this.teleportRequestSubscription.unsubscribe();
+    this.teleportRequestHandledSubscription.unsubscribe();
   }
 
   private onDebug() {
@@ -138,6 +144,62 @@ export class PlayerListService implements OnDestroy {
               invitingPlayer.name,
               () => this.acceptPartyInvite(inviterId),
             );
+          }
+        },
+      );
+  }
+
+  private onTeleportRequest() {
+    this.teleportRequestSubscription =
+      this.clientService.teleportRequestChange.subscribe(
+        ({ requesterId, requesterName }) => {
+          const playerList = this.getPlayerList();
+          const player = playerList
+            ? this.getPlayerById(requesterId)
+            : undefined;
+          const displayName = player?.name ?? requesterName;
+
+          if (player && playerList) {
+            player.hasTeleportRequest = true;
+            this.playerList.next(playerList);
+          }
+
+          this.popupNotificationService.addTeleportRequest(
+            displayName,
+            () => {
+              if (player && playerList) {
+                player.hasTeleportRequest = false;
+                this.playerList.next(playerList);
+              }
+              this.clientService.respondTeleportRequest(requesterId, true);
+            },
+            () => {
+              if (player && playerList) {
+                player.hasTeleportRequest = false;
+                this.playerList.next(playerList);
+              }
+              this.clientService.respondTeleportRequest(requesterId, false);
+            },
+          );
+        },
+      );
+  }
+
+  private onTeleportRequestHandled() {
+    this.teleportRequestHandledSubscription =
+      this.clientService.teleportRequestHandledChange.subscribe(
+        ({ requesterId }) => {
+          const playerList = this.playerList.getValue();
+          if (!playerList) {
+            return;
+          }
+
+          const player = playerList.players.find(
+            existing => existing.id === requesterId,
+          );
+          if (player) {
+            player.hasTeleportRequest = false;
+            this.playerList.next(playerList);
           }
         },
       );

@@ -29,6 +29,7 @@ export class SkyrimtogetherMock extends EventEmitter implements SkyrimTogether {
   private showEvents = true;
   private localPlayerId: number;
   public readonly players$ = playerStore.pipe(selectAllEntities());
+  private pendingTeleportRequests = new Set<number>();
 
   connect(
     host: string,
@@ -137,20 +138,40 @@ export class SkyrimtogetherMock extends EventEmitter implements SkyrimTogether {
   }
 
   teleportToPlayer(playerId: number): void {
-    if (this.connected) {
-      const player = playerStore.query(getEntity(playerId));
-      if (player) {
-        console.log(
-          `%cTELEPORT`,
-          'background: #F09688; color: #fff; padding: 3px; font-size: 9px;',
-          'Teleport to player',
-          JSON.stringify(player.name),
-          `(${player.id})`,
-          'in',
-          JSON.stringify(player.cellName),
-        );
-      }
+    if (!this.connected) {
+      return;
     }
+
+    const player = playerStore.query(getEntity(playerId));
+    const name = player ? player.name : `Player ${playerId}`;
+
+    this.sendMessage(
+      MessageTypes.SYSTEM_MESSAGE,
+      `Teleport request sent to "${name}".`,
+    );
+  }
+
+  respondTeleportRequest(requesterId: number, accepted: boolean): void {
+    if (!this.connected) {
+      return;
+    }
+
+    this.pendingTeleportRequests.delete(requesterId);
+    this.sendMessage(
+      MessageTypes.SYSTEM_MESSAGE,
+      accepted
+        ? `Accepted teleport request from player ${requesterId}.`
+        : `Declined teleport request from player ${requesterId}.`,
+    );
+  }
+
+  setMockTeleportRequest(requesterId: number, requesterName: string): void {
+    if (!this.connected) {
+      return;
+    }
+
+    this.pendingTeleportRequests.add(requesterId);
+    this.emit('teleportRequest', requesterId, requesterName);
   }
 
   launchParty(): void {

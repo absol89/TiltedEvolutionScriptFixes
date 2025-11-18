@@ -63,7 +63,9 @@
       },
       "ACTIONS": {
         "KICK": "Kick",
-        "TELEPORT": "Teleport",
+        "ASK_TELEPORT": "Ask to teleport",
+        "ACCEPT_TELEPORT": "Accept teleport",
+        "DENY_TELEPORT": "Deny teleport",
         "MAKE_LEADER": "Make leader"
       },
       "LEAVE_PARTY": "Leave party"
@@ -181,7 +183,8 @@
       }
     },
     "PLAYER_LIST": {
-      "PARTY_INVITE": "{{from}} invited you to join a party"
+      "PARTY_INVITE": "{{from}} invited you to join a party",
+      "TELEPORT_REQUEST": "{{from}} wants to teleport to you."
     }
   }
 }

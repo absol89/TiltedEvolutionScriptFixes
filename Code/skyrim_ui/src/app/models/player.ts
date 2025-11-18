@@ -33,6 +33,9 @@ export class Player implements Friend {
   /** invitation sent. */
   hasBeenInvited: boolean;
 
+  /** Pending teleport request awaiting response. */
+  hasTeleportRequest: boolean;
+
   /** CellName */
   cellName: string;
 
@@ -55,6 +58,7 @@ export class Player implements Friend {
       cellName?: string;
       isLoaded?: boolean;
       isInLocalParty?: boolean;
+      hasTeleportRequest?: boolean;
     } = {},
   ) {
     this.id = options.id || 0;
@@ -103,5 +107,6 @@ export class Player implements Friend {
     }
 
     this.isInLocalParty = options.isInLocalParty || false;
+    this.hasTeleportRequest = options.hasTeleportRequest || false;
   }
 }

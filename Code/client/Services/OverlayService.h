@@ -24,6 +24,7 @@ struct NotifyPlayerDialogue;
 struct ConnectionErrorEvent;
 struct NotifyPlayerLevel;
 struct NotifyPlayerCellChanged;
+struct NotifyTeleportRequest;
 struct NotifyTeleport;
 struct NotifyPlayerHealthUpdate;
 enum ChatMessageTypes;
@@ -80,6 +81,7 @@ protected:
     void OnPlayerLeft(const NotifyPlayerLeft&) noexcept;
     void OnPlayerLevel(const NotifyPlayerLevel&) noexcept;
     void OnPlayerCellChanged(const NotifyPlayerCellChanged& acMessage) const noexcept;
+    void OnNotifyTeleportRequest(const NotifyTeleportRequest& acMessage) noexcept;
     void OnNotifyTeleport(const NotifyTeleport& acMessage) noexcept;
     void OnNotifyPlayerHealthUpdate(const NotifyPlayerHealthUpdate& acMessage) noexcept;
     void OnPartyJoinedEvent(const PartyJoinedEvent& acEvent) noexcept;
@@ -112,6 +114,7 @@ private:
     entt::scoped_connection m_playerLevelConnection;
     entt::scoped_connection m_cellChangedConnection;
     entt::scoped_connection m_teleportConnection;
+    entt::scoped_connection m_teleportRequestConnection;
     entt::scoped_connection m_playerHealthConnection;
     entt::scoped_connection m_partyJoinedConnection;
     entt::scoped_connection m_partyLeftConnection;

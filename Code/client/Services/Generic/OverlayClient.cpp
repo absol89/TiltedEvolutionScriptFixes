@@ -9,6 +9,7 @@
 
 #include <Messages/SendChatMessageRequest.h>
 #include <Messages/TeleportRequest.h>
+#include <Messages/TeleportResponse.h>
 
 #include <Events/SetTimeCommandEvent.h>
 
@@ -74,8 +75,10 @@ bool OverlayClient::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefR
             uint32_t aPlayerId = eventArgs->GetInt(0);
             World::Get().GetPartyService().ChangePartyLeader(aPlayerId);
         }
-        else if (eventName == "teleportToPlayer")
-            ProcessTeleportMessage(eventArgs);
+        else if (eventName == "teleportToPlayer" || eventName == "requestTeleport")
+            ProcessTeleportRequestMessage(eventArgs);
+        else if (eventName == "respondTeleportRequest")
+            ProcessTeleportResponseMessage(eventArgs);
         else if (eventName == "toggleDebugUI")
             ProcessToggleDebugUI();
         else if (eventName == "respawnButtonClicked")
@@ -149,12 +152,21 @@ void OverlayClient::ProcessSetTimeCommand(CefRefPtr<CefListValue> aEventArgs)
     World::Get().GetDispatcher().trigger(SetTimeCommandEvent(hours, minutes, senderId));
 }
 
-void OverlayClient::ProcessTeleportMessage(CefRefPtr<CefListValue> aEventArgs)
+void OverlayClient::ProcessTeleportRequestMessage(CefRefPtr<CefListValue> aEventArgs)
 {
     TeleportRequest request{};
     request.PlayerId = aEventArgs->GetInt(0);
 
     m_transport.Send(request);
+}
+
+void OverlayClient::ProcessTeleportResponseMessage(CefRefPtr<CefListValue> aEventArgs)
+{
+    TeleportResponse response{};
+    response.RequesterId = static_cast<uint16_t>(aEventArgs->GetInt(0));
+    response.Accepted = aEventArgs->GetBool(1);
+
+    m_transport.Send(response);
 }
 
 void OverlayClient::ProcessToggleDebugUI()

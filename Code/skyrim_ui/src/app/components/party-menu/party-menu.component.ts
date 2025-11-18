@@ -55,8 +55,12 @@ export class PartyMenuComponent {
     this.groupService.leave();
   }
 
-  public teleportToPlayer(playerId: number) {
-    this.clientService.teleportToPlayer(playerId);
+  public requestTeleport(playerId: number) {
+    this.clientService.requestTeleport(playerId);
+  }
+
+  public respondTeleport(playerId: number, accepted: boolean) {
+    this.clientService.respondTeleportRequest(playerId, accepted);
   }
 
   public acceptPartyInvite(inviterId: number) {

@@ -15,6 +15,8 @@
 
 #include <Messages/ClientMessageFactory.h>
 #include <Messages/ServerMessageFactory.h>
+#include <Messages/TeleportResponse.h>
+#include <Messages/NotifyTeleportRequest.h>
 #include <CredentialHash.h>
 #include <Structs/Vector2_NetQuantize.h>
 
@@ -381,6 +383,48 @@ TEST_CASE("Packets", "[encoding.packets]")
 
         uint64_t trash;
         reader.ReadBits(trash, 8); // pop opcode
+
+        recvMessage.DeserializeRaw(reader);
+
+        REQUIRE(sendMessage == recvMessage);
+    }
+
+    SECTION("TeleportResponse")
+    {
+        Buffer buff(100);
+
+        TeleportResponse sendMessage, recvMessage;
+        sendMessage.RequesterId = 77;
+        sendMessage.Accepted = true;
+
+        Buffer::Writer writer(&buff);
+        sendMessage.Serialize(writer);
+
+        Buffer::Reader reader(&buff);
+
+        uint64_t opcode;
+        reader.ReadBits(opcode, 8);
+
+        recvMessage.DeserializeRaw(reader);
+
+        REQUIRE(sendMessage == recvMessage);
+    }
+
+    SECTION("NotifyTeleportRequest")
+    {
+        Buffer buff(100);
+
+        NotifyTeleportRequest sendMessage, recvMessage;
+        sendMessage.RequesterId = 91;
+        sendMessage.RequesterName = "RequesterName";
+
+        Buffer::Writer writer(&buff);
+        sendMessage.Serialize(writer);
+
+        Buffer::Reader reader(&buff);
+
+        uint64_t opcode;
+        reader.ReadBits(opcode, 8);
 
         recvMessage.DeserializeRaw(reader);
 
