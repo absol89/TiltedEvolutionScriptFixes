@@ -1,7 +1,7 @@
 export interface Friend {
   id: number;
   name: string;
-  avatar: string;
+  avatar?: string;
   online: boolean;
 }
 
@@ -13,7 +13,7 @@ export class Player implements Friend {
   /** Username. */
   name: string;
 
-  avatar: string;
+  avatar?: string;
 
   /** Current health. */
   health?: number;
@@ -63,7 +63,9 @@ export class Player implements Friend {
   ) {
     this.id = options.id || 0;
     this.name = options.name || '';
-    this.avatar = options.avatar || '';
+    if (options.avatar) {
+      this.avatar = options.avatar;
+    }
     this.hasInvitedLocalPlayer = options.hasInvitedLocalPlayer || false;
     this.cellName = options.cellName || 'vide';
 

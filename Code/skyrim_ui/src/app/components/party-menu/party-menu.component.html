@@ -7,7 +7,7 @@
   </p>
   <div class="profile-picture-preview" (click)="resetUploadError()">
     <img
-      [src]="(profilePreview$ | async) || defaultAvatar"
+      [src]="profilePreviewSafeUrl$ | async"
       [alt]="'Profile picture preview'"
       draggable="false"
     />

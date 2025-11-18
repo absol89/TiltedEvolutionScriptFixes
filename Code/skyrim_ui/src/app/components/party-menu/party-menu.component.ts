@@ -1,5 +1,11 @@
-import { ChangeDetectionStrategy, Component, NgZone, OnDestroy } from '@angular/core';
-import { BehaviorSubject, Observable, Subscription } from 'rxjs';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  NgZone,
+  OnDestroy,
+} from '@angular/core';
+import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
+import { BehaviorSubject, Observable, Subscription, combineLatest } from 'rxjs';
 import { filter, map, pluck, startWith } from 'rxjs/operators';
 import { Player } from 'src/app/models/player';
 import { ClientService } from 'src/app/services/client.service';
@@ -15,14 +21,26 @@ import { PlayerListService } from 'src/app/services/player-list.service';
 })
 export class PartyMenuComponent implements OnDestroy {
   isLoading$ = this.loadingService.getLoading();
-  members$ = this.groupService.selectMembers();
+  members$ = combineLatest([
+    this.groupService.selectMembers(),
+    this.clientService.localPlayerIdChange,
+  ]).pipe(
+    map(([members, localId]) =>
+      members.filter(member => member.id !== localId),
+    ),
+  );
   memberCount$ = this.groupService.selectMembersLength(true);
   group$ = this.groupService.group.asObservable();
   isLaunchPartyDisabled$: Observable<boolean>;
   invitations$: Observable<Player[]>;
   isPartyLeader$: Observable<boolean>;
-  readonly defaultAvatar = 'assets/images/group/avatar-placeholder.png';
-  profilePreview$ = new BehaviorSubject<string | null>(null);
+  readonly defaultAvatarPath = 'assets/images/group/avatar-placeholder.png';
+  readonly defaultAvatar: SafeUrl;
+  private readonly profilePreviewSubject = new BehaviorSubject<string | null>(
+    null,
+  );
+  profilePreview$ = this.profilePreviewSubject.asObservable();
+  profilePreviewSafeUrl$: Observable<SafeUrl>;
   uploadError$ = new BehaviorSubject<string | null>(null);
   private readonly subscriptions = new Subscription();
   private readonly targetImageSize = 128;
@@ -35,7 +53,19 @@ export class PartyMenuComponent implements OnDestroy {
     private readonly playerListService: PlayerListService,
     private readonly clientService: ClientService,
     private readonly zone: NgZone,
+    private readonly sanitizer: DomSanitizer,
   ) {
+    this.defaultAvatar = this.sanitizer.bypassSecurityTrustUrl(
+      this.defaultAvatarPath,
+    );
+    this.profilePreviewSafeUrl$ = this.profilePreviewSubject.pipe(
+      map(preview =>
+        preview
+          ? this.sanitizer.bypassSecurityTrustUrl(preview)
+          : this.defaultAvatar,
+      ),
+    );
+
     this.invitations$ = this.playerListService.playerList.asObservable().pipe(
       filter(playerlist => !!playerlist),
       pluck('players'),
@@ -63,7 +93,7 @@ export class PartyMenuComponent implements OnDestroy {
 
         const localPlayer = list.players.find(player => player.id === localId);
         if (localPlayer) {
-          this.profilePreview$.next(localPlayer.avatar || null);
+          this.profilePreviewSubject.next(localPlayer.avatar || null);
         }
       }),
     );
@@ -71,7 +101,7 @@ export class PartyMenuComponent implements OnDestroy {
     this.subscriptions.add(
       this.clientService.avatarChange.subscribe(player => {
         if (player.id === this.clientService.localPlayerId) {
-          this.profilePreview$.next(player.avatar || null);
+          this.profilePreviewSubject.next(player.avatar || null);
         }
       }),
     );
@@ -79,7 +109,7 @@ export class PartyMenuComponent implements OnDestroy {
     this.subscriptions.add(
       this.clientService.connectionStateChange.subscribe(isConnected => {
         if (!isConnected) {
-          this.profilePreview$.next(null);
+          this.profilePreviewSubject.next(null);
         }
       }),
     );
@@ -125,29 +155,20 @@ export class PartyMenuComponent implements OnDestroy {
     const allowedExtensions = ['png', 'jpg', 'jpeg'];
 
     if (file.size > this.maxUploadBytes) {
-      this.uploadError$.next(
-        'COMPONENT.PARTY_MENU.PROFILE_PICTURE.ERROR_SIZE',
-      );
+      this.uploadError$.next('COMPONENT.PARTY_MENU.PROFILE_PICTURE.ERROR_SIZE');
       input.value = '';
       return;
     }
 
-    if (
-      file.type &&
-      !allowedMimeTypes.includes(file.type.toLowerCase())
-    ) {
-      this.uploadError$.next(
-        'COMPONENT.PARTY_MENU.PROFILE_PICTURE.ERROR_TYPE',
-      );
+    if (file.type && !allowedMimeTypes.includes(file.type.toLowerCase())) {
+      this.uploadError$.next('COMPONENT.PARTY_MENU.PROFILE_PICTURE.ERROR_TYPE');
       input.value = '';
       return;
     }
 
     const extension = file.name.split('.').pop()?.toLowerCase();
     if (!file.type && extension && !allowedExtensions.includes(extension)) {
-      this.uploadError$.next(
-        'COMPONENT.PARTY_MENU.PROFILE_PICTURE.ERROR_TYPE',
-      );
+      this.uploadError$.next('COMPONENT.PARTY_MENU.PROFILE_PICTURE.ERROR_TYPE');
       input.value = '';
       return;
     }
@@ -174,7 +195,7 @@ export class PartyMenuComponent implements OnDestroy {
             }
 
             this.uploadError$.next(null);
-            this.profilePreview$.next(normalized);
+            this.profilePreviewSubject.next(normalized);
             this.clientService.setProfilePicture(normalized);
           })
           .catch(() => {
@@ -197,7 +218,7 @@ export class PartyMenuComponent implements OnDestroy {
 
   public clearProfilePicture() {
     this.uploadError$.next(null);
-    this.profilePreview$.next(null);
+    this.profilePreviewSubject.next(null);
     this.clientService.setProfilePicture('');
   }
 

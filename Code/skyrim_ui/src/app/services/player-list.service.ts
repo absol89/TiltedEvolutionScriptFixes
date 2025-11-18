@@ -14,6 +14,7 @@ import { PopupNotificationService } from './popup-notification.service';
 })
 export class PlayerListService implements OnDestroy {
   public playerList = new BehaviorSubject<PlayerList | undefined>(undefined);
+  private readonly defaultAvatar = 'assets/images/group/avatar-placeholder.png';
 
   private debugSubscription: Subscription;
   private connectionSubscription: Subscription;
@@ -100,9 +101,20 @@ export class PlayerListService implements OnDestroy {
             existing.cellName = player.cellName;
             existing.connected = player.connected;
             existing.online = player.online;
-            existing.avatar = player.avatar;
+            existing.avatar =
+              player.avatar && player.avatar.length > 0
+                ? player.avatar
+                : existing.avatar || this.defaultAvatar;
           } else {
-            playerList.players.push(player);
+            playerList.players.push(
+              new Player({
+                ...player,
+                avatar:
+                  player.avatar && player.avatar.length > 0
+                    ? player.avatar
+                    : this.defaultAvatar,
+              }),
+            );
           }
           this.playerList.next(playerList);
         }
@@ -254,11 +266,10 @@ export class PlayerListService implements OnDestroy {
       this.ensureLocalPlayerEntry();
     });
 
-    this.localPlayerSubscription = this.clientService.localPlayerIdChange.subscribe(
-      () => {
+    this.localPlayerSubscription =
+      this.clientService.localPlayerIdChange.subscribe(() => {
         this.ensureLocalPlayerEntry();
-      },
-    );
+      });
   }
 
   private ensureLocalPlayerEntry() {
@@ -283,10 +294,16 @@ export class PlayerListService implements OnDestroy {
         online: true,
         cellName: '',
         isLoaded: true,
+        avatar: this.defaultAvatar,
       });
       playerList.players.push(existing);
-    } else if (displayName && displayName.length > 0) {
-      existing.name = displayName;
+    } else {
+      if (displayName && displayName.length > 0) {
+        existing.name = displayName;
+      }
+      if (!existing.avatar) {
+        existing.avatar = this.defaultAvatar;
+      }
     }
 
     existing.connected = true;

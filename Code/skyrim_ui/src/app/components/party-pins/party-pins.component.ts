@@ -34,7 +34,10 @@ export class PartyPinsComponent implements OnDestroy {
         return {
           ...pin,
           name: resolvedName,
-          avatar: resolvedAvatar,
+          avatar:
+            resolvedAvatar && resolvedAvatar.length > 0
+              ? resolvedAvatar
+              : this.defaultAvatar,
         };
       });
     });
