@@ -691,18 +691,36 @@ void GameServer::Send(ConnectionId_t aConnectionId, const ServerAdminMessage& ac
 
 void GameServer::SendToLoaded(const ServerMessage& acServerMessage) const
 {
+    TiltedPhoques::Vector<ConnectionId_t> players;
+    players.reserve(m_pWorld->GetPlayerManager().Count());
+
     for (Player* pPlayer : m_pWorld->GetPlayerManager())
     {
-        if (pPlayer->GetCellComponent())
+        players.push_back(pPlayer->GetConnectionId());
+    }
+
+    for (auto connectionId : players)
+    {
+        Player* pPlayer = m_pWorld->GetPlayerManager().GetByConnectionId(connectionId);
+        if (pPlayer && pPlayer->GetCellComponent())
             pPlayer->Send(acServerMessage);
     }
 }
 
 void GameServer::SendToPlayers(const ServerMessage& acServerMessage, const Player* apExcludedPlayer) const
 {
+    TiltedPhoques::Vector<ConnectionId_t> players;
+    players.reserve(m_pWorld->GetPlayerManager().Count());
+
     for (Player* pPlayer : m_pWorld->GetPlayerManager())
     {
-        if (pPlayer != apExcludedPlayer)
+        players.push_back(pPlayer->GetConnectionId());
+    }
+
+    for (auto connectionId : players)
+    {
+        Player* pPlayer = m_pWorld->GetPlayerManager().GetByConnectionId(connectionId);
+        if (pPlayer && pPlayer != apExcludedPlayer)
             pPlayer->Send(acServerMessage);
     }
 }
@@ -731,9 +749,19 @@ bool GameServer::SendToPlayersInRange(const ServerMessage& acServerMessage, cons
     if (const auto* characterComponent = m_pWorld->try_get<CharacterComponent>(acOrigin))
         isDragon = characterComponent->IsDragon();
 
+    TiltedPhoques::Vector<ConnectionId_t> players;
+    players.reserve(m_pWorld->GetPlayerManager().Count());
+
     for (Player* pPlayer : m_pWorld->GetPlayerManager())
     {
-        if (cellComponent.IsInRange(pPlayer->GetCellComponent(), isDragon) && pPlayer != apExcludedPlayer)
+        players.push_back(pPlayer->GetConnectionId());
+    }
+
+    for (auto connectionId : players)
+    {
+        Player* pPlayer = m_pWorld->GetPlayerManager().GetByConnectionId(connectionId);
+
+        if (pPlayer && cellComponent.IsInRange(pPlayer->GetCellComponent(), isDragon) && pPlayer != apExcludedPlayer)
             pPlayer->Send(acServerMessage);
     }
 
@@ -748,9 +776,19 @@ void GameServer::SendToParty(const ServerMessage& acServerMessage, const PartyCo
         return;
     }
 
+    TiltedPhoques::Vector<ConnectionId_t> players;
+    players.reserve(m_pWorld->GetPlayerManager().Count());
+
     for (Player* pPlayer : m_pWorld->GetPlayerManager())
     {
-        if (pPlayer == apExcludeSender)
+        players.push_back(pPlayer->GetConnectionId());
+    }
+
+    for (auto connectionId : players)
+    {
+        Player* pPlayer = m_pWorld->GetPlayerManager().GetByConnectionId(connectionId);
+
+        if (!pPlayer || pPlayer == apExcludeSender)
             continue;
 
         const auto& partyComponent = pPlayer->GetParty();
@@ -780,9 +818,19 @@ void GameServer::SendToPartyInRange(const ServerMessage& acServerMessage, const 
 
     const auto& cellComponent = view.get<CellIdComponent>(*it);
 
+    TiltedPhoques::Vector<ConnectionId_t> players;
+    players.reserve(m_pWorld->GetPlayerManager().Count());
+
     for (Player* pPlayer : m_pWorld->GetPlayerManager())
     {
-        if (pPlayer == apExcludeSender)
+        players.push_back(pPlayer->GetConnectionId());
+    }
+
+    for (auto connectionId : players)
+    {
+        Player* pPlayer = m_pWorld->GetPlayerManager().GetByConnectionId(connectionId);
+
+        if (!pPlayer || pPlayer == apExcludeSender)
             continue;
 
         if (!cellComponent.IsInRange(pPlayer->GetCellComponent(), false))

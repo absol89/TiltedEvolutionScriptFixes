@@ -41,9 +41,20 @@
 #include <Messages/NotifyRelinquishControl.h>
 
 #include <Setting.h>
+#include <optional>
 namespace
 {
 Console::Setting bEnableXpSync{"Gameplay:bEnableXpSync", "Syncs combat XP within the party", true};
+
+[[nodiscard]] std::optional<entt::entity> TryResolveEntity(World& aWorld, const uint32_t aServerId) noexcept
+{
+    const auto entity = static_cast<entt::entity>(aServerId);
+
+    if (!aWorld.valid(entity))
+        return std::nullopt;
+
+    return entity;
+}
 }
 
 CharacterService::CharacterService(World& aWorld, entt::dispatcher& aDispatcher) noexcept
@@ -258,13 +269,14 @@ void CharacterService::OnOwnershipTransferRequest(const PacketEvent<RequestOwner
 {
     auto& message = acMessage.Packet;
 
-    const entt::entity cEntity = static_cast<entt::entity>(message.ServerId);
-
-    if (!m_world.valid(cEntity))
+    const auto entity = TryResolveEntity(m_world, message.ServerId);
+    if (!entity)
     {
         spdlog::warn("Client {:X} requested ownership transfer of an entity that doesn't exist, server id: {:X}", acMessage.pPlayer->GetConnectionId(), message.ServerId);
         return;
     }
+
+    const entt::entity cEntity = *entity;
 
     if (auto* pCharacterComponent = m_world.try_get<CharacterComponent>(cEntity))
     {
@@ -349,11 +361,25 @@ void CharacterService::OnOwnershipTransferEvent(const OwnershipTransferEvent& ac
 
 void CharacterService::OnCharacterRemoveEvent(const CharacterRemoveEvent& acEvent) const noexcept
 {
-    const auto view = m_world.view<OwnerComponent>();
-    const auto it = view.find(static_cast<entt::entity>(acEvent.ServerId));
-    const auto& characterOwnerComponent = view.get<OwnerComponent>(*it);
+    const auto entity = TryResolveEntity(m_world, acEvent.ServerId);
+    if (!entity)
+    {
+        spdlog::warn("Character remove event received for unknown entity {:X}", acEvent.ServerId);
+        return;
+    }
 
-    GameServer::Get()->GetWorld().GetScriptService().HandleCharacterDestoy(*it);
+    const auto view = m_world.view<OwnerComponent>();
+    const auto it = view.find(*entity);
+    if (it == view.end())
+    {
+        spdlog::warn("Character remove event missing OwnerComponent for entity {:X}", acEvent.ServerId);
+        return;
+    }
+
+    const auto& characterOwnerComponent = view.get<OwnerComponent>(*it);
+    const auto resolvedEntity = *it;
+
+    GameServer::Get()->GetWorld().GetScriptService().HandleCharacterDestoy(resolvedEntity);
 
     NotifyRemoveCharacter response;
     response.ServerId = acEvent.ServerId;
@@ -366,7 +392,7 @@ void CharacterService::OnCharacterRemoveEvent(const CharacterRemoveEvent& acEven
         pPlayer->Send(response);
     }
 
-    m_world.destroy(*it);
+    m_world.destroy(resolvedEntity);
     spdlog::debug("Character destroyed {:X}", acEvent.ServerId);
 }
 
@@ -395,12 +421,20 @@ void CharacterService::OnReferencesMoveRequest(const PacketEvent<ClientReference
 
     for (auto& entry : message.Updates)
     {
-        const auto entity = static_cast<entt::entity>(entry.first);
+        const auto entityId = entry.first;
+        const auto resolved = TryResolveEntity(m_world, entityId);
+        if (!resolved)
+        {
+            spdlog::debug("{:X} requested move of {:X} but entity does not exist", acMessage.pPlayer->GetConnectionId(), entityId);
+            continue;
+        }
+
+        const auto entity = *resolved;
 
         auto itor = view.find(entity);
         if (itor == std::end(view))
         {
-            spdlog::debug("{:x} requested move of {:x} but does not exist", acMessage.pPlayer->GetConnectionId(), World::ToInteger(*itor));
+            spdlog::debug("{:X} requested move of {:X} but entity is not owned by them", acMessage.pPlayer->GetConnectionId(), entityId);
             continue;
         }
 
@@ -449,10 +483,19 @@ void CharacterService::OnFactionsChanges(const PacketEvent<RequestFactionsChange
 
     for (auto& [id, factions] : message.Changes)
     {
-        auto it = view.find(static_cast<entt::entity>(id));
-
-        if (it == std::end(view) || view.get<OwnerComponent>(*it).GetOwner() != acMessage.pPlayer)
+        const auto entity = TryResolveEntity(m_world, id);
+        if (!entity)
+        {
+            spdlog::debug("{:X} requested faction update for unknown entity {:X}", acMessage.pPlayer->GetConnectionId(), id);
             continue;
+        }
+
+        auto it = view.find(*entity);
+        if (it == std::end(view))
+        {
+            spdlog::debug("{:X} requested faction update without ownership for entity {:X}", acMessage.pPlayer->GetConnectionId(), id);
+            continue;
+        }
 
         auto& characterComponent = view.get<CharacterComponent>(*it);
         characterComponent.FactionsContent = factions;
@@ -468,8 +511,14 @@ void CharacterService::OnMountRequest(const PacketEvent<MountRequest>& acMessage
     notify.RiderId = message.RiderId;
     notify.MountId = message.MountId;
 
-    const entt::entity cEntity = static_cast<entt::entity>(message.MountId);
-    if (!GameServer::Get()->SendToPlayersInRange(notify, cEntity, acMessage.GetSender()))
+    const auto entity = TryResolveEntity(m_world, message.MountId);
+    if (!entity)
+    {
+        spdlog::debug("{:X} requested mount broadcast for unknown entity {:X}", acMessage.pPlayer->GetConnectionId(), message.MountId);
+        return;
+    }
+
+    if (!GameServer::Get()->SendToPlayersInRange(notify, *entity, acMessage.GetSender()))
         spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
 }
 
@@ -481,21 +530,35 @@ void CharacterService::OnNewPackageRequest(const PacketEvent<NewPackageRequest>&
     notify.ActorId = message.ActorId;
     notify.PackageId = message.PackageId;
 
-    const entt::entity cEntity = static_cast<entt::entity>(message.ActorId);
-    if (!GameServer::Get()->SendToPlayersInRange(notify, cEntity, acMessage.GetSender()))
+    const auto entity = TryResolveEntity(m_world, message.ActorId);
+    if (!entity)
+    {
+        spdlog::debug("{:X} requested package update for unknown entity {:X}", acMessage.pPlayer->GetConnectionId(), message.ActorId);
+        return;
+    }
+
+    if (!GameServer::Get()->SendToPlayersInRange(notify, *entity, acMessage.GetSender()))
         spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
 }
 
 void CharacterService::OnRequestRespawn(const PacketEvent<RequestRespawn>& acMessage) const noexcept
 {
+    const auto entity = TryResolveEntity(m_world, acMessage.Packet.ActorId);
+    if (!entity)
+    {
+        spdlog::warn("Respawn requested for unknown actor id {:X}", acMessage.Packet.ActorId);
+        return;
+    }
+
     auto view = m_world.view<OwnerComponent, CharacterComponent>();
-    auto it = view.find(static_cast<entt::entity>(acMessage.Packet.ActorId));
+    auto it = view.find(*entity);
     if (it == view.end())
     {
         spdlog::warn("No OwnerComponent found for actor id {:X}", acMessage.Packet.ActorId);
         return;
     }
 
+    const auto resolvedEntity = *it;
     auto& ownerComponent = view.get<OwnerComponent>(*it);
     if (ownerComponent.GetOwner() == acMessage.pPlayer)
     {
@@ -509,13 +572,13 @@ void CharacterService::OnRequestRespawn(const PacketEvent<RequestRespawn>& acMes
         NotifyRespawn notify;
         notify.ActorId = acMessage.Packet.ActorId;
 
-        if (!GameServer::Get()->SendToPlayersInRange(notify, *it, acMessage.GetSender()))
+        if (!GameServer::Get()->SendToPlayersInRange(notify, resolvedEntity, acMessage.GetSender()))
             spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
     }
     else
     {
         CharacterSpawnRequest message;
-        Serialize(m_world, *it, &message);
+        Serialize(m_world, resolvedEntity, &message);
 
         acMessage.GetSender()->Send(message);
     }
@@ -541,8 +604,14 @@ void CharacterService::OnDialogueRequest(const PacketEvent<DialogueRequest>& acM
     notify.ServerId = message.ServerId;
     notify.SoundFilename = message.SoundFilename;
 
-    const entt::entity cEntity = static_cast<entt::entity>(message.ServerId);
-    if (!GameServer::Get()->SendToPlayersInRange(notify, cEntity, acMessage.GetSender()))
+    const auto entity = TryResolveEntity(m_world, message.ServerId);
+    if (!entity)
+    {
+        spdlog::debug("{:X} requested dialogue broadcast for unknown entity {:X}", acMessage.pPlayer->GetConnectionId(), message.ServerId);
+        return;
+    }
+
+    if (!GameServer::Get()->SendToPlayersInRange(notify, *entity, acMessage.GetSender()))
         spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
 }
 
@@ -554,8 +623,14 @@ void CharacterService::OnSubtitleRequest(const PacketEvent<SubtitleRequest>& acM
     notify.ServerId = message.ServerId;
     notify.Text = message.Text;
 
-    const entt::entity cEntity = static_cast<entt::entity>(message.ServerId);
-    if (!GameServer::Get()->SendToPlayersInRange(notify, cEntity, acMessage.GetSender()))
+    const auto entity = TryResolveEntity(m_world, message.ServerId);
+    if (!entity)
+    {
+        spdlog::debug("{:X} requested subtitle broadcast for unknown entity {:X}", acMessage.pPlayer->GetConnectionId(), message.ServerId);
+        return;
+    }
+
+    if (!GameServer::Get()->SendToPlayersInRange(notify, *entity, acMessage.GetSender()))
         spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
 }
 
@@ -651,12 +726,18 @@ void CharacterService::CreateCharacter(const PacketEvent<AssignCharacterRequest>
 void CharacterService::TransferOwnership(Player* apPlayer, const uint32_t acServerId,
                                          const ActorData& acActorData) const noexcept
 {
-    // const OwnerView<CharacterComponent, CellIdComponent> view(m_world, acMessage.GetSender());
-    auto view = m_world.view<OwnerComponent>();
-    const auto it = view.find(static_cast<entt::entity>(acServerId));
-    if (it == view.end())
+    const auto entity = TryResolveEntity(m_world, acServerId);
+    if (!entity)
     {
         spdlog::warn("Client {:X} requested ownership of an entity that doesn't exist ({:X})!", apPlayer->GetConnectionId(), acServerId);
+        return;
+    }
+
+    auto view = m_world.view<OwnerComponent>();
+    const auto it = view.find(*entity);
+    if (it == view.end())
+    {
+        spdlog::warn("Client {:X} requested ownership but OwnerComponent is missing for entity {:X}", apPlayer->GetConnectionId(), acServerId);
         return;
     }
 
@@ -751,7 +832,7 @@ void CharacterService::ProcessFactionsChanges() const noexcept
 
     const auto characterView = m_world.view<CellIdComponent, CharacterComponent, OwnerComponent>();
 
-    TiltedPhoques::Map<Player*, NotifyFactionsChanges> messages;
+    TiltedPhoques::Map<ConnectionId_t, NotifyFactionsChanges> messages;
 
     for (auto entity : characterView)
     {
@@ -771,7 +852,7 @@ void CharacterService::ProcessFactionsChanges() const noexcept
             if (!cellIdComponent.IsInRange(pPlayer->GetCellComponent(), characterComponent.IsDragon()))
                 continue;
 
-            auto& message = messages[pPlayer];
+            auto& message = messages[pPlayer->GetConnectionId()];
             auto& change = message.Changes[World::ToInteger(entity)];
 
             change = characterComponent.FactionsContent;
@@ -780,10 +861,13 @@ void CharacterService::ProcessFactionsChanges() const noexcept
         characterComponent.SetDirtyFactions(false);
     }
 
-    for (auto [pPlayer, message] : messages)
+    for (auto [connectionId, message] : messages)
     {
         if (!message.Changes.empty())
-            pPlayer->Send(message);
+        {
+            if (auto* pPlayer = m_world.GetPlayerManager().GetByConnectionId(connectionId))
+                pPlayer->Send(message);
+        }
     }
 }
 
@@ -800,11 +884,11 @@ void CharacterService::ProcessMovementChanges() const noexcept
 
     const auto characterView = m_world.view<CharacterComponent, CellIdComponent, MovementComponent, AnimationComponent, OwnerComponent>();
 
-    TiltedPhoques::Map<Player*, ServerReferencesMoveRequest> messages;
+    TiltedPhoques::Map<ConnectionId_t, ServerReferencesMoveRequest> messages;
 
     for (auto pPlayer : m_world.GetPlayerManager())
     {
-        auto& message = messages[pPlayer];
+        auto& message = messages[pPlayer->GetConnectionId()];
 
         message.Tick = GameServer::Get()->GetTick();
     }
@@ -829,7 +913,7 @@ void CharacterService::ProcessMovementChanges() const noexcept
             if (!cellIdComponent.IsInRange(pPlayer->GetCellComponent(), characterComponent.IsDragon()))
                 continue;
 
-            auto& message = messages[pPlayer];
+            auto& message = messages[pPlayer->GetConnectionId()];
             auto& update = message.Updates[World::ToInteger(entity)];
             auto& movement = update.UpdatedMovement;
 
@@ -853,9 +937,12 @@ void CharacterService::ProcessMovementChanges() const noexcept
 
     m_world.view<MovementComponent>().each([](MovementComponent& movementComponent) { movementComponent.Sent = true; });
 
-    for (auto& [pPlayer, message] : messages)
+    for (auto& [connectionId, message] : messages)
     {
         if (!message.Updates.empty())
-            pPlayer->Send(message);
+        {
+            if (auto* pPlayer = m_world.GetPlayerManager().GetByConnectionId(connectionId))
+                pPlayer->Send(message);
+        }
     }
 }

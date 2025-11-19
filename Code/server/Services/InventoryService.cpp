@@ -46,7 +46,7 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
     notify.ServerId = message.ServerId;
     notify.Item = message.Item;
 
-    notify.Drop = bEnableItemDrops ? message.Drop : false;
+    notify.Drop = false; // bEnableItemDrops ? message.Drop : false;
     if (message.HasDropInstanceId)
     {
         notify.HasDropInstanceId = true;
