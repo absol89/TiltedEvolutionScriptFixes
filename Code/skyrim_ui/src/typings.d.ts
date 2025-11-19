@@ -65,10 +65,7 @@ declare namespace SkyrimTogetherTypes {
     avatar: string,
   ) => void;
 
-  type PlayerAvatarUpdatedCallback = (
-    playerId: number,
-    avatar: string,
-  ) => void;
+  type PlayerAvatarUpdatedCallback = (playerId: number, avatar: string) => void;
 
   type PlayerDisconnectedCallback = (
     playerId: number,
@@ -130,6 +127,45 @@ declare namespace SkyrimTogetherTypes {
     cancelled: boolean,
     reason: string,
   ) => void;
+
+  type TradeInviteCallback = (inviterId: number, expiryTick: number) => void;
+  type TradeInviteExpiredCallback = (inviterId: number) => void;
+
+  interface TradeItemPayload {
+    modId: number;
+    baseId: number;
+    count: number;
+    isQuestItem: boolean;
+    name: string;
+    inventoryIndex?: number;
+    offeredCount?: number;
+  }
+
+  interface TradeInventoryPayload extends TradeItemPayload {
+    inventoryIndex: number;
+    offeredCount: number;
+  }
+
+  type TradeStateUpdatedCallback = (
+    active: boolean,
+    partnerId: number,
+    initiatedBySelf: boolean,
+    selfReady: boolean,
+    partnerReady: boolean,
+    selfItems: TradeItemPayload[],
+    partnerItems: TradeItemPayload[],
+    inventory: TradeInventoryPayload[],
+  ) => void;
+
+  type TradeCancelledCallback = (
+    partnerId: number,
+    reason: number,
+    wasInitiator: boolean,
+  ) => void;
+
+  type TradeCompletedCallback = (partnerId: number) => void;
+
+  type TradeOfferEntry = { index: number; count: number };
 }
 
 /** Global Skyrim: Together object. */
@@ -258,6 +294,26 @@ interface SkyrimTogether {
   on(
     event: 'partyInviteReceived',
     callback: SkyrimTogetherTypes.PartyInviteReceivedCallback,
+  ): void;
+  on(
+    event: 'tradeInviteReceived',
+    callback: SkyrimTogetherTypes.TradeInviteCallback,
+  ): void;
+  on(
+    event: 'tradeInviteExpired',
+    callback: SkyrimTogetherTypes.TradeInviteExpiredCallback,
+  ): void;
+  on(
+    event: 'tradeStateUpdated',
+    callback: SkyrimTogetherTypes.TradeStateUpdatedCallback,
+  ): void;
+  on(
+    event: 'tradeCancelled',
+    callback: SkyrimTogetherTypes.TradeCancelledCallback,
+  ): void;
+  on(
+    event: 'tradeCompleted',
+    callback: SkyrimTogetherTypes.TradeCompletedCallback,
   ): void;
 
   on(
@@ -428,6 +484,26 @@ interface SkyrimTogether {
     event: 'partyInviteReceived',
     callback?: SkyrimTogetherTypes.PartyInviteReceivedCallback,
   ): void;
+  off(
+    event: 'tradeInviteReceived',
+    callback?: SkyrimTogetherTypes.TradeInviteCallback,
+  ): void;
+  off(
+    event: 'tradeInviteExpired',
+    callback?: SkyrimTogetherTypes.TradeInviteExpiredCallback,
+  ): void;
+  off(
+    event: 'tradeStateUpdated',
+    callback?: SkyrimTogetherTypes.TradeStateUpdatedCallback,
+  ): void;
+  off(
+    event: 'tradeCancelled',
+    callback?: SkyrimTogetherTypes.TradeCancelledCallback,
+  ): void;
+  off(
+    event: 'tradeCompleted',
+    callback?: SkyrimTogetherTypes.TradeCompletedCallback,
+  ): void;
 
   off(
     event: 'teleportRequest',
@@ -562,6 +638,40 @@ interface SkyrimTogether {
    * @param playerId Id of the new leader.
    */
   changePartyLeader(playerId: number): void;
+
+  /**
+   * Send a trade invite to another player.
+   *
+   * @param playerId Id of the player to trade with.
+   */
+  sendTradeInvite(playerId: number): void;
+
+  /**
+   * Respond to a trade invite.
+   *
+   * @param playerId Id of the inviter.
+   * @param accept Whether to accept the invitation.
+   */
+  respondTradeInvite(playerId: number, accept: boolean): void;
+
+  /**
+   * Cancel the current trade session or pending invite.
+   */
+  cancelTrade(): void;
+
+  /**
+   * Update the local ready state for the current trade session.
+   *
+   * @param ready Whether the player is ready to finalize the trade.
+   */
+  setTradeReady(ready: boolean): void;
+
+  /**
+   * Update the items offered in the current trade session.
+   *
+   * @param entries Selection of inventory indices and counts to offer.
+   */
+  updateTradeOffer(entries: SkyrimTogetherTypes.TradeOfferEntry[]): void;
 
   /**
    * Upload or clear the local profile picture shown to party members.

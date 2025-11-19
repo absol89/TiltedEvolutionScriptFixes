@@ -40,7 +40,8 @@
     "NOTIFICATIONS": {
       "MESSAGE_FROM": "Message from",
       "ACCEPT": "Accept",
-      "DECLINE": "Decline"
+      "DECLINE": "Decline",
+      "CANCEL": "Cancel"
     },
     "PARTY_MENU": {
       "ACCEPT_INVITE": "Accept invite from {{name}}",
@@ -87,7 +88,54 @@
         "NAME": "Name",
         "LOCATION": "Location"
       },
-      "INVITE": "Invite"
+      "INVITE": "Invite",
+      "TRADE": "Trade",
+      "CANCEL_TRADE_INVITE": "Cancel trade invite"
+    },
+    "TRADE_MENU": {
+      "INVITES_TITLE": "Trade invitations",
+      "NO_INVITES": "No pending trade invitations.",
+      "INVITE_ACTIONS": {
+        "ACCEPT": "Accept",
+        "DECLINE": "Decline"
+      },
+      "TRADING_WITH": "Trading with {{name}}",
+      "COUNTDOWN": "Finalizing in {{seconds}}s",
+      "SELF_READY": "You are ready",
+      "SELF_NOT_READY": "You are not ready",
+      "PARTNER_READY": "{{name}} is ready",
+      "PARTNER_NOT_READY": "{{name}} is not ready",
+      "ACTIONS": {
+        "READY": "Ready up",
+        "UNREADY": "Cancel ready",
+        "CANCEL_TRADE": "Cancel trade",
+        "CLEAR": "Clear",
+        "OFFER_ALL": "Offer all",
+        "CLOSE": "Close window"
+      },
+      "INVENTORY_TITLE": "Your inventory",
+      "NO_INVENTORY": "No tradable items available.",
+      "ITEM_COLUMNS": {
+        "NAME": "Item",
+        "AVAILABLE": "Available",
+        "OFFERED": "Offered"
+      },
+      "QUEST_ITEM_WARNING": "Quest items cannot be traded.",
+      "OFFER_TITLE": "Your offer",
+      "EMPTY_OFFER": "You are not offering any items.",
+      "PARTNER_OFFER_TITLE": "Partner offer",
+      "EMPTY_PARTNER_OFFER": "The partner is not offering any items.",
+      "NO_ACTIVE_TRADE": "No active trade session.",
+      "DETAILS": {
+        "QUEST_ITEM": "Quest item",
+        "ENCHANTED": "Enchanted",
+        "ENCHANT_REMOVE": "Removes enchant on unequip",
+        "CHARGE": "Charge: {{value}}",
+        "POISON": "Poisoned ({{count}})",
+        "SOUL_LEVEL": "Soul level: {{level}}",
+        "EXTRA_HEALTH": "Refined (+{{value}})",
+        "CUSTOM_NAME": "Custom item"
+      }
     },
     "PLAYER_MANAGER": {
       "PLAYER_LIST": "Player List",
@@ -195,7 +243,24 @@
     },
     "PLAYER_LIST": {
       "PARTY_INVITE": "{{from}} invited you to join a party",
-      "TELEPORT_REQUEST": "{{from}} wants to teleport to you."
+      "TELEPORT_REQUEST": "{{from}} wants to teleport to you.",
+      "TRADE_INVITE": "{{from}} wants to trade with you."
+    },
+    "TRADE": {
+      "UNKNOWN_PLAYER": "Player {{id}}",
+      "CANCELLED": "{{partner}} cancelled the trade ({{reason}}).",
+      "COMPLETED": "Trade completed with {{partner}}.",
+      "INVITE_SENT": "Trade invite sent to {{target}}.",
+      "CANCELLED_REASONS": {
+        "DECLINED": "Invite declined",
+        "CANCELLED": "Trade cancelled",
+        "PARTNER_BUSY": "Partner is busy",
+        "SELF_BUSY": "You are busy",
+        "PLAYER_LEFT": "Player left the session",
+        "TIMEOUT": "Invitation expired",
+        "FAILED_VALIDATION": "Trade failed validation",
+        "UNKNOWN": "Unknown reason"
+      }
     },
     "OVERLAY_BANNER": {
       "TELEPORT_COUNTDOWN_TITLE": "Teleporting to {{name}}",
