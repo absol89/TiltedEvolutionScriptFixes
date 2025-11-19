@@ -2,6 +2,7 @@
 
 struct World;
 struct TransportService;
+class Actor;
 
 struct UpdateEvent;
 struct NotifyObjectInventoryChanges;
@@ -51,6 +52,9 @@ struct InventoryService
     void OnNotifyEquipmentChanges(const NotifyEquipmentChanges& acMessage) noexcept;
 
 private:
+    void ApplyEquipmentChange(Actor* pActor, const NotifyEquipmentChanges& acMessage) noexcept;
+    void ProcessPendingEquipment() noexcept;
+
     /**
      * Checks whether local actors their weapon draw states have changed,
      * and if so, send the new states to the server.

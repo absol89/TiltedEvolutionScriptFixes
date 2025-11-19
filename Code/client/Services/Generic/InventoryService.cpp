@@ -1,6 +1,7 @@
 #include <Services/InventoryService.h>
 
 #include <cstdlib>
+#include <TiltedCore/Stl.hpp>
 
 #include <Messages/RequestObjectInventoryChanges.h>
 #include <Messages/NotifyObjectInventoryChanges.h>
@@ -15,6 +16,7 @@
 #include <Events/InventoryChangeEvent.h>
 #include <Events/EquipmentChangeEvent.h>
 
+#include <Components.h>
 #include <World.h>
 #include <Games/Skyrim/Interface/UI.h>
 #include <PlayerCharacter.h>
@@ -44,6 +46,7 @@ InventoryService::InventoryService(World& aWorld, entt::dispatcher& aDispatcher,
 
 void InventoryService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
 {
+    ProcessPendingEquipment();
     RunWeaponStateUpdates();
     RunNakedNPCBugChecks();
 }
@@ -252,6 +255,33 @@ void InventoryService::OnNotifyEquipmentChanges(const NotifyEquipmentChanges& ac
         return;
     }
 
+    if (!pActor->GetNiNode())
+    {
+        auto view = m_world.view<FormIdComponent>();
+        const auto itor = std::find_if(std::begin(view), std::end(view), [formId = pActor->formID, view](entt::entity entity) { return view.get<FormIdComponent>(entity).Id == formId; });
+
+        if (itor != std::end(view))
+        {
+            auto* pPending = m_world.try_get<PendingEquipmentComponent>(*itor);
+            if (!pPending)
+                pPending = &m_world.emplace<PendingEquipmentComponent>(*itor);
+
+            pPending->PendingChanges.push_back(acMessage);
+            spdlog::debug("Queued equipment change for actor {:X} until 3D is ready", pActor->formID);
+        }
+        else
+        {
+            spdlog::warn("{}: could not queue equipment change, entity not found for form id {:X}", __FUNCTION__, pActor->formID);
+        }
+
+        return;
+    }
+
+    ApplyEquipmentChange(pActor, acMessage);
+}
+
+void InventoryService::ApplyEquipmentChange(Actor* pActor, const NotifyEquipmentChanges& acMessage) noexcept
+{
     auto& modSystem = World::Get().GetModSystem();
 
     uint32_t itemId = modSystem.GetGameId(acMessage.ItemId);
@@ -324,6 +354,30 @@ void InventoryService::OnNotifyEquipmentChanges(const NotifyEquipmentChanges& ac
                 pEquipManager->Equip(pActor, pArmor, nullptr, 1, pEquipSlot, false, true, false, false);
         }
     }
+}
+
+void InventoryService::ProcessPendingEquipment() noexcept
+{
+    auto view = m_world.view<FormIdComponent, PendingEquipmentComponent>();
+    TiltedPhoques::Vector<entt::entity> toClear;
+
+    for (auto entity : view)
+    {
+        auto& formIdComponent = view.get<FormIdComponent>(entity);
+        auto& pending = view.get<PendingEquipmentComponent>(entity);
+
+        Actor* pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
+        if (!pActor || !pActor->GetNiNode())
+            continue;
+
+        for (const auto& change : pending.PendingChanges)
+            ApplyEquipmentChange(pActor, change);
+
+        toClear.push_back(entity);
+    }
+
+    for (auto entity : toClear)
+        m_world.remove<PendingEquipmentComponent>(entity);
 }
 
 void InventoryService::RunWeaponStateUpdates() noexcept
