@@ -1371,7 +1371,10 @@ void Actor::DropOrPickUpObject(const Inventory::Entry& arEntry, NiPoint3* apLoca
 
         if (!pDroppedRef)
         {
-            spdlog::warn("Object to pick up not found near target location, {:X}:{:X}.", arEntry.BaseId.ModId, arEntry.BaseId.BaseId);
+            spdlog::warn("Object to pick up not found near target location, {:X}:{:X}. Falling back to inventory add.", arEntry.BaseId.ModId, arEntry.BaseId.BaseId);
+
+            ScopedInventoryOverride _;
+            AddOrRemoveItem(arEntry, true);
             return;
         }
 

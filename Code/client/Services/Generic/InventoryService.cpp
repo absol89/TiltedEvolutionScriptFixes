@@ -129,7 +129,8 @@ void InventoryService::OnEquipmentChangeEvent(const EquipmentChangeEvent& acEven
     if (!modSystem.GetServerModId(acEvent.ItemId, request.ItemId))
         return;
 
-    request.Count = acEvent.Count;
+    const int32_t cEffectiveCount = acEvent.Count == 0 ? 1 : acEvent.Count;
+    request.Count = cEffectiveCount;
     request.Unequip = acEvent.Unequip;
     request.IsSpell = acEvent.IsSpell;
     request.IsShout = acEvent.IsShout;
@@ -138,7 +139,7 @@ void InventoryService::OnEquipmentChangeEvent(const EquipmentChangeEvent& acEven
 
     m_transport.Send(request);
 
-    spdlog::info("Sending equipment request, item: {:X}, count: {}, target object: {:X}", acEvent.ItemId, acEvent.Count, acEvent.ActorId);
+    spdlog::info("Sending equipment request, item: {:X}, count: {}, target object: {:X}", acEvent.ItemId, cEffectiveCount, acEvent.ActorId);
 }
 
 void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& acMessage) noexcept
@@ -324,9 +325,11 @@ void InventoryService::ApplyEquipmentChange(Actor* pActor, const NotifyEquipment
     auto* pObject = Cast<TESBoundObject>(pItem);
 
     // TODO: ExtraData necessary? probably
+    const int32_t count = acMessage.Count == 0 ? 1 : acMessage.Count;
+
     if (acMessage.Unequip)
     {
-        pEquipManager->UnEquip(pActor, pItem, nullptr, acMessage.Count, pEquipSlot, false, true, false, false, nullptr);
+        pEquipManager->UnEquip(pActor, pItem, nullptr, count, pEquipSlot, false, true, false, false, nullptr);
     }
     else
     {
@@ -344,7 +347,7 @@ void InventoryService::ApplyEquipmentChange(Actor* pActor, const NotifyEquipment
             }
         }
 
-        pEquipManager->Equip(pActor, pItem, nullptr, acMessage.Count, pEquipSlot, false, true, false, false);
+        pEquipManager->Equip(pActor, pItem, nullptr, count, pEquipSlot, false, true, false, false);
 
         for (const auto& armor : wornArmor.Entries)
         {

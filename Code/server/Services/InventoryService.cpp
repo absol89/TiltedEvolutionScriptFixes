@@ -118,11 +118,13 @@ void InventoryService::OnEquipmentChanges(const PacketEvent<RequestEquipmentChan
         return;
     }
 
+    const auto effectiveCount = message.Count == 0 ? 1 : message.Count;
+
     NotifyEquipmentChanges notify;
     notify.ServerId = message.ServerId;
     notify.ItemId = message.ItemId;
     notify.EquipSlotId = message.EquipSlotId;
-    notify.Count = message.Count;
+    notify.Count = effectiveCount;
     notify.Unequip = message.Unequip;
     notify.IsSpell = message.IsSpell;
     notify.IsShout = message.IsShout;

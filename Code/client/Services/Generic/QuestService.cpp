@@ -150,47 +150,50 @@ BSTEventResult QuestService::OnEvent(const TESQuestStageEvent* apEvent, const Ev
 
 void QuestService::OnQuestUpdate(const NotifyQuestUpdate& aUpdate) noexcept
 {
-    ModSystem& modSystem = World::Get().GetModSystem();
-    uint32_t formId = modSystem.GetGameId(aUpdate.Id);
-    TESQuest* pQuest = Cast<TESQuest>(TESForm::GetById(formId));
-    if (!pQuest)
+    m_world.GetRunner().Queue([this, update = aUpdate]()
     {
-        spdlog::error("Failed to find quest, base id: {:X}, mod id: {:X}", aUpdate.Id.BaseId, aUpdate.Id.ModId);
-        return;
-    }
+        ModSystem& modSystem = World::Get().GetModSystem();
+        uint32_t formId = modSystem.GetGameId(update.Id);
+        TESQuest* pQuest = Cast<TESQuest>(TESForm::GetById(formId));
+        if (!pQuest)
+        {
+            spdlog::error("Failed to find quest, base id: {:X}, mod id: {:X}", update.Id.BaseId, update.Id.ModId);
+            return;
+        }
 
-    if (pQuest->type == TESQuest::Type::None || pQuest->type == TESQuest::Type::Miscellaneous)
-    {
-        spdlog::info(__FUNCTION__ ": receiving type none/misc quest update gameId {:X} questStage {} questStatus {} questType {} formId {:X} name {}",
-                     aUpdate.Id.LogFormat(), aUpdate.Stage, aUpdate.Status,
-                     aUpdate.ClientQuestType, formId, pQuest->fullName.value.AsAscii());
-    }
+        if (pQuest->type == TESQuest::Type::None || pQuest->type == TESQuest::Type::Miscellaneous)
+        {
+            spdlog::info(__FUNCTION__ ": receiving type none/misc quest update gameId {:X} questStage {} questStatus {} questType {} formId {:X} name {}",
+                         update.Id.LogFormat(), update.Stage, update.Status,
+                         update.ClientQuestType, formId, pQuest->fullName.value.AsAscii());
+        }
 
-    bool bResult = false;
-    switch (aUpdate.Status)
-    {
-    case NotifyQuestUpdate::Started:
-    {
-        pQuest->ScriptSetStage(aUpdate.Stage);
-        pQuest->SetActive(true);
-        bResult = true;
-        spdlog::info("Remote quest started: {:X}, stage: {}", formId, aUpdate.Stage);
-        break;
-    }
-    case NotifyQuestUpdate::StageUpdate:
-        pQuest->ScriptSetStage(aUpdate.Stage);
-        bResult = true;
-        spdlog::info("Remote quest updated: {:X}, stage: {}", formId, aUpdate.Stage);
-        break;
-    case NotifyQuestUpdate::Stopped:
-        bResult = StopQuest(formId);
-        spdlog::info("Remote quest stopped: {:X}, stage: {}", formId, aUpdate.Stage);
-        break;
-    default: break;
-    }
+        bool bResult = false;
+        switch (update.Status)
+        {
+        case NotifyQuestUpdate::Started:
+        {
+            pQuest->ScriptSetStage(update.Stage);
+            pQuest->SetActive(true);
+            bResult = true;
+            spdlog::info("Remote quest started: {:X}, stage: {}", formId, update.Stage);
+            break;
+        }
+        case NotifyQuestUpdate::StageUpdate:
+            pQuest->ScriptSetStage(update.Stage);
+            bResult = true;
+            spdlog::info("Remote quest updated: {:X}, stage: {}", formId, update.Stage);
+            break;
+        case NotifyQuestUpdate::Stopped:
+            bResult = StopQuest(formId);
+            spdlog::info("Remote quest stopped: {:X}, stage: {}", formId, update.Stage);
+            break;
+        default: break;
+        }
 
-    if (!bResult)
-        spdlog::error("Failed to update the client quest state, quest: {:X}, stage: {}, status: {}", formId, aUpdate.Stage, aUpdate.Status);
+        if (!bResult)
+            spdlog::error("Failed to update the client quest state, quest: {:X}, stage: {}, status: {}", formId, update.Stage, update.Status);
+    });
 }
 
 bool QuestService::StopQuest(uint32_t aformId)
