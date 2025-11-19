@@ -166,9 +166,16 @@ void PlayerService::OnPlayerRespawnRequest(const PacketEvent<PlayerRespawnReques
     if (!character)
         return;
 
+    const auto entity = m_world.TryResolveEntity(World::ToInteger(*character));
+    if (!entity)
+    {
+        spdlog::warn("Respawn request references invalid player entity {:X}", World::ToInteger(*character));
+        return;
+    }
+
     auto view = m_world.view<InventoryComponent>();
 
-    const auto it = view.find(static_cast<entt::entity>(*character));
+    const auto it = view.find(*entity);
 
     if (it != view.end())
     {
@@ -187,12 +194,12 @@ void PlayerService::OnPlayerRespawnRequest(const PacketEvent<PlayerRespawnReques
             inventoryComponent.Content.AddOrRemoveEntry(entry);
 
             NotifyInventoryChanges notifyInventoryChanges{};
-            notifyInventoryChanges.ServerId = World::ToInteger(*character);
+            notifyInventoryChanges.ServerId = World::ToInteger(*entity);
             notifyInventoryChanges.Item = entry;
             notifyInventoryChanges.Drop = false;
 
             // Exclude respawned player from inventory changes notification...
-            if (!GameServer::Get()->SendToPlayersInRange(notifyInventoryChanges, *character, acMessage.GetSender()))
+            if (!GameServer::Get()->SendToPlayersInRange(notifyInventoryChanges, *entity, acMessage.GetSender()))
                 spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
 
             // ...and instead, send NotifyPlayerRespawn so that the client can print a message.
@@ -204,9 +211,9 @@ void PlayerService::OnPlayerRespawnRequest(const PacketEvent<PlayerRespawnReques
 
         // Let all other players in cell respawn this player, since the body state seems to be bugged otherwise
         NotifyRespawn notifyRespawn{};
-        notifyRespawn.ActorId = World::ToInteger(*character);
+        notifyRespawn.ActorId = World::ToInteger(*entity);
 
-        if (!GameServer::Get()->SendToPlayersInRange(notifyRespawn, *character, acMessage.GetSender()))
+        if (!GameServer::Get()->SendToPlayersInRange(notifyRespawn, *entity, acMessage.GetSender()))
             spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
     }
 }

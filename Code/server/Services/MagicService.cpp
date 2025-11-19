@@ -37,8 +37,14 @@ void MagicService::OnSpellCastRequest(const PacketEvent<SpellCastRequest>& acMes
     notify.IsDualCasting = message.IsDualCasting;
     notify.DesiredTarget = message.DesiredTarget;
 
-    const auto entity = static_cast<entt::entity>(message.CasterId);
-    if (!GameServer::Get()->SendToPlayersInRange(notify, entity, acMessage.GetSender()))
+    const auto entity = m_world.TryResolveEntity(message.CasterId);
+    if (!entity)
+    {
+        spdlog::debug("Spell cast request for unknown caster {:X}", message.CasterId);
+        return;
+    }
+
+    if (!GameServer::Get()->SendToPlayersInRange(notify, *entity, acMessage.GetSender()))
         spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
 }
 
@@ -50,8 +56,14 @@ void MagicService::OnInterruptCastRequest(const PacketEvent<InterruptCastRequest
     notify.CasterId = message.CasterId;
     notify.CastingSource = message.CastingSource;
 
-    const auto entity = static_cast<entt::entity>(message.CasterId);
-    if (!GameServer::Get()->SendToPlayersInRange(notify, entity, acMessage.GetSender()))
+    const auto entity = m_world.TryResolveEntity(message.CasterId);
+    if (!entity)
+    {
+        spdlog::debug("Interrupt cast request for unknown caster {:X}", message.CasterId);
+        return;
+    }
+
+    if (!GameServer::Get()->SendToPlayersInRange(notify, *entity, acMessage.GetSender()))
         spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
 }
 
@@ -69,8 +81,14 @@ void MagicService::OnAddTargetRequest(const PacketEvent<AddTargetRequest>& acMes
     notify.ApplyHealPerkBonus = message.ApplyHealPerkBonus;
     notify.ApplyStaminaPerkBonus = message.ApplyStaminaPerkBonus;
 
-    const auto entity = static_cast<entt::entity>(message.TargetId);
-    if (!GameServer::Get()->SendToPlayersInRange(notify, entity, acMessage.GetSender()))
+    const auto entity = m_world.TryResolveEntity(message.TargetId);
+    if (!entity)
+    {
+        spdlog::debug("Add target request for unknown target {:X}", message.TargetId);
+        return;
+    }
+
+    if (!GameServer::Get()->SendToPlayersInRange(notify, *entity, acMessage.GetSender()))
         spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
 }
 
@@ -84,8 +102,14 @@ void MagicService::OnRemoveSpellRequest(const PacketEvent<RemoveSpellRequest>& a
 
     //spdlog::info(__FUNCTION__ ": TargetId: {}, Spell baseId: {}", notify.TargetId, notify.SpellId.BaseId);
 
-    const auto entity = static_cast<entt::entity>(message.TargetId);
-    if (!GameServer::Get()->SendToPlayersInRange(notify, entity, acMessage.GetSender()))
+    const auto entity = m_world.TryResolveEntity(message.TargetId);
+    if (!entity)
+    {
+        spdlog::debug("Remove spell request for unknown target {:X}", message.TargetId);
+        return;
+    }
+
+    if (!GameServer::Get()->SendToPlayersInRange(notify, *entity, acMessage.GetSender()))
         spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
 }
 
@@ -100,7 +124,13 @@ void MagicService::OnHealingProximityRequest(const PacketEvent<HealingProximityR
     notify.CasterZ = message.CasterZ;
     notify.SpellFormId = message.SpellFormId;
 
-    const auto entity = static_cast<entt::entity>(message.CasterId);
-    if (!GameServer::Get()->SendToPlayersInRange(notify, entity, acMessage.GetSender()))
+    const auto entity = m_world.TryResolveEntity(message.CasterId);
+    if (!entity)
+    {
+        spdlog::debug("Healing proximity request for unknown caster {:X}", message.CasterId);
+        return;
+    }
+
+    if (!GameServer::Get()->SendToPlayersInRange(notify, *entity, acMessage.GetSender()))
         spdlog::error("{}: SendToPlayersInRange failed for healing proximity", __FUNCTION__);
 }

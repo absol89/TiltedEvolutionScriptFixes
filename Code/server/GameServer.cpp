@@ -630,7 +630,7 @@ void GameServer::OnDisconnection(const ConnectionId_t aConnectionId, EDisconnect
         notify.Username = pPlayer->GetUsername();
         SendToPlayers(notify);
 
-        entt::entity playerCharacter = pPlayer->GetCharacter().value_or(static_cast<entt::entity>(0));
+        entt::entity playerCharacter = pPlayer->GetCharacter().value_or(entt::null);
 
         // Cleanup all entities that we own
         auto ownerView = m_pWorld->view<OwnerComponent>();

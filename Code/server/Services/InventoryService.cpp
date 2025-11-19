@@ -29,14 +29,33 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
 {
     auto& message = acMessage.Packet;
 
-    auto view = m_world.view<InventoryComponent>();
+    const auto entity = m_world.TryResolveEntity(message.ServerId);
+    if (!entity)
+    {
+        spdlog::warn("Inventory update requested for unknown entity {:X}", message.ServerId);
+        return;
+    }
 
-    const auto it = view.find(static_cast<entt::entity>(message.ServerId));
+    auto view = m_world.view<InventoryComponent, OwnerComponent>();
+
+    const auto it = view.find(*entity);
 
     if (it != view.end())
     {
+        auto& ownerComponent = view.get<OwnerComponent>(*it);
+        if (ownerComponent.GetOwner() != acMessage.pPlayer)
+        {
+            spdlog::warn("Inventory change denied for {:X}: player {:X} not owner", message.ServerId, acMessage.pPlayer->GetConnectionId());
+            return;
+        }
+
         auto& inventoryComponent = view.get<InventoryComponent>(*it);
         inventoryComponent.Content.AddOrRemoveEntry(message.Item);
+    }
+    else
+    {
+        spdlog::warn("Inventory change requested for entity {:X} without InventoryComponent", message.ServerId);
+        return;
     }
 
     if (!message.UpdateClients)
@@ -45,8 +64,7 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
     NotifyInventoryChanges notify;
     notify.ServerId = message.ServerId;
     notify.Item = message.Item;
-
-    notify.Drop = false; // bEnableItemDrops ? message.Drop : false;
+    notify.Drop = message.Drop;
     if (message.HasDropInstanceId)
     {
         notify.HasDropInstanceId = true;
@@ -63,8 +81,7 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
         notify.DropRotation = message.DropRotation;
     }
 
-    const entt::entity cOrigin = static_cast<entt::entity>(message.ServerId);
-    if (!GameServer::Get()->SendToPlayersInRange(notify, cOrigin, acMessage.GetSender()))
+    if (!GameServer::Get()->SendToPlayersInRange(notify, *entity, acMessage.GetSender()))
         spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
 }
 
@@ -72,14 +89,33 @@ void InventoryService::OnEquipmentChanges(const PacketEvent<RequestEquipmentChan
 {
     auto& message = acMessage.Packet;
 
-    auto view = m_world.view<InventoryComponent>();
+    const auto entity = m_world.TryResolveEntity(message.ServerId);
+    if (!entity)
+    {
+        spdlog::warn("Equipment update requested for unknown entity {:X}", message.ServerId);
+        return;
+    }
 
-    const auto it = view.find(static_cast<entt::entity>(message.ServerId));
+    auto view = m_world.view<InventoryComponent, OwnerComponent>();
+
+    const auto it = view.find(*entity);
 
     if (it != view.end())
     {
+        auto& ownerComponent = view.get<OwnerComponent>(*it);
+        if (ownerComponent.GetOwner() != acMessage.pPlayer)
+        {
+            spdlog::warn("Equipment change denied for {:X}: player {:X} not owner", message.ServerId, acMessage.pPlayer->GetConnectionId());
+            return;
+        }
+
         auto& inventoryComponent = view.get<InventoryComponent>(*it);
         inventoryComponent.Content.UpdateEquipment(message.CurrentInventory);
+    }
+    else
+    {
+        spdlog::warn("Equipment change requested for entity {:X} without InventoryComponent", message.ServerId);
+        return;
     }
 
     NotifyEquipmentChanges notify;
@@ -91,8 +127,7 @@ void InventoryService::OnEquipmentChanges(const PacketEvent<RequestEquipmentChan
     notify.IsSpell = message.IsSpell;
     notify.IsShout = message.IsShout;
 
-    const entt::entity cOrigin = static_cast<entt::entity>(message.ServerId);
-    if (!GameServer::Get()->SendToPlayersInRange(notify, cOrigin, acMessage.GetSender()))
+    if (!GameServer::Get()->SendToPlayersInRange(notify, *entity, acMessage.GetSender()))
         spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
 }
 
@@ -100,8 +135,15 @@ void InventoryService::OnWeaponDrawnRequest(const PacketEvent<DrawWeaponRequest>
 {
     auto& message = acMessage.Packet;
 
+    const auto entity = m_world.TryResolveEntity(message.Id);
+    if (!entity)
+    {
+        spdlog::debug("Weapon drawn request for unknown entity {:X}", message.Id);
+        return;
+    }
+
     auto characterView = m_world.view<CharacterComponent, OwnerComponent>();
-    const auto it = characterView.find(static_cast<entt::entity>(message.Id));
+    const auto it = characterView.find(*entity);
 
     if (it != std::end(characterView) && characterView.get<OwnerComponent>(*it).GetOwner() == acMessage.pPlayer)
     {

@@ -41,20 +41,9 @@
 #include <Messages/NotifyRelinquishControl.h>
 
 #include <Setting.h>
-#include <optional>
 namespace
 {
 Console::Setting bEnableXpSync{"Gameplay:bEnableXpSync", "Syncs combat XP within the party", true};
-
-[[nodiscard]] std::optional<entt::entity> TryResolveEntity(World& aWorld, const uint32_t aServerId) noexcept
-{
-    const auto entity = static_cast<entt::entity>(aServerId);
-
-    if (!aWorld.valid(entity))
-        return std::nullopt;
-
-    return entity;
-}
 }
 
 CharacterService::CharacterService(World& aWorld, entt::dispatcher& aDispatcher) noexcept
@@ -269,7 +258,7 @@ void CharacterService::OnOwnershipTransferRequest(const PacketEvent<RequestOwner
 {
     auto& message = acMessage.Packet;
 
-    const auto entity = TryResolveEntity(m_world, message.ServerId);
+    const auto entity = m_world.TryResolveEntity(message.ServerId);
     if (!entity)
     {
         spdlog::warn("Client {:X} requested ownership transfer of an entity that doesn't exist, server id: {:X}", acMessage.pPlayer->GetConnectionId(), message.ServerId);
@@ -361,7 +350,7 @@ void CharacterService::OnOwnershipTransferEvent(const OwnershipTransferEvent& ac
 
 void CharacterService::OnCharacterRemoveEvent(const CharacterRemoveEvent& acEvent) const noexcept
 {
-    const auto entity = TryResolveEntity(m_world, acEvent.ServerId);
+    const auto entity = m_world.TryResolveEntity(acEvent.ServerId);
     if (!entity)
     {
         spdlog::warn("Character remove event received for unknown entity {:X}", acEvent.ServerId);
@@ -422,7 +411,7 @@ void CharacterService::OnReferencesMoveRequest(const PacketEvent<ClientReference
     for (auto& entry : message.Updates)
     {
         const auto entityId = entry.first;
-        const auto resolved = TryResolveEntity(m_world, entityId);
+        const auto resolved = m_world.TryResolveEntity(entityId);
         if (!resolved)
         {
             spdlog::debug("{:X} requested move of {:X} but entity does not exist", acMessage.pPlayer->GetConnectionId(), entityId);
@@ -483,7 +472,7 @@ void CharacterService::OnFactionsChanges(const PacketEvent<RequestFactionsChange
 
     for (auto& [id, factions] : message.Changes)
     {
-        const auto entity = TryResolveEntity(m_world, id);
+        const auto entity = m_world.TryResolveEntity(id);
         if (!entity)
         {
             spdlog::debug("{:X} requested faction update for unknown entity {:X}", acMessage.pPlayer->GetConnectionId(), id);
@@ -511,7 +500,7 @@ void CharacterService::OnMountRequest(const PacketEvent<MountRequest>& acMessage
     notify.RiderId = message.RiderId;
     notify.MountId = message.MountId;
 
-    const auto entity = TryResolveEntity(m_world, message.MountId);
+    const auto entity = m_world.TryResolveEntity(message.MountId);
     if (!entity)
     {
         spdlog::debug("{:X} requested mount broadcast for unknown entity {:X}", acMessage.pPlayer->GetConnectionId(), message.MountId);
@@ -530,7 +519,7 @@ void CharacterService::OnNewPackageRequest(const PacketEvent<NewPackageRequest>&
     notify.ActorId = message.ActorId;
     notify.PackageId = message.PackageId;
 
-    const auto entity = TryResolveEntity(m_world, message.ActorId);
+    const auto entity = m_world.TryResolveEntity(message.ActorId);
     if (!entity)
     {
         spdlog::debug("{:X} requested package update for unknown entity {:X}", acMessage.pPlayer->GetConnectionId(), message.ActorId);
@@ -543,7 +532,7 @@ void CharacterService::OnNewPackageRequest(const PacketEvent<NewPackageRequest>&
 
 void CharacterService::OnRequestRespawn(const PacketEvent<RequestRespawn>& acMessage) const noexcept
 {
-    const auto entity = TryResolveEntity(m_world, acMessage.Packet.ActorId);
+    const auto entity = m_world.TryResolveEntity(acMessage.Packet.ActorId);
     if (!entity)
     {
         spdlog::warn("Respawn requested for unknown actor id {:X}", acMessage.Packet.ActorId);
@@ -604,7 +593,7 @@ void CharacterService::OnDialogueRequest(const PacketEvent<DialogueRequest>& acM
     notify.ServerId = message.ServerId;
     notify.SoundFilename = message.SoundFilename;
 
-    const auto entity = TryResolveEntity(m_world, message.ServerId);
+    const auto entity = m_world.TryResolveEntity(message.ServerId);
     if (!entity)
     {
         spdlog::debug("{:X} requested dialogue broadcast for unknown entity {:X}", acMessage.pPlayer->GetConnectionId(), message.ServerId);
@@ -623,7 +612,7 @@ void CharacterService::OnSubtitleRequest(const PacketEvent<SubtitleRequest>& acM
     notify.ServerId = message.ServerId;
     notify.Text = message.Text;
 
-    const auto entity = TryResolveEntity(m_world, message.ServerId);
+    const auto entity = m_world.TryResolveEntity(message.ServerId);
     if (!entity)
     {
         spdlog::debug("{:X} requested subtitle broadcast for unknown entity {:X}", acMessage.pPlayer->GetConnectionId(), message.ServerId);
@@ -726,7 +715,7 @@ void CharacterService::CreateCharacter(const PacketEvent<AssignCharacterRequest>
 void CharacterService::TransferOwnership(Player* apPlayer, const uint32_t acServerId,
                                          const ActorData& acActorData) const noexcept
 {
-    const auto entity = TryResolveEntity(m_world, acServerId);
+    const auto entity = m_world.TryResolveEntity(acServerId);
     if (!entity)
     {
         spdlog::warn("Client {:X} requested ownership of an entity that doesn't exist ({:X})!", apPlayer->GetConnectionId(), acServerId);

@@ -12,6 +12,8 @@
 
 #include "Game/PlayerManager.h"
 
+#include <optional>
+
 namespace ESLoader
 {
 struct RecordCollection;
@@ -48,6 +50,8 @@ struct World : entt::registry
     const ESLoader::RecordCollection* GetRecordCollection() const noexcept { return m_recordCollection.get(); }
 
     [[nodiscard]] static uint32_t ToInteger(entt::entity aEntity) { return to_integral(aEntity); }
+    [[nodiscard]] std::optional<entt::entity> TryResolveEntity(uint32_t aServerId) noexcept;
+    [[nodiscard]] std::optional<entt::entity> TryResolveEntity(uint32_t aServerId) const noexcept;
 
 private:
     entt::dispatcher m_dispatcher;

@@ -64,3 +64,23 @@ World::~World()
 {
     m_pScriptService.reset();
 }
+
+std::optional<entt::entity> World::TryResolveEntity(uint32_t aServerId) noexcept
+{
+    const auto entity = static_cast<entt::entity>(aServerId);
+
+    if (!valid(entity))
+        return std::nullopt;
+
+    return entity;
+}
+
+std::optional<entt::entity> World::TryResolveEntity(uint32_t aServerId) const noexcept
+{
+    const auto entity = static_cast<entt::entity>(aServerId);
+
+    if (!valid(entity))
+        return std::nullopt;
+
+    return entity;
+}
