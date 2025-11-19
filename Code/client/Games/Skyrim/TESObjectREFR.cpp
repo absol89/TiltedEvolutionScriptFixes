@@ -772,13 +772,48 @@ void TESObjectREFR::SetInventory(const Inventory& aInventory) noexcept
 
     ScopedInventoryOverride _;
 
-    RemoveAllItems();
+    Inventory currentInventory = GetInventory();
+    Inventory desiredInventory = aInventory;
 
-    for (const Inventory::Entry& entry : aInventory.Entries)
+    // Remove or adjust existing entries
+    for (auto& currentEntry : currentInventory.Entries)
+    {
+        auto matchIt = std::find_if(
+            desiredInventory.Entries.begin(), desiredInventory.Entries.end(),
+            [&currentEntry](const Inventory::Entry& entry) { return entry.BaseId == currentEntry.BaseId && entry.IsExtraDataEquals(currentEntry); });
+
+        const int32_t desiredCount = matchIt != desiredInventory.Entries.end() ? matchIt->Count : 0;
+        const int32_t diff = desiredCount - currentEntry.Count;
+
+        if (diff < 0)
+        {
+            Inventory::Entry removal = currentEntry;
+            removal.Count = diff; // negative count removes items
+            AddOrRemoveItem(removal, true);
+        }
+
+        if (matchIt != desiredInventory.Entries.end())
+        {
+            if (diff > 0)
+            {
+                Inventory::Entry addition = *matchIt;
+                addition.Count = diff;
+                AddOrRemoveItem(addition, true);
+            }
+
+            desiredInventory.Entries.erase(matchIt);
+        }
+    }
+
+    // Add any remaining desired entries that were not present before
+    for (auto& entry : desiredInventory.Entries)
     {
         if (entry.Count != 0)
             AddOrRemoveItem(entry, true);
     }
+
+    if (auto* pActor = Cast<Actor>(this))
+        pActor->SetMagicEquipment(aInventory.CurrentMagicEquipment);
 }
 
 Vector<uint32_t> TESObjectREFR::RemoveNonQuestItems(Inventory& aCurrentInventory) noexcept
@@ -829,6 +864,9 @@ void TESObjectREFR::SetInventoryRetainingQuestItems(Inventory& aCurrentInventory
                 AddOrRemoveItem(entry, true);
         }
     }
+
+    if (auto* pActor = Cast<Actor>(this))
+        pActor->SetMagicEquipment(acSourceInventory.CurrentMagicEquipment);
 }
 
 void TESObjectREFR::AddOrRemoveItem(const Inventory::Entry& arEntry, bool aIsSettingInventory) noexcept

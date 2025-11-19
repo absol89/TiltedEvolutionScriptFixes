@@ -361,12 +361,20 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
 #endif
 
         pActor->SetActorValues(acMessage.AllActorValues);
-        pActor->SetActorInventory(acMessage.CurrentInventory);
 
-        if (pActor->IsDead() != acMessage.IsDead)
-            acMessage.IsDead ? pActor->Kill() : pActor->Respawn();
+        if (pActor->GetNiNode())
+        {
+            pActor->SetActorInventory(acMessage.CurrentInventory);
 
-        m_weaponDrawUpdates[pActor->formID] = {acMessage.IsWeaponDrawn};
+            if (pActor->IsDead() != acMessage.IsDead)
+                acMessage.IsDead ? pActor->Kill() : pActor->Respawn();
+
+            m_weaponDrawUpdates[pActor->formID] = {acMessage.IsWeaponDrawn};
+        }
+        else
+        {
+            m_world.emplace_or_replace<PendingInventoryComponent>(cEntity, acMessage.CurrentInventory, acMessage.IsDead, acMessage.IsWeaponDrawn);
+        }
 
         MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position);
     }
@@ -539,11 +547,19 @@ void CharacterService::OnRemoteSpawnDataReceived(const NotifySpawnData& acMessag
         return;
 
     pActor->SetActorValues(acMessage.NewActorData.InitialActorValues);
-    pActor->SetActorInventory(acMessage.NewActorData.InitialInventory);
-    m_weaponDrawUpdates[pActor->formID] = {acMessage.NewActorData.IsWeaponDrawn};
 
-    if (pActor->IsDead() != acMessage.NewActorData.IsDead)
-        acMessage.NewActorData.IsDead ? pActor->Kill() : pActor->Respawn();
+    if (pActor->GetNiNode())
+    {
+        pActor->SetActorInventory(acMessage.NewActorData.InitialInventory);
+        m_weaponDrawUpdates[pActor->formID] = {acMessage.NewActorData.IsWeaponDrawn};
+
+        if (pActor->IsDead() != acMessage.NewActorData.IsDead)
+            acMessage.NewActorData.IsDead ? pActor->Kill() : pActor->Respawn();
+    }
+    else
+    {
+        m_world.emplace_or_replace<PendingInventoryComponent>(*itor, acMessage.NewActorData.InitialInventory, acMessage.NewActorData.IsDead, acMessage.NewActorData.IsWeaponDrawn);
+    }
 
     spdlog::info("Applied remote spawn data, actor form id: {:X}", pActor->formID);
 }
@@ -1579,6 +1595,33 @@ void CharacterService::RunRemoteUpdates() noexcept
 
     for (auto entity : toRemove)
         m_world.remove<WaitingFor3D>(entity);
+
+    auto pendingInventoryView = m_world.view<FormIdComponent, PendingInventoryComponent>();
+    Vector<entt::entity> pendingToRemove;
+
+    for (auto entity : pendingInventoryView)
+    {
+        auto& formIdComponent = pendingInventoryView.get<FormIdComponent>(entity);
+        auto& pendingInventory = pendingInventoryView.get<PendingInventoryComponent>(entity);
+
+        Actor* pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
+        if (!pActor || !pActor->GetNiNode())
+            continue;
+
+        pActor->SetActorInventory(pendingInventory.InventoryContent);
+
+        if (pActor->IsDead() != pendingInventory.IsDead)
+            pendingInventory.IsDead ? pActor->Kill() : pActor->Respawn();
+
+        m_weaponDrawUpdates[pActor->formID] = {pendingInventory.IsWeaponDrawn};
+
+        pendingToRemove.push_back(entity);
+
+        spdlog::info("Applied pending inventory for actor, form id: {:X}", pActor->formID);
+    }
+
+    for (auto entity : pendingToRemove)
+        m_world.remove<PendingInventoryComponent>(entity);
 }
 
 void CharacterService::RunFactionsUpdates() const noexcept

@@ -833,12 +833,20 @@ void Actor::SetActorInventory(const Inventory& acInventory) noexcept
 
     Inventory currentInventory = GetActorInventory();
 
-    if (!this->GetExtension()->IsPlayer() && currentInventory.ContainsQuestItems())
-        SetInventoryRetainingQuestItems(currentInventory, acInventory);
-    else
-        SetInventory(acInventory);
+    const bool hasQuestItems = currentInventory.ContainsQuestItems();
+    const bool isPlayer = this->GetExtension()->IsPlayer();
 
-    SetMagicEquipment(acInventory.CurrentMagicEquipment);
+    if (!isPlayer && hasQuestItems)
+    {
+        SetInventoryRetainingQuestItems(currentInventory, acInventory);
+        SetMagicEquipment(acInventory.CurrentMagicEquipment);
+    }
+    else
+    {
+        SetInventory(acInventory);
+        if (isPlayer || !hasQuestItems)
+            SetMagicEquipment(acInventory.CurrentMagicEquipment);
+    }
 }
 
 void Actor::SetMagicEquipment(const MagicEquipment& acEquipment) noexcept
