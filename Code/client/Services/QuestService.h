@@ -2,7 +2,10 @@
 
 #include <World.h>
 #include <Events/EventDispatcher.h>
+#include <Events/UpdateEvent.h>
 #include <Games/Events.h>
+#include <TiltedCore/Stl.hpp>
+#include <Messages/NotifyQuestUpdate.h>
 
 struct NotifyQuestUpdate;
 
@@ -32,6 +35,9 @@ private:
 
     // Network quest updates
     void OnQuestUpdate(const NotifyQuestUpdate&) noexcept;
+    void OnUpdate(const UpdateEvent&) noexcept;
+    bool TryApplyQuestUpdate(const NotifyQuestUpdate& aUpdate) noexcept;
+    void FlushPendingUpdates() noexcept;
 
     World& m_world;
 
@@ -39,4 +45,7 @@ private:
     entt::scoped_connection m_joinedConnection;
     entt::scoped_connection m_leftConnection;
     entt::scoped_connection m_questUpdateConnection;
+    entt::scoped_connection m_updateConnection;
+
+    TiltedPhoques::Vector<NotifyQuestUpdate> m_pendingUpdates;
 };
