@@ -19,7 +19,7 @@ struct NotifyInventoryChanges final : ServerMessage
 
     bool operator==(const NotifyInventoryChanges& acRhs) const noexcept
     {
-        return GetOpcode() == acRhs.GetOpcode() && ServerId == acRhs.ServerId && Item == acRhs.Item && Drop == acRhs.Drop && HasDropInstanceId == acRhs.HasDropInstanceId &&
+        return GetOpcode() == acRhs.GetOpcode() && ServerId == acRhs.ServerId && Item == acRhs.Item && Drop == acRhs.Drop && Silent == acRhs.Silent && HasDropInstanceId == acRhs.HasDropInstanceId &&
                (!HasDropInstanceId || DropInstanceId == acRhs.DropInstanceId) && HasDropLocation == acRhs.HasDropLocation && (!HasDropLocation || DropLocation == acRhs.DropLocation) && HasDropRotation == acRhs.HasDropRotation &&
                (!HasDropRotation || DropRotation == acRhs.DropRotation);
     }
@@ -27,6 +27,7 @@ struct NotifyInventoryChanges final : ServerMessage
     uint32_t ServerId{};
     Inventory::Entry Item{};
     bool Drop = false;
+    bool Silent = false;
     bool HasDropInstanceId = false;
     uint32_t DropInstanceId = 0;
     bool HasDropLocation = false;

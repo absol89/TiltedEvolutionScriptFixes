@@ -510,10 +510,10 @@ void TradeService::FinalizeTrade(TradeSession& aSession) noexcept
             notifyRemoval.ServerId = World::ToInteger(*fromCharacter);
             notifyRemoval.Item = removal;
             notifyRemoval.Drop = false;
-            if (!GameServer::Get()->SendToPlayersInRange(notifyRemoval, *fromCharacter))
+            notifyRemoval.Silent = true;
+            if (!GameServer::Get()->SendToPlayersInRange(notifyRemoval, *fromCharacter, apFrom))
                 spdlog::error("[TradeService]: Failed to broadcast inventory removal for {}", apFrom->GetId());
             apFrom->Send(notifyRemoval);
-
             Inventory::Entry addition = item;
             addition.Count = std::abs(item.Count);
             toInventory.AddOrRemoveEntry(addition);
@@ -522,7 +522,8 @@ void TradeService::FinalizeTrade(TradeSession& aSession) noexcept
             notifyAddition.ServerId = World::ToInteger(*toCharacter);
             notifyAddition.Item = addition;
             notifyAddition.Drop = false;
-            if (!GameServer::Get()->SendToPlayersInRange(notifyAddition, *toCharacter))
+            notifyAddition.Silent = true;
+            if (!GameServer::Get()->SendToPlayersInRange(notifyAddition, *toCharacter, apTo))
                 spdlog::error("[TradeService]: Failed to broadcast inventory addition for {}", apTo->GetId());
             apTo->Send(notifyAddition);
         }
