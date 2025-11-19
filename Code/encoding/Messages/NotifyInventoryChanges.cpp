@@ -6,6 +6,7 @@ void NotifyInventoryChanges::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter
     Serialization::WriteVarInt(aWriter, ServerId);
     Item.Serialize(aWriter);
     Serialization::WriteBool(aWriter, Drop);
+    Serialization::WriteBool(aWriter, Silent);
     Serialization::WriteBool(aWriter, HasDropInstanceId);
     if (HasDropInstanceId)
         Serialization::WriteVarInt(aWriter, DropInstanceId);
@@ -24,6 +25,7 @@ void NotifyInventoryChanges::DeserializeRaw(TiltedPhoques::Buffer::Reader& aRead
     ServerId = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
     Item.Deserialize(aReader);
     Drop = Serialization::ReadBool(aReader);
+    Silent = Serialization::ReadBool(aReader);
     HasDropInstanceId = Serialization::ReadBool(aReader);
     if (HasDropInstanceId)
         DropInstanceId = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;

@@ -48,6 +48,7 @@ target(name)
     add_packages(
         "tiltedcore",
         "spdlog",
+        "fmt",
         "hopscotch-map",
         "cryptopp",
         "gamenetworkingsockets",
@@ -58,7 +59,8 @@ target(name)
         "entt",
         "glm",
         "mem",
-        "xbyak")
+        "xbyak",
+        "fmt")
 
     if has_config("vivox") then
         add_files("Services/Vivox/**.cpp")

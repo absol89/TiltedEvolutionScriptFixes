@@ -13,10 +13,12 @@
 #include <Services/CommandService.h>
 #include <Services/StringCacheService.h>
 #include <Services/CombatService.h>
+#include <Services/TradeService.h>
 #include <Services/WeatherService.h>
 #include <Services/ScriptService.h>
 #include <Services/MapService.h>
 #include <Services/VoteTimeService.h>
+#include <Services/LoginService.h>
 
 #include <es_loader/ESLoader.h>
 
@@ -39,10 +41,12 @@ World::World()
     ctx().emplace<OverlayService>(*this, m_dispatcher);
     ctx().emplace<CommandService>(*this, m_dispatcher);
     ctx().emplace<StringCacheService>(*this, m_dispatcher);
+    ctx().emplace<TradeService>(*this, m_dispatcher);
     ctx().emplace<CombatService>(*this, m_dispatcher);
     ctx().emplace<WeatherService>(*this, m_dispatcher);
     ctx().emplace<MapService>(*this, m_dispatcher);
     ctx().emplace<VoteTimeService>(*this, m_dispatcher);
+    ctx().emplace<LoginService>(*this, m_dispatcher);
 
     ESLoader::ESLoader loader;
     // emplace loaded mods into modscomponent.
@@ -59,4 +63,24 @@ World::World()
 World::~World()
 {
     m_pScriptService.reset();
+}
+
+std::optional<entt::entity> World::TryResolveEntity(uint32_t aServerId) noexcept
+{
+    const auto entity = static_cast<entt::entity>(aServerId);
+
+    if (!valid(entity))
+        return std::nullopt;
+
+    return entity;
+}
+
+std::optional<entt::entity> World::TryResolveEntity(uint32_t aServerId) const noexcept
+{
+    const auto entity = static_cast<entt::entity>(aServerId);
+
+    if (!valid(entity))
+        return std::nullopt;
+
+    return entity;
 }

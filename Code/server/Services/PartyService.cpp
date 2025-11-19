@@ -116,8 +116,19 @@ void PartyService::OnUpdate(const UpdateEvent& acEvent) noexcept
             }
 
             // Send to each party member
+            TiltedPhoques::Vector<ConnectionId_t> members;
+            members.reserve(party.Members.size());
             for (auto* pPlayer : party.Members)
-                pPlayer->Send(msg);
+            {
+                if (pPlayer)
+                    members.push_back(pPlayer->GetConnectionId());
+            }
+
+            for (auto connectionId : members)
+            {
+                if (auto* pPlayer = m_world.GetPlayerManager().GetByConnectionId(connectionId))
+                    pPlayer->Send(msg);
+            }
         }
     }
 
@@ -193,9 +204,17 @@ void PartyService::OnPartyCreate(const PacketEvent<PartyCreateRequest>& acPacket
 
         if (m_parties.size() == 1 && bAutoPartyJoin)
         {
+            TiltedPhoques::Vector<ConnectionId_t> otherPlayers;
+            otherPlayers.reserve(m_world.GetPlayerManager().Count());
             for (Player* otherPlayer : m_world.GetPlayerManager())
             {
-                if (otherPlayer->GetId() != player->GetId())
+                otherPlayers.push_back(otherPlayer->GetConnectionId());
+            }
+
+            for (auto connectionId : otherPlayers)
+            {
+                Player* otherPlayer = m_world.GetPlayerManager().GetByConnectionId(connectionId);
+                if (otherPlayer && otherPlayer->GetId() != player->GetId())
                 {
                     party.Members.push_back(otherPlayer);
                     otherPlayer->GetParty().JoinedPartyId = partyId;
@@ -277,6 +296,7 @@ void PartyService::OnPlayerJoin(const PlayerJoinEvent& acEvent) noexcept
     NotifyPlayerJoined notify{};
     notify.PlayerId = acEvent.pPlayer->GetId();
     notify.Username = acEvent.pPlayer->GetUsername();
+    notify.Avatar = acEvent.pPlayer->GetAvatar();
 
     notify.WorldSpaceId = acEvent.WorldSpaceId;
     notify.CellId = acEvent.CellId;
@@ -459,9 +479,18 @@ void PartyService::RemovePlayerFromParty(Player* apPlayer) noexcept
 void PartyService::BroadcastPlayerList(Player* apPlayer) const noexcept
 {
     auto pIgnoredPlayer = apPlayer;
+    TiltedPhoques::Vector<ConnectionId_t> players;
+    players.reserve(m_world.GetPlayerManager().Count());
+
     for (auto pSelf : m_world.GetPlayerManager())
     {
-        if (pIgnoredPlayer == pSelf)
+        players.push_back(pSelf->GetConnectionId());
+    }
+
+    for (auto selfId : players)
+    {
+        auto pSelf = m_world.GetPlayerManager().GetByConnectionId(selfId);
+        if (!pSelf || pIgnoredPlayer == pSelf)
             continue;
 
         NotifyPlayerList playerList;
@@ -473,7 +502,10 @@ void PartyService::BroadcastPlayerList(Player* apPlayer) const noexcept
             if (pIgnoredPlayer == pPlayer)
                 continue;
 
-            playerList.Players[pPlayer->GetId()] = pPlayer->GetUsername();
+            NotifyPlayerList::PlayerListEntry entry{};
+            entry.Name = pPlayer->GetUsername();
+            entry.Avatar = pPlayer->GetAvatar();
+            playerList.Players[pPlayer->GetId()] = std::move(entry);
         }
 
         pSelf->Send(playerList);
@@ -497,10 +529,21 @@ void PartyService::BroadcastPartyInfo(uint32_t aPartyId) const noexcept
         message.PlayerIds.push_back(pPlayer->GetId());
     }
 
+    TiltedPhoques::Vector<ConnectionId_t> memberIds;
+    memberIds.reserve(members.size());
     for (auto pPlayer : members)
     {
-        message.IsLeader = pPlayer->GetId() == party.LeaderPlayerId;
-        pPlayer->Send(message);
+        if (pPlayer)
+            memberIds.push_back(pPlayer->GetConnectionId());
+    }
+
+    for (auto connectionId : memberIds)
+    {
+        if (auto* pPlayer = m_world.GetPlayerManager().GetByConnectionId(connectionId))
+        {
+            message.IsLeader = pPlayer->GetId() == party.LeaderPlayerId;
+            pPlayer->Send(message);
+        }
     }
 }
 

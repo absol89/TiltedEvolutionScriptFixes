@@ -17,6 +17,11 @@
 #include <Messages/PartyCreateRequest.h>
 #include <Messages/PartyChangeLeaderRequest.h>
 #include <Messages/PartyKickRequest.h>
+#include <Messages/TradeInviteRequest.h>
+#include <Messages/TradeInviteResponseRequest.h>
+#include <Messages/TradeOfferUpdateRequest.h>
+#include <Messages/TradeSetReadyRequest.h>
+#include <Messages/TradeCancelRequest.h>
 #include <Messages/PartyInviteRequest.h>
 #include <Messages/RequestActorValueChanges.h>
 #include <Messages/RequestActorMaxValueChanges.h>
@@ -51,6 +56,7 @@
 #include <Messages/PlayerDialogueRequest.h>
 #include <Messages/PlayerLevelRequest.h>
 #include <Messages/TeleportRequest.h>
+#include <Messages/TeleportResponse.h>
 #include <Messages/RequestPlayerHealthUpdate.h>
 #include <Messages/RequestWeatherChange.h>
 #include <Messages/RequestCurrentWeather.h>
@@ -58,6 +64,7 @@
 #include <Messages/RequestRemoveWaypoint.h>
 #include <Messages/PartyPositionUpdateRequest.h>
 #include <Messages/PartyMemberDownedRequest.h>
+#include <Messages/PlayerProfileImageUpdateRequest.h>
 #include <Messages/HealingProximityRequest.h>
 
 using TiltedPhoques::UniquePtr;
@@ -70,10 +77,10 @@ struct ClientMessageFactory
     {
         auto s_visitor = CreateMessageVisitor<
             AuthenticationRequest, AssignCharacterRequest, CancelAssignmentRequest, ClientReferencesMoveRequest, EnterInteriorCellRequest, RequestInventoryChanges, RequestFactionsChanges, RequestQuestUpdate, PartyInviteRequest, PartyAcceptInviteRequest, PartyLeaveRequest, PartyCreateRequest,
-            PartyChangeLeaderRequest, PartyKickRequest, RequestActorValueChanges, RequestActorMaxValueChanges, EnterExteriorCellRequest, RequestHealthChangeBroadcast, ActivateRequest, LockChangeRequest, AssignObjectsRequest, RequestDeathStateChange, ShiftGridCellRequest,
+            PartyChangeLeaderRequest, PartyKickRequest, TradeInviteRequest, TradeInviteResponseRequest, TradeOfferUpdateRequest, TradeSetReadyRequest, TradeCancelRequest, RequestActorValueChanges, RequestActorMaxValueChanges, EnterExteriorCellRequest, RequestHealthChangeBroadcast, ActivateRequest, LockChangeRequest, AssignObjectsRequest, RequestDeathStateChange, ShiftGridCellRequest,
             RequestOwnershipTransfer, RequestOwnershipClaim, RequestObjectInventoryChanges, SpellCastRequest, ProjectileLaunchRequest, InterruptCastRequest, AddTargetRequest, ScriptAnimationRequest, DrawWeaponRequest, MountRequest, NewPackageRequest, RequestRespawn, SyncExperienceRequest,
-            RequestEquipmentChanges, SendChatMessageRequest, TeleportCommandRequest, PlayerRespawnRequest, DialogueRequest, SubtitleRequest, PlayerDialogueRequest, PlayerLevelRequest, TeleportRequest, RequestPlayerHealthUpdate, RequestWeatherChange, RequestCurrentWeather, RequestSetWaypoint,
-            RequestRemoveWaypoint, PartyPositionUpdateRequest, PartyMemberDownedRequest, RemoveSpellRequest, SetTimeCommandRequest, HealingProximityRequest>;
+            RequestEquipmentChanges, SendChatMessageRequest, TeleportCommandRequest, PlayerRespawnRequest, DialogueRequest, SubtitleRequest, PlayerDialogueRequest, PlayerLevelRequest, TeleportRequest, TeleportResponse, RequestPlayerHealthUpdate, RequestWeatherChange, RequestCurrentWeather, RequestSetWaypoint,
+            RequestRemoveWaypoint, PartyPositionUpdateRequest, PartyMemberDownedRequest, PlayerProfileImageUpdateRequest, RemoveSpellRequest, SetTimeCommandRequest, HealingProximityRequest>;
 
         return s_visitor(std::forward<T>(func));
     }

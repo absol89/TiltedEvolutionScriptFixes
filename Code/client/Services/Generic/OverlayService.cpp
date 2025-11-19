@@ -18,10 +18,13 @@
 #include <Messages/NotifyPlayerList.h>
 #include <Messages/NotifyPlayerLeft.h>
 #include <Messages/NotifyPlayerJoined.h>
+#include <Messages/NotifyPlayerProfileImage.h>
 #include <Messages/NotifyPlayerDialogue.h>
 #include <Messages/NotifyPlayerLevel.h>
 #include <Messages/NotifyPlayerCellChanged.h>
 #include <Messages/NotifyTeleport.h>
+#include <Messages/NotifyTeleportCountdown.h>
+#include <Messages/NotifyTeleportRequest.h>
 #include <Messages/RequestPlayerHealthUpdate.h>
 #include <Messages/NotifyPlayerHealthUpdate.h>
 
@@ -116,12 +119,15 @@ OverlayService::OverlayService(World& aWorld, TransportService& transport, entt:
     m_chatMessageConnection = aDispatcher.sink<NotifyChatMessageBroadcast>().connect<&OverlayService::OnChatMessageReceived>(this);
     m_playerJoinedConnection = aDispatcher.sink<NotifyPlayerJoined>().connect<&OverlayService::OnPlayerJoined>(this);
     m_playerLeftConnection = aDispatcher.sink<NotifyPlayerLeft>().connect<&OverlayService::OnPlayerLeft>(this);
+    m_playerAvatarConnection = aDispatcher.sink<NotifyPlayerProfileImage>().connect<&OverlayService::OnPlayerProfileImage>(this);
     m_playerDialogueConnection = aDispatcher.sink<NotifyPlayerDialogue>().connect<&OverlayService::OnPlayerDialogue>(this);
     m_playerAddedConnection = m_world.on_destroy<WaitingFor3D>().connect<&OverlayService::OnWaitingFor3DRemoved>(this);
     m_playerRemovedConnection = m_world.on_destroy<PlayerComponent>().connect<&OverlayService::OnPlayerComponentRemoved>(this);
     m_playerLevelConnection = aDispatcher.sink<NotifyPlayerLevel>().connect<&OverlayService::OnPlayerLevel>(this);
     m_cellChangedConnection = aDispatcher.sink<NotifyPlayerCellChanged>().connect<&OverlayService::OnPlayerCellChanged>(this);
+    m_teleportRequestConnection = aDispatcher.sink<NotifyTeleportRequest>().connect<&OverlayService::OnNotifyTeleportRequest>(this);
     m_teleportConnection = aDispatcher.sink<NotifyTeleport>().connect<&OverlayService::OnNotifyTeleport>(this);
+    m_teleportCountdownConnection = aDispatcher.sink<NotifyTeleportCountdown>().connect<&OverlayService::OnNotifyTeleportCountdown>(this);
     m_playerHealthConnection = aDispatcher.sink<NotifyPlayerHealthUpdate>().connect<&OverlayService::OnNotifyPlayerHealthUpdate>(this);
     m_partyJoinedConnection = aDispatcher.sink<PartyJoinedEvent>().connect<&OverlayService::OnPartyJoinedEvent>(this);
     m_partyLeftConnection = aDispatcher.sink<PartyLeftEvent>().connect<&OverlayService::OnPartyLeftEvent>(this);
@@ -388,6 +394,7 @@ void OverlayService::OnPlayerJoined(const NotifyPlayerJoined& acMessage) noexcep
 
     String cellName = GetCellName(acMessage.WorldSpaceId, acMessage.CellId);
     pArguments->SetString(3, cellName.c_str());
+    pArguments->SetString(4, acMessage.Avatar.c_str());
 
     m_pOverlay->ExecuteAsync("playerConnected", pArguments);
 }
@@ -398,6 +405,17 @@ void OverlayService::OnPlayerLeft(const NotifyPlayerLeft& acMessage) noexcept
     pArguments->SetInt(0, acMessage.PlayerId);
     pArguments->SetString(1, acMessage.Username.c_str());
     m_pOverlay->ExecuteAsync("playerDisconnected", pArguments);
+}
+
+void OverlayService::OnPlayerProfileImage(const NotifyPlayerProfileImage& acMessage) noexcept
+{
+    if (!m_pOverlay)
+        return;
+
+    auto pArguments = CefListValue::Create();
+    pArguments->SetInt(0, acMessage.PlayerId);
+    pArguments->SetString(1, acMessage.Avatar.c_str());
+    m_pOverlay->ExecuteAsync("playerAvatarUpdated", pArguments);
 }
 
 void OverlayService::OnPlayerLevel(const NotifyPlayerLevel& acMessage) noexcept
@@ -415,6 +433,31 @@ void OverlayService::OnPlayerCellChanged(const NotifyPlayerCellChanged& acMessag
     String cellName = GetCellName(acMessage.WorldSpaceId, acMessage.CellId);
     pArguments->SetString(1, cellName.c_str());
     m_pOverlay->ExecuteAsync("setCell", pArguments);
+}
+
+void OverlayService::OnNotifyTeleportRequest(const NotifyTeleportRequest& acMessage) noexcept
+{
+    if (!m_pOverlay)
+        return;
+
+    auto pArguments = CefListValue::Create();
+    pArguments->SetInt(0, acMessage.RequesterId);
+    pArguments->SetString(1, acMessage.RequesterName.c_str());
+    m_pOverlay->ExecuteAsync("teleportRequest", pArguments);
+}
+
+void OverlayService::OnNotifyTeleportCountdown(const NotifyTeleportCountdown& acMessage) noexcept
+{
+    if (!m_pOverlay)
+        return;
+
+    auto pArguments = CefListValue::Create();
+    pArguments->SetInt(0, acMessage.TargetPlayerId);
+    pArguments->SetString(1, acMessage.TargetName.c_str());
+    pArguments->SetInt(2, acMessage.DurationSeconds);
+    pArguments->SetBool(3, acMessage.Cancelled);
+    pArguments->SetString(4, acMessage.Reason.c_str());
+    m_pOverlay->ExecuteAsync("teleportCountdown", pArguments);
 }
 
 void OverlayService::OnNotifyTeleport(const NotifyTeleport& acMessage) noexcept

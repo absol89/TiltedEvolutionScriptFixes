@@ -12,15 +12,23 @@
 #include <Events/UpdateEvent.h>
 #include <steam/isteamnetworkingutils.h>
 
+#include <Services/LoginService.h>
+
 #include <AdminMessages/AdminSessionOpen.h>
 #include <AdminMessages/ClientAdminMessageFactory.h>
 #include <Messages/AuthenticationResponse.h>
 #include <Messages/ClientMessageFactory.h>
 #include <Messages/NotifyPlayerJoined.h>
+#include <Messages/NotifyPlayerProfileImage.h>
 #include <Messages/NotifyPlayerLeft.h>
 #include <Messages/NotifySettingsChange.h>
+#include <Messages/NotifyChatMessageBroadcast.h>
+#include <cctype>
+#include <ChatMessageTypes.h>
+#include <fmt/format.h>
 #include <console/ConsoleRegistry.h>
 #include <resources/ResourceCollection.h>
+#include <fmt/format.h>
 
 constexpr size_t kMaxServerNameLength = 128u;
 
@@ -622,7 +630,7 @@ void GameServer::OnDisconnection(const ConnectionId_t aConnectionId, EDisconnect
         notify.Username = pPlayer->GetUsername();
         SendToPlayers(notify);
 
-        entt::entity playerCharacter = pPlayer->GetCharacter().value_or(static_cast<entt::entity>(0));
+        entt::entity playerCharacter = pPlayer->GetCharacter().value_or(entt::null);
 
         // Cleanup all entities that we own
         auto ownerView = m_pWorld->view<OwnerComponent>();
@@ -683,18 +691,36 @@ void GameServer::Send(ConnectionId_t aConnectionId, const ServerAdminMessage& ac
 
 void GameServer::SendToLoaded(const ServerMessage& acServerMessage) const
 {
+    TiltedPhoques::Vector<ConnectionId_t> players;
+    players.reserve(m_pWorld->GetPlayerManager().Count());
+
     for (Player* pPlayer : m_pWorld->GetPlayerManager())
     {
-        if (pPlayer->GetCellComponent())
+        players.push_back(pPlayer->GetConnectionId());
+    }
+
+    for (auto connectionId : players)
+    {
+        Player* pPlayer = m_pWorld->GetPlayerManager().GetByConnectionId(connectionId);
+        if (pPlayer && pPlayer->GetCellComponent())
             pPlayer->Send(acServerMessage);
     }
 }
 
 void GameServer::SendToPlayers(const ServerMessage& acServerMessage, const Player* apExcludedPlayer) const
 {
+    TiltedPhoques::Vector<ConnectionId_t> players;
+    players.reserve(m_pWorld->GetPlayerManager().Count());
+
     for (Player* pPlayer : m_pWorld->GetPlayerManager())
     {
-        if (pPlayer != apExcludedPlayer)
+        players.push_back(pPlayer->GetConnectionId());
+    }
+
+    for (auto connectionId : players)
+    {
+        Player* pPlayer = m_pWorld->GetPlayerManager().GetByConnectionId(connectionId);
+        if (pPlayer && pPlayer != apExcludedPlayer)
             pPlayer->Send(acServerMessage);
     }
 }
@@ -723,9 +749,19 @@ bool GameServer::SendToPlayersInRange(const ServerMessage& acServerMessage, cons
     if (const auto* characterComponent = m_pWorld->try_get<CharacterComponent>(acOrigin))
         isDragon = characterComponent->IsDragon();
 
+    TiltedPhoques::Vector<ConnectionId_t> players;
+    players.reserve(m_pWorld->GetPlayerManager().Count());
+
     for (Player* pPlayer : m_pWorld->GetPlayerManager())
     {
-        if (cellComponent.IsInRange(pPlayer->GetCellComponent(), isDragon) && pPlayer != apExcludedPlayer)
+        players.push_back(pPlayer->GetConnectionId());
+    }
+
+    for (auto connectionId : players)
+    {
+        Player* pPlayer = m_pWorld->GetPlayerManager().GetByConnectionId(connectionId);
+
+        if (pPlayer && cellComponent.IsInRange(pPlayer->GetCellComponent(), isDragon) && pPlayer != apExcludedPlayer)
             pPlayer->Send(acServerMessage);
     }
 
@@ -740,9 +776,19 @@ void GameServer::SendToParty(const ServerMessage& acServerMessage, const PartyCo
         return;
     }
 
+    TiltedPhoques::Vector<ConnectionId_t> players;
+    players.reserve(m_pWorld->GetPlayerManager().Count());
+
     for (Player* pPlayer : m_pWorld->GetPlayerManager())
     {
-        if (pPlayer == apExcludeSender)
+        players.push_back(pPlayer->GetConnectionId());
+    }
+
+    for (auto connectionId : players)
+    {
+        Player* pPlayer = m_pWorld->GetPlayerManager().GetByConnectionId(connectionId);
+
+        if (!pPlayer || pPlayer == apExcludeSender)
             continue;
 
         const auto& partyComponent = pPlayer->GetParty();
@@ -772,9 +818,19 @@ void GameServer::SendToPartyInRange(const ServerMessage& acServerMessage, const 
 
     const auto& cellComponent = view.get<CellIdComponent>(*it);
 
+    TiltedPhoques::Vector<ConnectionId_t> players;
+    players.reserve(m_pWorld->GetPlayerManager().Count());
+
     for (Player* pPlayer : m_pWorld->GetPlayerManager())
     {
-        if (pPlayer == apExcludeSender)
+        players.push_back(pPlayer->GetConnectionId());
+    }
+
+    for (auto connectionId : players)
+    {
+        Player* pPlayer = m_pWorld->GetPlayerManager().GetByConnectionId(connectionId);
+
+        if (!pPlayer || pPlayer == apExcludeSender)
             continue;
 
         if (!cellComponent.IsInRange(pPlayer->GetCellComponent(), false))
@@ -857,6 +913,48 @@ void GameServer::HandleAuthenticationRequest(const ConnectionId_t aConnectionId,
         sendKick(RT::kClientModsDisallowed);
         return;
     }
+
+    const auto sanitizedUsername = SanitizeUsername(acRequest->Username);
+    if (!sanitizedUsername.empty())
+    {
+        auto iequals = [](const String& a, const String& b) -> bool {
+            if (a.size() != b.size())
+                return false;
+            for (size_t i = 0; i < a.size(); ++i)
+            {
+                if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i])))
+                    return false;
+            }
+            return true;
+        };
+
+        for (auto* pExisting : m_pWorld->GetPlayerManager())
+        {
+            if (!pExisting)
+                continue;
+
+            if (iequals(pExisting->GetUsername(), sanitizedUsername))
+            {
+                spdlog::info("New player {:x} '{}' denied: username '{}' already connected", aConnectionId, remoteAddress, sanitizedUsername.c_str());
+                sendKick(RT::kDuplicateUser);
+                return;
+            }
+        }
+    }
+    auto& loginService = m_pWorld->ctx().at<LoginService>();
+    const auto loginResult = loginService.VerifyOrCreateUser(sanitizedUsername, acRequest->Password);
+
+    if (loginResult != LoginService::LoginResult::Ok)
+    {
+        spdlog::info("New player {:x} '{}' failed to authenticate for user '{}'", aConnectionId, remoteAddress, sanitizedUsername.c_str());
+        sendKick(RT::kWrongAccountPassword);
+        return;
+    }
+
+    const auto storedAvatar = loginService.GetAvatar(sanitizedUsername);
+
+    acRequest->Username = sanitizedUsername;
+    acRequest->Password.clear();
 
     bool adminPasswordUsed = acRequest->Token == sAdminPassword.value() && !sAdminPassword.empty();
 
@@ -947,6 +1045,7 @@ void GameServer::HandleAuthenticationRequest(const ConnectionId_t aConnectionId,
         pPlayer->SetMods(playerMods);
         pPlayer->SetModIds(playerModsIds);
         pPlayer->SetLevel(acRequest->Level);
+        pPlayer->SetAvatar(storedAvatar);
 
         // this event is shit, needs to be fixed, i know
         auto [canceled, reason] = m_pWorld->GetScriptService().HandlePlayerJoin(aConnectionId);
@@ -968,12 +1067,25 @@ void GameServer::HandleAuthenticationRequest(const ConnectionId_t aConnectionId,
         serverResponse.Type = AuthenticationResponse::ResponseType::kAccepted;
         Send(aConnectionId, serverResponse);
 
+        NotifyChatMessageBroadcast joinMessage{};
+        joinMessage.MessageType = ChatMessageType::kSystemMessage;
+        joinMessage.PlayerName = "Server";
+        joinMessage.ChatMessage = fmt::format("{} connected to the server.", pPlayer->GetUsername().c_str());
+        SendToPlayers(joinMessage);
+
         uint32_t startId = 0;
         auto initStringCache = StringCache::Get().Serialize(startId);
 
         pPlayer->SetStringCacheId(startId);
 
         Send(aConnectionId, initStringCache);
+
+        {
+            NotifyPlayerProfileImage avatarNotify{};
+            avatarNotify.PlayerId = pPlayer->GetId();
+            avatarNotify.Avatar = pPlayer->GetAvatar();
+            Send(pPlayer->GetConnectionId(), avatarNotify);
+        }
 
         for (auto* pOtherPlayer : m_pWorld->GetPlayerManager())
         {
@@ -983,6 +1095,7 @@ void GameServer::HandleAuthenticationRequest(const ConnectionId_t aConnectionId,
             NotifyPlayerJoined notify{};
             notify.PlayerId = pOtherPlayer->GetId();
             notify.Username = pOtherPlayer->GetUsername();
+            notify.Avatar = pOtherPlayer->GetAvatar();
 
             auto& cellComponent = pOtherPlayer->GetCellComponent();
             notify.WorldSpaceId = cellComponent.WorldSpaceId;
@@ -1007,8 +1120,8 @@ void GameServer::HandleAuthenticationRequest(const ConnectionId_t aConnectionId,
     } */
     else
     {
-        spdlog::info("New player {:x} '{}' has a bad password, kicking.", aConnectionId, remoteAddress);
-        sendKick(RT::kWrongPassword);
+        spdlog::info("New player {:x} '{}' supplied an incorrect server password, kicking.", aConnectionId, remoteAddress);
+        sendKick(RT::kWrongServerPassword);
     }
 }
 

@@ -23,6 +23,9 @@
 #include <Messages/NotifyPlayerCellChanged.h>
 #include <Messages/PartyMemberDownedRequest.h>
 #include <Messages/NotifyPartyMemberDowned.h>
+#include <Messages/PlayerProfileImageUpdateRequest.h>
+#include <Messages/NotifyPlayerProfileImage.h>
+#include <Services/LoginService.h>
 
 #include <Setting.h>
 namespace
@@ -38,6 +41,7 @@ PlayerService::PlayerService(World& aWorld, entt::dispatcher& aDispatcher) noexc
     , m_playerRespawnConnection(aDispatcher.sink<PacketEvent<PlayerRespawnRequest>>().connect<&PlayerService::OnPlayerRespawnRequest>(this))
     , m_playerLevelConnection(aDispatcher.sink<PacketEvent<PlayerLevelRequest>>().connect<&PlayerService::OnPlayerLevelRequest>(this))
     , m_partyMemberDownedConnection(aDispatcher.sink<PacketEvent<PartyMemberDownedRequest>>().connect<&PlayerService::OnPartyMemberDownedRequest>(this))
+    , m_playerProfileImageUpdateConnection(aDispatcher.sink<PacketEvent<PlayerProfileImageUpdateRequest>>().connect<&PlayerService::OnPlayerProfileImageUpdate>(this))
 {
 }
 
@@ -162,9 +166,16 @@ void PlayerService::OnPlayerRespawnRequest(const PacketEvent<PlayerRespawnReques
     if (!character)
         return;
 
+    const auto entity = m_world.TryResolveEntity(World::ToInteger(*character));
+    if (!entity)
+    {
+        spdlog::warn("Respawn request references invalid player entity {:X}", World::ToInteger(*character));
+        return;
+    }
+
     auto view = m_world.view<InventoryComponent>();
 
-    const auto it = view.find(static_cast<entt::entity>(*character));
+    const auto it = view.find(*entity);
 
     if (it != view.end())
     {
@@ -183,12 +194,12 @@ void PlayerService::OnPlayerRespawnRequest(const PacketEvent<PlayerRespawnReques
             inventoryComponent.Content.AddOrRemoveEntry(entry);
 
             NotifyInventoryChanges notifyInventoryChanges{};
-            notifyInventoryChanges.ServerId = World::ToInteger(*character);
+            notifyInventoryChanges.ServerId = World::ToInteger(*entity);
             notifyInventoryChanges.Item = entry;
             notifyInventoryChanges.Drop = false;
 
             // Exclude respawned player from inventory changes notification...
-            if (!GameServer::Get()->SendToPlayersInRange(notifyInventoryChanges, *character, acMessage.GetSender()))
+            if (!GameServer::Get()->SendToPlayersInRange(notifyInventoryChanges, *entity, acMessage.GetSender()))
                 spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
 
             // ...and instead, send NotifyPlayerRespawn so that the client can print a message.
@@ -200,9 +211,9 @@ void PlayerService::OnPlayerRespawnRequest(const PacketEvent<PlayerRespawnReques
 
         // Let all other players in cell respawn this player, since the body state seems to be bugged otherwise
         NotifyRespawn notifyRespawn{};
-        notifyRespawn.ActorId = World::ToInteger(*character);
+        notifyRespawn.ActorId = World::ToInteger(*entity);
 
-        if (!GameServer::Get()->SendToPlayersInRange(notifyRespawn, *character, acMessage.GetSender()))
+        if (!GameServer::Get()->SendToPlayersInRange(notifyRespawn, *entity, acMessage.GetSender()))
             spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
     }
 }
@@ -248,4 +259,44 @@ void PlayerService::OnPartyMemberDownedRequest(const PacketEvent<PartyMemberDown
     notify.CellId = cellComponent.Cell;
 
     GameServer::Get()->SendToParty(notify, pPlayer->GetParty(), acMessage.GetSender());
+}
+
+void PlayerService::OnPlayerProfileImageUpdate(const PacketEvent<PlayerProfileImageUpdateRequest>& acMessage) const noexcept
+{
+    auto* pPlayer = acMessage.pPlayer;
+    if (!pPlayer)
+        return;
+
+    const auto& imageData = acMessage.Packet.ImageData;
+
+    constexpr size_t cMaxAvatarBytes = 256u * 1024u;
+    if (imageData.size() > cMaxAvatarBytes)
+    {
+        spdlog::warn("[PlayerService] Avatar upload from player {} exceeded {} bytes ({} received)", pPlayer->GetId(), cMaxAvatarBytes, imageData.size());
+        return;
+    }
+
+    auto sanitized = imageData;
+    if (!sanitized.empty())
+    {
+        if (sanitized.rfind("data:image", 0) != 0)
+        {
+            spdlog::warn("[PlayerService] Avatar upload from player {} rejected due to invalid data URI prefix", pPlayer->GetId());
+            return;
+        }
+    }
+
+    pPlayer->SetAvatar(std::move(sanitized));
+
+    NotifyPlayerProfileImage notify{};
+    notify.PlayerId = pPlayer->GetId();
+    notify.Avatar = pPlayer->GetAvatar();
+
+    GameServer::Get()->SendToPlayers(notify);
+
+    if (m_world.ctx().contains<LoginService>())
+    {
+        auto& loginService = m_world.ctx().at<LoginService>();
+        loginService.SetAvatar(pPlayer->GetUsername(), pPlayer->GetAvatar());
+    }
 }

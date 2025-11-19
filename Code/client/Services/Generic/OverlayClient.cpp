@@ -6,9 +6,14 @@
 #include <Services/OverlayClient.h>
 #include <Services/TransportService.h>
 #include <Services/PlayerService.h>
+#include <Services/TradeService.h>
+
+#include <Structs/Inventory.h>
 
 #include <Messages/SendChatMessageRequest.h>
 #include <Messages/TeleportRequest.h>
+#include <Messages/TeleportResponse.h>
+#include <Messages/PlayerProfileImageUpdateRequest.h>
 
 #include <Events/SetTimeCommandEvent.h>
 
@@ -33,10 +38,7 @@ bool OverlayClient::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefR
         auto eventName = pArguments->GetString(0).ToString();
         auto eventArgs = pArguments->GetList(1);
 
-        spdlog::info(eventName);
-        spdlog::info(eventArgs->GetString(0).ToString());
-        spdlog::info(std::to_string(eventArgs->GetInt(1)));
-        spdlog::info(eventArgs->GetString(2).ToString());
+        spdlog::info("ui-event '{}' ({} args)", eventName, eventArgs->GetSize());
 
 #ifndef PUBLIC_BUILD
         LOG(INFO) << "event=ui_event name=" << eventName;
@@ -77,12 +79,75 @@ bool OverlayClient::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefR
             uint32_t aPlayerId = eventArgs->GetInt(0);
             World::Get().GetPartyService().ChangePartyLeader(aPlayerId);
         }
-        else if (eventName == "teleportToPlayer")
-            ProcessTeleportMessage(eventArgs);
+        else if (eventName == "setProfilePicture")
+            ProcessSetProfilePicture(eventArgs);
+        else if (eventName == "teleportToPlayer" || eventName == "requestTeleport")
+            ProcessTeleportRequestMessage(eventArgs);
+        else if (eventName == "respondTeleportRequest")
+            ProcessTeleportResponseMessage(eventArgs);
         else if (eventName == "toggleDebugUI")
             ProcessToggleDebugUI();
         else if (eventName == "respawnButtonClicked")
             World::Get().GetRunner().Queue([]() { World::Get().ctx().at<PlayerService>().RequestManualRespawn(); });
+        else if (eventName == "sendTradeInvite")
+        {
+            uint32_t aPlayerId = eventArgs->GetInt(0);
+            World::Get().GetTradeService().SendInvite(aPlayerId);
+        }
+        else if (eventName == "respondTradeInvite")
+        {
+            uint32_t inviterId = eventArgs->GetInt(0);
+            bool accept = eventArgs->GetBool(1);
+            World::Get().GetTradeService().RespondToInvite(inviterId, accept);
+        }
+        else if (eventName == "cancelTrade")
+        {
+            World::Get().GetTradeService().CancelTrade();
+        }
+        else if (eventName == "setTradeReady")
+        {
+            bool ready = eventArgs->GetBool(0);
+            World::Get().GetTradeService().SetReady(ready);
+        }
+        else if (eventName == "updateTradeOffer")
+        {
+            TiltedPhoques::Vector<TradeService::OfferSelection> selections;
+            auto pList = eventArgs->GetList(0);
+            if (pList)
+            {
+                const auto cCount = pList->GetSize();
+                selections.reserve(cCount);
+                for (size_t i = 0; i < cCount; ++i)
+                {
+                    TradeService::OfferSelection selection{};
+
+                    if (pList->GetType(static_cast<int>(i)) == VTYPE_DICTIONARY)
+                    {
+                        auto pEntry = pList->GetDictionary(static_cast<int>(i));
+                        if (!pEntry)
+                            continue;
+
+                        selection.Index = static_cast<uint32_t>(pEntry->GetInt("index"));
+                        selection.Count = pEntry->GetInt("count");
+                    }
+                    else
+                    {
+                        auto pEntry = pList->GetList(static_cast<int>(i));
+                        if (!pEntry || pEntry->GetSize() < 2)
+                            continue;
+
+                        selection.Index = static_cast<uint32_t>(pEntry->GetInt(0));
+                        selection.Count = pEntry->GetInt(1);
+                    }
+
+                    if (selection.Count <= 0)
+                        continue;
+
+                    selections.push_back(selection);
+                }
+            }
+            World::Get().GetTradeService().UpdateOffer(selections);
+        }
 
         return true;
     }
@@ -98,8 +163,20 @@ void OverlayClient::ProcessConnectMessage(CefRefPtr<CefListValue> aEventArgs)
         baseIp = "127.0.0.1";
     }
 
-    uint16_t port = aEventArgs->GetInt(1) ? aEventArgs->GetInt(1) : 10578;
-    World::Get().GetTransport().SetServerPassword(aEventArgs->GetString(2));
+    const uint16_t port = aEventArgs->GetInt(1) ? static_cast<uint16_t>(aEventArgs->GetInt(1)) : 10578;
+    std::string username;
+    std::string password;
+
+    if (aEventArgs->GetSize() >= 3)
+        username = aEventArgs->GetString(2);
+    if (aEventArgs->GetSize() >= 4)
+        password = aEventArgs->GetString(3);
+
+    if (aEventArgs->GetSize() >= 5)
+        World::Get().GetTransport().SetServerPassword(aEventArgs->GetString(4));
+    else
+        World::Get().GetTransport().SetServerPassword("");
+    World::Get().GetTransport().SetLoginCredentials(username, password);
 
     std::string endpoint = baseIp + ":" + std::to_string(port);
 
@@ -140,11 +217,38 @@ void OverlayClient::ProcessSetTimeCommand(CefRefPtr<CefListValue> aEventArgs)
     World::Get().GetDispatcher().trigger(SetTimeCommandEvent(hours, minutes, senderId));
 }
 
-void OverlayClient::ProcessTeleportMessage(CefRefPtr<CefListValue> aEventArgs)
+void OverlayClient::ProcessTeleportRequestMessage(CefRefPtr<CefListValue> aEventArgs)
 {
     TeleportRequest request{};
     request.PlayerId = aEventArgs->GetInt(0);
 
+    m_transport.Send(request);
+}
+
+void OverlayClient::ProcessTeleportResponseMessage(CefRefPtr<CefListValue> aEventArgs)
+{
+    TeleportResponse response{};
+    response.RequesterId = static_cast<uint16_t>(aEventArgs->GetInt(0));
+    response.Accepted = aEventArgs->GetBool(1);
+
+    m_transport.Send(response);
+}
+
+void OverlayClient::ProcessSetProfilePicture(CefRefPtr<CefListValue> aEventArgs)
+{
+    std::string payload;
+    if (aEventArgs->GetSize() > 0)
+        payload = aEventArgs->GetString(0).ToString();
+
+    constexpr size_t cMaxAvatarBytes = 256u * 1024u;
+    if (payload.size() > cMaxAvatarBytes)
+    {
+        spdlog::warn("[OverlayClient] Ignoring avatar upload larger than {} bytes", cMaxAvatarBytes);
+        return;
+    }
+
+    PlayerProfileImageUpdateRequest request{};
+    request.ImageData = payload;
     m_transport.Send(request);
 }
 

@@ -62,7 +62,10 @@ declare namespace SkyrimTogetherTypes {
     username: string,
     level: number,
     cellName: string,
+    avatar: string,
   ) => void;
+
+  type PlayerAvatarUpdatedCallback = (playerId: number, avatar: string) => void;
 
   type PlayerDisconnectedCallback = (
     playerId: number,
@@ -109,6 +112,60 @@ declare namespace SkyrimTogetherTypes {
 
   /** Death screen hidden */
   type HideDeathScreenCallback = () => void;
+
+  /** Teleport request received */
+  type TeleportRequestCallback = (
+    requesterId: number,
+    requesterName: string,
+  ) => void;
+
+  /** Teleport countdown update */
+  type TeleportCountdownCallback = (
+    targetPlayerId: number,
+    targetName: string,
+    secondsRemaining: number,
+    cancelled: boolean,
+    reason: string,
+  ) => void;
+
+  type TradeInviteCallback = (inviterId: number, expiryTick: number) => void;
+  type TradeInviteExpiredCallback = (inviterId: number) => void;
+
+  interface TradeItemPayload {
+    modId: number;
+    baseId: number;
+    count: number;
+    isQuestItem: boolean;
+    name: string;
+    inventoryIndex?: number;
+    offeredCount?: number;
+  }
+
+  interface TradeInventoryPayload extends TradeItemPayload {
+    inventoryIndex: number;
+    offeredCount: number;
+  }
+
+  type TradeStateUpdatedCallback = (
+    active: boolean,
+    partnerId: number,
+    initiatedBySelf: boolean,
+    selfReady: boolean,
+    partnerReady: boolean,
+    selfItems: TradeItemPayload[],
+    partnerItems: TradeItemPayload[],
+    inventory: TradeInventoryPayload[],
+  ) => void;
+
+  type TradeCancelledCallback = (
+    partnerId: number,
+    reason: number,
+    wasInitiator: boolean,
+  ) => void;
+
+  type TradeCompletedCallback = (partnerId: number) => void;
+
+  type TradeOfferEntry = { index: number; count: number };
 }
 
 /** Global Skyrim: Together object. */
@@ -187,6 +244,11 @@ interface SkyrimTogether {
     callback: SkyrimTogetherTypes.PlayerDisconnectedCallback,
   ): void;
 
+  on(
+    event: 'playerAvatarUpdated',
+    callback: SkyrimTogetherTypes.PlayerAvatarUpdatedCallback,
+  ): void;
+
   on(event: 'setHealth', callback: SkyrimTogetherTypes.SetHealthCallback): void;
 
   /** Add listener to when one player change level in server. */
@@ -232,6 +294,36 @@ interface SkyrimTogether {
   on(
     event: 'partyInviteReceived',
     callback: SkyrimTogetherTypes.PartyInviteReceivedCallback,
+  ): void;
+  on(
+    event: 'tradeInviteReceived',
+    callback: SkyrimTogetherTypes.TradeInviteCallback,
+  ): void;
+  on(
+    event: 'tradeInviteExpired',
+    callback: SkyrimTogetherTypes.TradeInviteExpiredCallback,
+  ): void;
+  on(
+    event: 'tradeStateUpdated',
+    callback: SkyrimTogetherTypes.TradeStateUpdatedCallback,
+  ): void;
+  on(
+    event: 'tradeCancelled',
+    callback: SkyrimTogetherTypes.TradeCancelledCallback,
+  ): void;
+  on(
+    event: 'tradeCompleted',
+    callback: SkyrimTogetherTypes.TradeCompletedCallback,
+  ): void;
+
+  on(
+    event: 'teleportRequest',
+    callback: SkyrimTogetherTypes.TeleportRequestCallback,
+  ): void;
+
+  on(
+    event: 'teleportCountdown',
+    callback: SkyrimTogetherTypes.TeleportCountdownCallback,
   ): void;
 
   /** Add listener to when the death screen is shown. */
@@ -327,6 +419,11 @@ interface SkyrimTogether {
   ): void;
 
   off(
+    event: 'playerAvatarUpdated',
+    callback?: SkyrimTogetherTypes.PlayerAvatarUpdatedCallback,
+  ): void;
+
+  off(
     event: 'userDataSet',
     callback?: SkyrimTogetherTypes.UserDataSetCallback,
   ): void;
@@ -387,6 +484,36 @@ interface SkyrimTogether {
     event: 'partyInviteReceived',
     callback?: SkyrimTogetherTypes.PartyInviteReceivedCallback,
   ): void;
+  off(
+    event: 'tradeInviteReceived',
+    callback?: SkyrimTogetherTypes.TradeInviteCallback,
+  ): void;
+  off(
+    event: 'tradeInviteExpired',
+    callback?: SkyrimTogetherTypes.TradeInviteExpiredCallback,
+  ): void;
+  off(
+    event: 'tradeStateUpdated',
+    callback?: SkyrimTogetherTypes.TradeStateUpdatedCallback,
+  ): void;
+  off(
+    event: 'tradeCancelled',
+    callback?: SkyrimTogetherTypes.TradeCancelledCallback,
+  ): void;
+  off(
+    event: 'tradeCompleted',
+    callback?: SkyrimTogetherTypes.TradeCompletedCallback,
+  ): void;
+
+  off(
+    event: 'teleportRequest',
+    callback?: SkyrimTogetherTypes.TeleportRequestCallback,
+  ): void;
+
+  off(
+    event: 'teleportCountdown',
+    callback?: SkyrimTogetherTypes.TeleportCountdownCallback,
+  ): void;
 
   /** Remove listener from when the death screen is shown. */
   off(
@@ -417,9 +544,17 @@ interface SkyrimTogether {
    *
    * @param host IP address or hostname.
    * @param port Port.
-   * @param password Server password.
+   * @param username Account username.
+   * @param password Account password.
+   * @param serverPassword Optional legacy server password.
    */
-  connect(host: string, port: number, password: string): void;
+  connect(
+    host: string,
+    port: number,
+    username: string,
+    password: string,
+    serverPassword?: string,
+  ): void;
 
   /**
    * Disconnect from server or cancel connection.
@@ -447,11 +582,19 @@ interface SkyrimTogether {
   deactivate(): void;
 
   /**
-   * Teleport to given player
+   * Request teleportation to a given player.
    *
-   * @param playerId Id of the player to which the requester should be teleported to
+   * @param playerId Id of the player to whom the request should be sent.
    */
   teleportToPlayer(playerId: number): void;
+
+  /**
+   * Respond to an incoming teleport request.
+   *
+   * @param requesterId Id of the player that issued the request.
+   * @param accepted Whether the request is accepted.
+   */
+  respondTeleportRequest(requesterId: number, accepted: boolean): void;
 
   /**
    * Reconnect the client.
@@ -495,6 +638,47 @@ interface SkyrimTogether {
    * @param playerId Id of the new leader.
    */
   changePartyLeader(playerId: number): void;
+
+  /**
+   * Send a trade invite to another player.
+   *
+   * @param playerId Id of the player to trade with.
+   */
+  sendTradeInvite(playerId: number): void;
+
+  /**
+   * Respond to a trade invite.
+   *
+   * @param playerId Id of the inviter.
+   * @param accept Whether to accept the invitation.
+   */
+  respondTradeInvite(playerId: number, accept: boolean): void;
+
+  /**
+   * Cancel the current trade session or pending invite.
+   */
+  cancelTrade(): void;
+
+  /**
+   * Update the local ready state for the current trade session.
+   *
+   * @param ready Whether the player is ready to finalize the trade.
+   */
+  setTradeReady(ready: boolean): void;
+
+  /**
+   * Update the items offered in the current trade session.
+   *
+   * @param entries Selection of inventory indices and counts to offer.
+   */
+  updateTradeOffer(entries: SkyrimTogetherTypes.TradeOfferEntry[]): void;
+
+  /**
+   * Upload or clear the local profile picture shown to party members.
+   *
+   * @param imageData Data URL (e.g. "data:image/png;base64,...") or empty string to clear.
+   */
+  setProfilePicture(imageData: string): void;
 
   /**
    * Called when the player clicks the respawn button on the death screen.

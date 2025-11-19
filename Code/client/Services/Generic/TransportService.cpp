@@ -20,10 +20,12 @@
 #include <Messages/AuthenticationRequest.h>
 #include <Messages/ServerMessageFactory.h>
 #include <Messages/NotifySettingsChange.h>
+#include <CredentialHash.h>
 #include <Packet.hpp>
 
 #include <ScriptExtender.h>
 #include <Services/DiscordService.h>
+#include <fmt/format.h>
 
 // #include <imgui_internal.h>
 
@@ -93,6 +95,15 @@ bool TransportService::Send(const ClientMessage& acMessage) const noexcept
     return false;
 }
 
+void TransportService::SetLoginCredentials(const std::string& acUsername, const std::string& acPassword) noexcept
+{
+    m_loginUsername = acUsername;
+    if (Credential::LooksLikePasswordHash(acPassword))
+        m_loginPassword = acPassword;
+    else
+        m_loginPassword = Credential::HashPassword(acPassword);
+}
+
 void TransportService::OnConsume(const void* apData, uint32_t aSize)
 {
     ServerMessageFactory factory;
@@ -125,7 +136,11 @@ void TransportService::OnConnected()
     // TODO: think about user opt out
     request.DiscordId = m_world.ctx().at<DiscordService>().GetUser().id;
     auto* pNpc = Cast<TESNPC>(pPlayer->baseForm);
-    if (pNpc)
+    if (!m_loginUsername.empty())
+    {
+        request.Username = m_loginUsername;
+    }
+    else if (pNpc)
     {
         request.Username = pNpc->fullName.value.AsAscii();
     }
@@ -133,6 +148,8 @@ void TransportService::OnConnected()
     {
         request.Username = "Some dragon boi";
     }
+    request.Password = m_loginPassword;
+    m_loginPassword.clear();
 
     auto* const cpModManager = ModManager::Get();
 
@@ -247,9 +264,19 @@ void TransportService::HandleAuthenticationResponse(const AuthenticationResponse
         ErrorInfo += "]}";
         break;
     }
-    case AR::kWrongPassword:
+    case AR::kWrongAccountPassword:
     {
-        ErrorInfo += "\"error\": \"wrong_password\"";
+        ErrorInfo += "\"error\": \"wrong_account_password\"";
+        break;
+    }
+    case AR::kWrongServerPassword:
+    {
+        ErrorInfo += "\"error\": \"wrong_server_password\"";
+        break;
+    }
+    case AR::kDuplicateUser:
+    {
+        ErrorInfo += "\"error\": \"duplicate_user\"";
         break;
     }
     case AR::kServerFull:

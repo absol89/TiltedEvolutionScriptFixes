@@ -17,6 +17,7 @@ struct Player
     [[nodiscard]] std::optional<entt::entity> GetCharacter() const noexcept { return m_character; }
     [[nodiscard]] PartyComponent& GetParty() noexcept { return m_party; }
     [[nodiscard]] const String& GetUsername() const noexcept { return m_username; }
+    [[nodiscard]] const String& GetAvatar() const noexcept { return m_avatar; }
     [[nodiscard]] const String& GetEndPoint() const noexcept { return m_endpoint; }
     [[nodiscard]] const uint64_t GetDiscordId() const noexcept { return m_discordId; }
     [[nodiscard]] const uint32_t GetStringCacheId() const noexcept { return m_stringCacheId; }
@@ -30,6 +31,7 @@ struct Player
     void SetDiscordId(uint64_t aDiscordId) noexcept;
     void SetEndpoint(String aEndpoint) noexcept;
     void SetUsername(String aUsername) noexcept;
+    void SetAvatar(String aAvatar) noexcept;
     void SetMods(Vector<String> aMods) noexcept;
     void SetModIds(Vector<uint16_t> aModIds) noexcept;
     void SetCharacter(entt::entity aCharacter) noexcept;
@@ -50,6 +52,7 @@ private:
     uint64_t m_discordId{0};
     String m_endpoint;
     String m_username;
+    String m_avatar;
     PartyComponent m_party;
     QuestLogComponent m_questLog;
     CellIdComponent m_cell;

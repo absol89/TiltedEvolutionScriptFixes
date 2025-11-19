@@ -140,6 +140,22 @@ void InventoryService::OnEquipmentChangeEvent(const EquipmentChangeEvent& acEven
 
 void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& acMessage) noexcept
 {
+    TESObjectREFR* pObject = Utils::GetByServerId<TESObjectREFR>(acMessage.ServerId);
+    if (!pObject)
+    {
+        spdlog::error("{}: could not find server id {:X} for inventory change", __FUNCTION__, acMessage.ServerId);
+        return;
+    }
+
+    Actor* pActor = Cast<Actor>(pObject);
+
+    if (acMessage.Silent)
+    {
+        ScopedInventoryOverride _;
+        pObject->AddOrRemoveItem(acMessage.Item);
+        return;
+    }
+
     std::optional<uint32_t> dropInstanceId{};
     if (acMessage.HasDropInstanceId)
         dropInstanceId = acMessage.DropInstanceId;
@@ -160,8 +176,6 @@ void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& ac
         dropRotation = NiPoint3(acMessage.DropRotation);
         pDropRotation = &dropRotation;
     }
-
-    Actor* pActor = Utils::GetByServerId<Actor>(acMessage.ServerId);
 
     if (acMessage.Drop)
     {
@@ -221,14 +235,10 @@ void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& ac
         }
     }
 
-    TESObjectREFR* pObject = Utils::GetByServerId<TESObjectREFR>(acMessage.ServerId);
-    if (!pObject)
-        return;
-
     ScopedInventoryOverride _;
 
-    if (auto* pActorObject = Cast<Actor>(pObject))
-        pActorObject->DropOrPickUpObject(acMessage.Item, pDropLocation, pDropRotation);
+    if (pActor)
+        pActor->DropOrPickUpObject(acMessage.Item, pDropLocation, pDropRotation);
     else
         pObject->AddOrRemoveItem(acMessage.Item);
 }

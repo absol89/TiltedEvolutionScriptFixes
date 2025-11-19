@@ -25,7 +25,8 @@ void CommandService::OnSetTimeCommand(const PacketEvent<SetTimeCommandRequest>& 
     // Only set time if player is an admin
     for (const auto session : GameServer::Get()->GetAdminSessions())
     {
-        if (PlayerManager::Get()->GetByConnectionId(session)->GetId() == cPlayerId)
+        auto* pAdmin = PlayerManager::Get()->GetByConnectionId(session);
+        if (pAdmin && pAdmin->GetId() == cPlayerId)
         {
             const auto cHours = static_cast<int>(acMessage.Packet.Hours);
             const auto cMinutes = static_cast<int>(acMessage.Packet.Minutes);

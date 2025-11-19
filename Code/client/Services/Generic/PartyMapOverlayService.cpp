@@ -34,6 +34,28 @@
 #include <Games/Skyrim/Interface/Menus/HUDMenuUtils.h>
 #include <Games/Skyrim/WorldMapProjector.h>
 
+namespace
+{
+std::string JsonEscapeString(const TiltedPhoques::String& input)
+{
+    std::string escaped;
+    escaped.reserve(input.size());
+    for (char ch : input)
+    {
+        switch (ch)
+        {
+        case '\\': escaped += "\\\\"; break;
+        case '\"': escaped += "\\\""; break;
+        case '\n': escaped += "\\n"; break;
+        case '\r': escaped += "\\r"; break;
+        case '\t': escaped += "\\t"; break;
+        default: escaped += ch; break;
+        }
+    }
+    return escaped;
+}
+}
+
 PartyMapOverlayService::PartyMapOverlayService(World& aWorld, entt::dispatcher& aDispatcher) noexcept
     : m_world(aWorld)
 {
@@ -276,6 +298,8 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
     bool first = true;
     const auto sampleNow = std::chrono::steady_clock::now();
 
+    const auto& playerInfoMap = partyService.GetPlayers();
+
     for (uint32_t pid : members)
     {
         if (pid == localId)
@@ -424,8 +448,17 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
         // Cache last projected (smoothed) position
         m_lastScreen[pid] = LastScreen{sx, sy, tick};
 
-        if (!first) os << ","; first = false;
-        os << "{\"x\":" << sx << ",\"y\":" << sy << ",\"id\":" << pid << "}";
+        const auto itInfo = playerInfoMap.find(pid);
+        const auto* pInfo = itInfo != playerInfoMap.end() ? &itInfo->second : nullptr;
+        const std::string nameEscaped = pInfo ? JsonEscapeString(pInfo->Name) : std::string{};
+        const std::string avatarEscaped = pInfo ? JsonEscapeString(pInfo->Avatar) : std::string{};
+        const bool isOutOfBounds = !hasWorld;
+
+        if (!first) os << ",";
+        first = false;
+        os << "{\"x\":" << sx << ",\"y\":" << sy << ",\"id\":" << pid
+           << ",\"oob\":" << (isOutOfBounds ? "true" : "false")
+           << ",\"name\":\"" << nameEscaped << "\",\"avatar\":\"" << avatarEscaped << "\"}";
     }
 
     // If nothing to draw, send empty list

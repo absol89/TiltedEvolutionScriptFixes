@@ -26,6 +26,7 @@ import { OrderComponent } from './components/order/order.component';
 import { PartyMenuComponent } from './components/party-menu/party-menu.component';
 import { PlayerListComponent } from './components/player-list/player-list.component';
 import { PlayerManagerComponent } from './components/player-manager/player-manager.component';
+import { TradePopupComponent } from './components/trade-popup/trade-popup.component';
 import { PopupComponent } from './components/popup/popup.component';
 import { RootComponent } from './components/root/root.component';
 import { ServerListComponent } from './components/server-list/server-list.component';
@@ -33,6 +34,7 @@ import { SettingsComponent } from './components/settings/settings.component';
 import { ToggleComponent } from './components/toggle/toggle.component';
 import { WindowComponent } from './components/window/window.component';
 import { PartyPinsComponent } from './components/party-pins/party-pins.component';
+import { OverlayBannerComponent } from './components/overlay-banner/overlay-banner.component';
 import { HealthDirective } from './directives/health.directive';
 import { RadioDirective } from './directives/radio.directive';
 import { SliderDirective } from './directives/slider.directive';
@@ -68,6 +70,7 @@ import { TranslocoRootModule } from './transloco-root.module';
     PartyMenuComponent,
     PlayerListComponent,
     PlayerManagerComponent,
+    TradePopupComponent,
     ActionButtonsComponent,
     PopupComponent,
     RootComponent,
@@ -76,6 +79,7 @@ import { TranslocoRootModule } from './transloco-root.module';
     ToggleComponent,
     WindowComponent,
     PartyPinsComponent,
+    OverlayBannerComponent,
 
     CheckboxDirective,
     HealthDirective,

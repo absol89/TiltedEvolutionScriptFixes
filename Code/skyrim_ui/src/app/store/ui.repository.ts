@@ -9,6 +9,9 @@ interface UiProps {
   connectIp: string;
   connectPort: number;
   connectName: string;
+  connectUsername: string;
+  connectAccountPassword: string;
+  connectReturnView: View | null;
   hideVersionMismatchedServers: boolean;
   hideFullServers: boolean;
   hidePasswordProtectedServers: boolean;
@@ -22,9 +25,12 @@ const uiStore = createStore(
     connectIp: null,
     connectPort: null,
     connectName: null,
+    connectUsername: null,
+    connectAccountPassword: null,
+    connectReturnView: null,
     hideVersionMismatchedServers: true,
     hideFullServers: true,
-    hidePasswordProtectedServers: true
+    hidePasswordProtectedServers: true,
   }),
 );
 
@@ -36,12 +42,22 @@ export class UiRepository {
   public readonly playerManagerTab$ = uiStore.pipe(
     select(state => state.playerManagerTab),
   );
-  public readonly connectIp$ = uiStore.pipe(select((state) => state.connectIp));
-  public readonly connectPort$ = uiStore.pipe(select((state) => state.connectPort));
-  public readonly connectName$ = uiStore.pipe(select((state) => state.connectName));
-  public readonly hideVersionMismatchedServers$ = uiStore.pipe(select((state) => state.hideVersionMismatchedServers));
-  public readonly hideFullServers$ = uiStore.pipe(select((state) => state.hideFullServers));
-  public readonly hidePasswordProtectedServers$ = uiStore.pipe(select((state) => state.hidePasswordProtectedServers));
+  public readonly connectIp$ = uiStore.pipe(select(state => state.connectIp));
+  public readonly connectPort$ = uiStore.pipe(
+    select(state => state.connectPort),
+  );
+  public readonly connectName$ = uiStore.pipe(
+    select(state => state.connectName),
+  );
+  public readonly hideVersionMismatchedServers$ = uiStore.pipe(
+    select(state => state.hideVersionMismatchedServers),
+  );
+  public readonly hideFullServers$ = uiStore.pipe(
+    select(state => state.hideFullServers),
+  );
+  public readonly hidePasswordProtectedServers$ = uiStore.pipe(
+    select(state => state.hidePasswordProtectedServers),
+  );
 
   openView(view: UiProps['view']) {
     uiStore.update(state => ({
@@ -77,6 +93,18 @@ export class UiRepository {
     return uiStore.getValue().connectName;
   }
 
+  getConnectUsername() {
+    return uiStore.getValue().connectUsername;
+  }
+
+  getConnectAccountPassword() {
+    return uiStore.getValue().connectAccountPassword;
+  }
+
+  getConnectReturnView() {
+    return uiStore.getValue().connectReturnView;
+  }
+
   getHideVersionMismatchedServers() {
     return uiStore.getValue().hideVersionMismatchedServers;
   }
@@ -93,21 +121,21 @@ export class UiRepository {
     uiStore.update(state => ({
       ...state,
       hideVersionMismatchedServers,
-    }))
+    }));
   }
 
   setHideFullServers(hideFullServers: boolean) {
     uiStore.update(state => ({
       ...state,
       hideFullServers,
-    }))
+    }));
   }
 
   setHidePasswordProtectedServers(hidePasswordProtectedServers: boolean) {
     uiStore.update(state => ({
       ...state,
       hidePasswordProtectedServers,
-    }))
+    }));
   }
 
   openPlayerManagerTab(playerManagerTab: UiProps['playerManagerTab']) {
@@ -117,13 +145,25 @@ export class UiRepository {
     }));
   }
 
-  openConnectWithPasswordView(connectIp: string, connectPort: number, connectName: string) {
-    uiStore.update((state) => ({
+  openConnectWithPasswordView(
+    connectIp: string,
+    connectPort: number,
+    connectName: string,
+    returnView: View,
+    connectUsername?: string,
+    connectAccountPassword?: string,
+  ) {
+    const port = connectPort ?? 10578;
+    uiStore.update(state => ({
       ...state,
       view: View.CONNECT_PASSWORD,
       connectIp,
-      connectPort,
+      connectPort: port,
       connectName,
-    }))
+      connectUsername: connectUsername ?? state.connectUsername ?? '',
+      connectAccountPassword:
+        connectAccountPassword ?? state.connectAccountPassword ?? '',
+      connectReturnView: returnView ?? state.connectReturnView ?? View.CONNECT,
+    }));
   }
 }
