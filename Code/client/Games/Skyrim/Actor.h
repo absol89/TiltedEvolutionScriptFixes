@@ -249,6 +249,7 @@ struct Actor : TESObjectREFR
     static void TrackRemoteDrop(uint32_t aActorFormId, uint32_t aDropId, uint32_t aHandleBits) noexcept;
     static std::optional<uint32_t> ConsumeTrackedDrop(uint32_t aActorFormId, uint32_t aDropId) noexcept;
     static std::optional<uint32_t> ConsumeTrackedDropByHandle(uint32_t aActorFormId, uint32_t aHandleBits) noexcept;
+    static bool HasTrackedDrop(uint32_t aActorFormId, uint32_t aDropId) noexcept;
     void SpeakSound(const char* pFile);
     void StartCombatEx(Actor* apTarget) noexcept;
     void SetCombatTargetEx(Actor* apTarget) noexcept;

@@ -392,6 +392,12 @@ bool InventoryService::TryApplyInventoryChange(const NotifyInventoryChanges& acM
             return false;
         }
 
+        if (pActor->GetExtension()->IsLocalPlayer())
+        {
+            if (dropInstanceId && Actor::HasTrackedDrop(pActor->formID, *dropInstanceId))
+                return true;
+        }
+
         struct DropSyncScope
         {
             DropSyncScope(uint32_t aActorFormId, const std::optional<uint32_t>& aDropId)
@@ -460,7 +466,7 @@ bool InventoryService::TryApplyInventoryChange(const NotifyInventoryChanges& acM
             return false;
         }
 
-        pActor->DropOrPickUpObject(acMessage.Item, pDropLocation, pDropRotation);
+        pActor->AddOrRemoveItem(acMessage.Item);
     }
     else
     {

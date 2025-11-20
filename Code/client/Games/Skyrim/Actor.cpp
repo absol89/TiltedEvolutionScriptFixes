@@ -198,6 +198,19 @@ std::optional<uint32_t> Actor::ConsumeTrackedDropByHandle(uint32_t aActorFormId,
     return std::nullopt;
 }
 
+bool Actor::HasTrackedDrop(uint32_t aActorFormId, uint32_t aDropId) noexcept
+{
+    if (aDropId == 0)
+        return false;
+
+    const auto actorIt = s_actorDropHandles.find(aActorFormId);
+    if (actorIt == s_actorDropHandles.end())
+        return false;
+
+    const auto& bucket = actorIt->second;
+    return bucket.find(aDropId) != bucket.end();
+}
+
 #ifdef SAVE_STUFF
 
 #include <Games/Skyrim/SaveLoad.h>
