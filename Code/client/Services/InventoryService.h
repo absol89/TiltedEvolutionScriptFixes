@@ -54,6 +54,8 @@ struct InventoryService
 private:
     void ApplyEquipmentChange(Actor* pActor, const NotifyEquipmentChanges& acMessage) noexcept;
     void ProcessPendingEquipment() noexcept;
+    void ProcessPendingEquipmentRequests() noexcept;
+    bool SendEquipmentChange(const EquipmentChangeEvent& acEvent) noexcept;
 
     /**
      * Checks whether local actors their weapon draw states have changed,
@@ -75,4 +77,6 @@ private:
     entt::scoped_connection m_equipmentConnection;
     entt::scoped_connection m_inventoryChangeConnection;
     entt::scoped_connection m_equipmentChangeConnection;
+
+    TiltedPhoques::Vector<EquipmentChangeEvent> m_pendingEquipmentRequests;
 };

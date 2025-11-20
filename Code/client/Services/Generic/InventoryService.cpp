@@ -31,6 +31,7 @@
 #include <Forms/TESNPC.h>
 #include <DefaultObjectManager.h>
 #include <Games/Primitives.h>
+#include <ExtraData/ExtraContainerChanges.h>
 
 InventoryService::InventoryService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
     : m_world(aWorld)
@@ -47,6 +48,7 @@ InventoryService::InventoryService(World& aWorld, entt::dispatcher& aDispatcher,
 void InventoryService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
 {
     ProcessPendingEquipment();
+    ProcessPendingEquipmentRequests();
     RunWeaponStateUpdates();
     RunNakedNPCBugChecks();
 }
@@ -98,48 +100,7 @@ void InventoryService::OnInventoryChangeEvent(const InventoryChangeEvent& acEven
 
 void InventoryService::OnEquipmentChangeEvent(const EquipmentChangeEvent& acEvent) noexcept
 {
-    if (!m_transport.IsConnected())
-        return;
-
-    auto view = m_world.view<FormIdComponent>();
-
-    const auto iter = std::find_if(std::begin(view), std::end(view), [view, formId = acEvent.ActorId](auto entity) { return view.get<FormIdComponent>(entity).Id == formId; });
-
-    if (iter == std::end(view))
-        return;
-
-    std::optional<uint32_t> serverIdRes = Utils::GetServerId(*iter);
-    if (!serverIdRes.has_value())
-    {
-        spdlog::error(__FUNCTION__ ": failed to find server id, actor id: {:X}, item id: {:X}, isAmmo: {}, unequip: {}, slot: {:X}", acEvent.ActorId, acEvent.ItemId, acEvent.IsAmmo, acEvent.Unequip, acEvent.EquipSlotId);
-        return;
-    }
-
-    Actor* pActor = Cast<Actor>(TESForm::GetById(acEvent.ActorId));
-    if (!pActor)
-        return;
-
-    auto& modSystem = World::Get().GetModSystem();
-
-    RequestEquipmentChanges request;
-    request.ServerId = serverIdRes.value();
-
-    if (!modSystem.GetServerModId(acEvent.EquipSlotId, request.EquipSlotId))
-        return;
-    if (!modSystem.GetServerModId(acEvent.ItemId, request.ItemId))
-        return;
-
-    const int32_t cEffectiveCount = acEvent.Count == 0 ? 1 : acEvent.Count;
-    request.Count = cEffectiveCount;
-    request.Unequip = acEvent.Unequip;
-    request.IsSpell = acEvent.IsSpell;
-    request.IsShout = acEvent.IsShout;
-    request.IsAmmo = acEvent.IsAmmo;
-    request.CurrentInventory = pActor->GetEquipment();
-
-    m_transport.Send(request);
-
-    spdlog::info("Sending equipment request, item: {:X}, count: {}, target object: {:X}", acEvent.ItemId, cEffectiveCount, acEvent.ActorId);
+    m_pendingEquipmentRequests.push_back(acEvent);
 }
 
 void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& acMessage) noexcept
@@ -381,6 +342,90 @@ void InventoryService::ProcessPendingEquipment() noexcept
 
     for (auto entity : toClear)
         m_world.remove<PendingEquipmentComponent>(entity);
+}
+
+void InventoryService::ProcessPendingEquipmentRequests() noexcept
+{
+    if (m_pendingEquipmentRequests.empty())
+        return;
+
+    TiltedPhoques::Vector<EquipmentChangeEvent> remaining;
+    remaining.reserve(m_pendingEquipmentRequests.size());
+
+    for (const auto& request : m_pendingEquipmentRequests)
+    {
+        if (!SendEquipmentChange(request))
+            remaining.push_back(request);
+    }
+
+    m_pendingEquipmentRequests = std::move(remaining);
+}
+
+bool InventoryService::SendEquipmentChange(const EquipmentChangeEvent& acEvent) noexcept
+{
+    if (!m_transport.IsConnected())
+        return false;
+
+    auto view = m_world.view<FormIdComponent>();
+
+    const auto iter = std::find_if(std::begin(view), std::end(view), [view, formId = acEvent.ActorId](auto entity) { return view.get<FormIdComponent>(entity).Id == formId; });
+
+    if (iter == std::end(view))
+    {
+        spdlog::debug("{}: form id {:X} not found yet, postponing equipment sync", __FUNCTION__, acEvent.ActorId);
+        return false;
+    }
+
+    std::optional<uint32_t> serverIdRes = Utils::GetServerId(*iter);
+    if (!serverIdRes.has_value())
+    {
+        spdlog::error("{}: failed to find server id, actor id: {:X}, item id: {:X}, isAmmo: {}, unequip: {}, slot: {:X}", __FUNCTION__, acEvent.ActorId, acEvent.ItemId, acEvent.IsAmmo, acEvent.Unequip, acEvent.EquipSlotId);
+        return false;
+    }
+
+    Actor* pActor = Cast<Actor>(TESForm::GetById(acEvent.ActorId));
+    if (!pActor)
+    {
+        spdlog::debug("{}: actor {:X} not ready, postponing equipment sync", __FUNCTION__, acEvent.ActorId);
+        return false;
+    }
+
+    if (!pActor->GetNiNode())
+    {
+        spdlog::debug("{}: actor {:X} missing 3D, postponing equipment sync", __FUNCTION__, acEvent.ActorId);
+        return false;
+    }
+
+    ExtraContainerChanges::Data* pContainerChanges = pActor->GetContainerChanges();
+    if (!pContainerChanges || !pContainerChanges->entries)
+    {
+        spdlog::debug("{}: actor {:X} missing container data, postponing equipment sync", __FUNCTION__, acEvent.ActorId);
+        return false;
+    }
+
+    auto& modSystem = World::Get().GetModSystem();
+
+    RequestEquipmentChanges request;
+    request.ServerId = serverIdRes.value();
+
+    if (!modSystem.GetServerModId(acEvent.EquipSlotId, request.EquipSlotId))
+        return true;
+    if (!modSystem.GetServerModId(acEvent.ItemId, request.ItemId))
+        return true;
+
+    const int32_t cEffectiveCount = acEvent.Count == 0 ? 1 : acEvent.Count;
+    request.Count = cEffectiveCount;
+    request.Unequip = acEvent.Unequip;
+    request.IsSpell = acEvent.IsSpell;
+    request.IsShout = acEvent.IsShout;
+    request.IsAmmo = acEvent.IsAmmo;
+    request.CurrentInventory = pActor->GetEquipment();
+
+    m_transport.Send(request);
+
+    spdlog::info("Sending equipment request, item: {:X}, count: {}, target object: {:X}", acEvent.ItemId, cEffectiveCount, acEvent.ActorId);
+
+    return true;
 }
 
 void InventoryService::RunWeaponStateUpdates() noexcept
