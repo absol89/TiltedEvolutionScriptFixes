@@ -33,6 +33,24 @@
 #include <Games/Primitives.h>
 #include <ExtraData/ExtraContainerChanges.h>
 
+namespace
+{
+const char* DescribeReadiness(InventoryService::ActorReadinessStatus aStatus) noexcept
+{
+    switch (aStatus)
+    {
+    case InventoryService::ActorReadinessStatus::MissingActor:
+        return "actor reference";
+    case InventoryService::ActorReadinessStatus::Missing3D:
+        return "3D data";
+    case InventoryService::ActorReadinessStatus::MissingContainerData:
+        return "inventory data";
+    default:
+        return "ready state";
+    }
+}
+}
+
 InventoryService::InventoryService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
     : m_world(aWorld)
     , m_dispatcher(aDispatcher)
@@ -217,7 +235,8 @@ void InventoryService::OnNotifyEquipmentChanges(const NotifyEquipmentChanges& ac
         return;
     }
 
-    if (!pActor->GetNiNode())
+    const auto readiness = EvaluateActorReadiness(pActor);
+    if (readiness != ActorReadinessStatus::Ready)
     {
         auto view = m_world.view<FormIdComponent>();
         const auto itor = std::find_if(std::begin(view), std::end(view), [formId = pActor->formID, view](entt::entity entity) { return view.get<FormIdComponent>(entity).Id == formId; });
@@ -229,7 +248,7 @@ void InventoryService::OnNotifyEquipmentChanges(const NotifyEquipmentChanges& ac
                 pPending = &m_world.emplace<PendingEquipmentComponent>(*itor);
 
             pPending->PendingChanges.push_back(acMessage);
-            spdlog::debug("Queued equipment change for actor {:X} until 3D is ready", pActor->formID);
+            spdlog::debug("Queued equipment change for actor {:X} (waiting for {})", pActor->formID, DescribeReadiness(readiness));
         }
         else
         {
@@ -331,8 +350,13 @@ void InventoryService::ProcessPendingEquipment() noexcept
         auto& pending = view.get<PendingEquipmentComponent>(entity);
 
         Actor* pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
-        if (!pActor || !pActor->GetNiNode())
+        const auto readiness = EvaluateActorReadiness(pActor);
+        if (readiness != ActorReadinessStatus::Ready)
+        {
+            if (readiness == ActorReadinessStatus::MissingActor)
+                toClear.push_back(entity);
             continue;
+        }
 
         for (const auto& change : pending.PendingChanges)
             ApplyEquipmentChange(pActor, change);
@@ -384,22 +408,10 @@ bool InventoryService::SendEquipmentChange(const EquipmentChangeEvent& acEvent) 
     }
 
     Actor* pActor = Cast<Actor>(TESForm::GetById(acEvent.ActorId));
-    if (!pActor)
+    const auto readiness = EvaluateActorReadiness(pActor);
+    if (readiness != ActorReadinessStatus::Ready)
     {
-        spdlog::debug("{}: actor {:X} not ready, postponing equipment sync", __FUNCTION__, acEvent.ActorId);
-        return false;
-    }
-
-    if (!pActor->GetNiNode())
-    {
-        spdlog::debug("{}: actor {:X} missing 3D, postponing equipment sync", __FUNCTION__, acEvent.ActorId);
-        return false;
-    }
-
-    ExtraContainerChanges::Data* pContainerChanges = pActor->GetContainerChanges();
-    if (!pContainerChanges || !pContainerChanges->entries)
-    {
-        spdlog::debug("{}: actor {:X} missing container data, postponing equipment sync", __FUNCTION__, acEvent.ActorId);
+        spdlog::debug("{}: actor {:X} not ready (waiting for {}), postponing equipment sync", __FUNCTION__, acEvent.ActorId, DescribeReadiness(readiness));
         return false;
     }
 
@@ -426,6 +438,21 @@ bool InventoryService::SendEquipmentChange(const EquipmentChangeEvent& acEvent) 
     spdlog::info("Sending equipment request, item: {:X}, count: {}, target object: {:X}", acEvent.ItemId, cEffectiveCount, acEvent.ActorId);
 
     return true;
+}
+
+InventoryService::ActorReadinessStatus InventoryService::EvaluateActorReadiness(Actor* pActor) const noexcept
+{
+    if (!pActor)
+        return ActorReadinessStatus::MissingActor;
+
+    if (!pActor->GetNiNode())
+        return ActorReadinessStatus::Missing3D;
+
+    if (ExtraContainerChanges::Data* pContainerChanges = pActor->GetContainerChanges();
+        !pContainerChanges || !pContainerChanges->entries)
+        return ActorReadinessStatus::MissingContainerData;
+
+    return ActorReadinessStatus::Ready;
 }
 
 void InventoryService::RunWeaponStateUpdates() noexcept

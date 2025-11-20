@@ -38,6 +38,7 @@
 #include <Structs/ActionEvent.h>
 #include <Messages/CancelAssignmentRequest.h>
 #include <Messages/AssignCharacterRequest.h>
+#include <ExtraData/ExtraContainerChanges.h>
 #include <Messages/AssignCharacterResponse.h>
 #include <Messages/ServerReferencesMoveRequest.h>
 #include <Messages/ClientReferencesMoveRequest.h>
@@ -1567,7 +1568,11 @@ void CharacterService::RunRemoteUpdates() noexcept
         auto& waitingFor3D = waitingView.get<WaitingFor3D>(entity);
 
         Actor* pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
-        if (!pActor || !pActor->GetNiNode())
+        if (!pActor)
+            continue;
+
+        ExtraContainerChanges::Data* pContainerChanges = pActor->GetContainerChanges();
+        if (!pActor->GetNiNode() || !pContainerChanges || !pContainerChanges->entries)
             continue;
 
         // By now, the actor has materialized in the world and is ready for further setup
@@ -1605,7 +1610,11 @@ void CharacterService::RunRemoteUpdates() noexcept
         auto& pendingInventory = pendingInventoryView.get<PendingInventoryComponent>(entity);
 
         Actor* pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
-        if (!pActor || !pActor->GetNiNode())
+        if (!pActor)
+            continue;
+
+        ExtraContainerChanges::Data* pContainerChanges = pActor->GetContainerChanges();
+        if (!pActor->GetNiNode() || !pContainerChanges || !pContainerChanges->entries)
             continue;
 
         pActor->SetActorInventory(pendingInventory.InventoryContent);

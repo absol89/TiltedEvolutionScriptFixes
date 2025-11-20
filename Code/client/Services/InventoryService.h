@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 struct World;
 struct TransportService;
 class Actor;
@@ -56,6 +58,14 @@ private:
     void ProcessPendingEquipment() noexcept;
     void ProcessPendingEquipmentRequests() noexcept;
     bool SendEquipmentChange(const EquipmentChangeEvent& acEvent) noexcept;
+    enum class ActorReadinessStatus : uint8_t
+    {
+        Ready,
+        MissingActor,
+        Missing3D,
+        MissingContainerData
+    };
+    ActorReadinessStatus EvaluateActorReadiness(Actor* pActor) const noexcept;
 
     /**
      * Checks whether local actors their weapon draw states have changed,
