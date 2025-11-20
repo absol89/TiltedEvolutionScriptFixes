@@ -454,6 +454,8 @@ void MagicService::OnNotifyAddTarget(const NotifyAddTarget& acMessage) noexcept
         return;
     }
 
+    ScopedSpellCastOverride spellOverrideGuard;
+
     MagicTarget::AddTargetData data{};
     data.pCaster = pCaster;
     data.pSpell = pSpell;
