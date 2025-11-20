@@ -1061,8 +1061,9 @@ char TP_MAKE_THISCALL(HookSetPosition, Actor, NiPoint3& aPosition)
 {
     const auto pExtension = apThis ? apThis->GetExtension() : nullptr;
     const auto bIsRemote = pExtension && pExtension->IsRemote();
+    const bool bAllowRemoteUpdate = ScopedReferencesOverride::IsOverriden() || (apThis && apThis->IsDead());
 
-    if (bIsRemote && !ScopedReferencesOverride::IsOverriden())
+    if (bIsRemote && !bAllowRemoteUpdate)
         return 1;
 
     // Don't interfere with non actor references, or the player, or if we are calling our self

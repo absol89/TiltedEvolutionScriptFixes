@@ -1090,8 +1090,9 @@ void TP_MAKE_THISCALL(HookRotateX, TESObjectREFR, float aAngle)
     if (apThis->formType == Actor::Type)
     {
         const auto pActor = static_cast<Actor*>(apThis);
+        const bool bAllowRemoteUpdate = ScopedReferencesOverride::IsOverriden() || pActor->IsDead();
         // We don't allow remotes to move
-        if (pActor->GetExtension()->IsRemote())
+        if (pActor->GetExtension()->IsRemote() && !bAllowRemoteUpdate)
             return;
     }
 
@@ -1103,8 +1104,9 @@ void TP_MAKE_THISCALL(HookRotateY, TESObjectREFR, float aAngle)
     if (apThis->formType == Actor::Type)
     {
         const auto pActor = static_cast<Actor*>(apThis);
+        const bool bAllowRemoteUpdate = ScopedReferencesOverride::IsOverriden() || pActor->IsDead();
         // We don't allow remotes to move
-        if (pActor->GetExtension()->IsRemote())
+        if (pActor->GetExtension()->IsRemote() && !bAllowRemoteUpdate)
             return;
     }
 
@@ -1116,8 +1118,9 @@ void TP_MAKE_THISCALL(HookRotateZ, TESObjectREFR, float aAngle)
     if (apThis->formType == Actor::Type)
     {
         const auto pActor = static_cast<Actor*>(apThis);
+        const bool bAllowRemoteUpdate = ScopedReferencesOverride::IsOverriden() || pActor->IsDead();
         // We don't allow remotes to move
-        if (pActor->GetExtension()->IsRemote())
+        if (pActor->GetExtension()->IsRemote() && !bAllowRemoteUpdate)
             return;
     }
 
