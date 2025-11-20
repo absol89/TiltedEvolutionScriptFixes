@@ -549,6 +549,13 @@ void CharacterService::OnRequestRespawn(const PacketEvent<RequestRespawn>& acMes
 
     const auto resolvedEntity = *it;
     auto& ownerComponent = view.get<OwnerComponent>(*it);
+    if (auto* pAnimationComponent = m_world.try_get<AnimationComponent>(resolvedEntity))
+    {
+        pAnimationComponent->Actions.clear();
+        pAnimationComponent->CurrentAction = {};
+        pAnimationComponent->ActionsReplayCache.Clear();
+    }
+
     if (ownerComponent.GetOwner() == acMessage.pPlayer)
     {
         if (!acMessage.Packet.AppearanceBuffer.empty())

@@ -173,6 +173,13 @@ void PlayerService::OnPlayerRespawnRequest(const PacketEvent<PlayerRespawnReques
         return;
     }
 
+    if (auto* pAnimationComponent = m_world.try_get<AnimationComponent>(*entity))
+    {
+        pAnimationComponent->Actions.clear();
+        pAnimationComponent->CurrentAction = {};
+        pAnimationComponent->ActionsReplayCache.Clear();
+    }
+
     auto view = m_world.view<InventoryComponent>();
 
     const auto it = view.find(*entity);
