@@ -33,24 +33,6 @@
 #include <Games/Primitives.h>
 #include <ExtraData/ExtraContainerChanges.h>
 
-namespace
-{
-const char* DescribeReadiness(InventoryService::ActorReadinessStatus aStatus) noexcept
-{
-    switch (aStatus)
-    {
-    case InventoryService::ActorReadinessStatus::MissingActor:
-        return "actor reference";
-    case InventoryService::ActorReadinessStatus::Missing3D:
-        return "3D data";
-    case InventoryService::ActorReadinessStatus::MissingContainerData:
-        return "inventory data";
-    default:
-        return "ready state";
-    }
-}
-}
-
 InventoryService::InventoryService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
     : m_world(aWorld)
     , m_dispatcher(aDispatcher)
@@ -453,6 +435,21 @@ InventoryService::ActorReadinessStatus InventoryService::EvaluateActorReadiness(
         return ActorReadinessStatus::MissingContainerData;
 
     return ActorReadinessStatus::Ready;
+}
+
+const char* InventoryService::DescribeReadiness(ActorReadinessStatus aStatus) noexcept
+{
+    switch (aStatus)
+    {
+    case ActorReadinessStatus::MissingActor:
+        return "actor reference";
+    case ActorReadinessStatus::Missing3D:
+        return "3D data";
+    case ActorReadinessStatus::MissingContainerData:
+        return "inventory data";
+    default:
+        return "ready state";
+    }
 }
 
 void InventoryService::RunWeaponStateUpdates() noexcept

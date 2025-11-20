@@ -6,12 +6,11 @@ struct World;
 struct TransportService;
 class Actor;
 
-struct UpdateEvent;
-struct NotifyObjectInventoryChanges;
-struct NotifyInventoryChanges;
-struct InventoryChangeEvent;
-struct EquipmentChangeEvent;
-struct NotifyEquipmentChanges;
+#include <Events/EquipmentChangeEvent.h>
+#include <Events/InventoryChangeEvent.h>
+#include <Messages/NotifyInventoryChanges.h>
+#include <Messages/NotifyEquipmentChanges.h>
+#include <Events/UpdateEvent.h>
 
 /**
  * @brief Manages inventories of actors and containers.
@@ -66,6 +65,7 @@ private:
         MissingContainerData
     };
     ActorReadinessStatus EvaluateActorReadiness(Actor* pActor) const noexcept;
+    static const char* DescribeReadiness(ActorReadinessStatus aStatus) noexcept;
 
     /**
      * Checks whether local actors their weapon draw states have changed,
