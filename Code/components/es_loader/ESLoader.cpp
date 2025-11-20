@@ -1,13 +1,367 @@
 
 
 #include "ESLoader.h"
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <cstdlib>
+#include <optional>
+#include <spdlog/spdlog.h>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#if defined(_WIN32)
+#    ifndef WIN32_LEAN_AND_MEAN
+#        define WIN32_LEAN_AND_MEAN
+#    endif
+#    ifndef NOMINMAX
+#        define NOMINMAX
+#    endif
+#    include <windows.h>
+#else
+#    include <unistd.h>
+#endif
 
 #include <Records/CLMT.h>
 #include <Records/NPC.h>
 #include <Records/REFR.h>
+
+namespace
+{
+struct Mo2Context
+{
+    fs::path dataPath;
+    fs::path loadOrderPath;
+    fs::path pluginsPath;
+    String profile;
+};
+
+fs::path ResolveExecutableDirectory() noexcept
+{
+#if defined(_WIN32)
+    std::array<wchar_t, MAX_PATH> buffer{};
+    const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+    if (length != 0 && length < buffer.size())
+        return fs::path(buffer.data()).parent_path();
+#else
+    std::error_code ec;
+    auto exePath = fs::canonical("/proc/self/exe", ec);
+    if (!ec)
+        return exePath.parent_path();
+#endif
+
+    return {};
+}
+
+String Trim(String value)
+{
+    auto notSpace = [](int ch) { return !std::isspace(static_cast<unsigned char>(ch)); };
+    value.erase(value.begin(), std::find_if(value.begin(), value.end(), notSpace));
+    value.erase(std::find_if(value.rbegin(), value.rend(), notSpace).base(), value.end());
+    return value;
+}
+
+String ParseMo2ByteArray(String value)
+{
+    constexpr std::string_view kPrefix = "@ByteArray(";
+
+    if (value.rfind(kPrefix.data(), 0) == 0 && !value.empty())
+    {
+        const auto endPos = value.rfind(')');
+        if (endPos != String::npos && endPos > kPrefix.size())
+        {
+            value = value.substr(kPrefix.size(), endPos - kPrefix.size());
+        }
+    }
+
+    if (!value.empty() && value.front() == '"' && value.back() == '"' && value.size() > 1)
+    {
+        value = value.substr(1, value.size() - 2);
+    }
+
+    String result;
+    result.reserve(value.size());
+
+    for (size_t i = 0; i < value.size(); ++i)
+    {
+        const char ch = value[i];
+        if (ch == '\\' && i + 1 < value.size())
+        {
+            result.push_back(value[i + 1]);
+            ++i;
+        }
+        else
+        {
+            result.push_back(ch);
+        }
+    }
+
+    return result;
+}
+
+fs::path NormalizeMo2Path(String value)
+{
+    if (value.empty())
+        return {};
+
+    for (auto& ch : value)
+    {
+        if (ch == '\\')
+            ch = '/';
+    }
+
+#if defined(__linux__)
+    if (value.size() > 1 && value[1] == ':' && (value[0] == 'Z' || value[0] == 'z'))
+    {
+        value.erase(0, 2);
+        if (value.empty() || (value.front() != '/' && value.front() != '\\'))
+            value.insert(value.begin(), '/');
+    }
+#endif
+
+    return fs::path(value);
+}
+
+std::optional<Mo2Context> ParseMo2Instance(const fs::path& aRootPath, const fs::path& aIniPath, const char* aForcedProfile)
+{
+    std::ifstream iniStream(aIniPath.c_str());
+    if (!iniStream.is_open())
+        return std::nullopt;
+
+    String currentSection;
+    String selectedProfile;
+    String gamePath;
+    String line;
+
+    while (std::getline(iniStream, line))
+    {
+        if (line.empty())
+            continue;
+
+        if (line.front() == '[' && line.back() == ']')
+        {
+            currentSection = line.substr(1, line.size() - 2);
+            continue;
+        }
+
+        if (currentSection != "General")
+            continue;
+
+        const auto delimiter = line.find('=');
+        if (delimiter == String::npos)
+            continue;
+
+        String key = Trim(line.substr(0, delimiter));
+        String value = Trim(line.substr(delimiter + 1));
+
+        if (key == "selected_profile")
+            selectedProfile = ParseMo2ByteArray(value);
+        else if (key == "gamePath")
+            gamePath = ParseMo2ByteArray(value);
+
+        if (!selectedProfile.empty() && !gamePath.empty())
+            break;
+    }
+
+    const String configuredProfile = selectedProfile;
+    const String forcedProfile = (aForcedProfile && aForcedProfile[0] != '\0') ? String(aForcedProfile) : String{};
+
+    if (!forcedProfile.empty())
+    {
+        selectedProfile = forcedProfile;
+    }
+
+    if (selectedProfile.empty() || gamePath.empty())
+        return std::nullopt;
+
+    const fs::path dataRoot = NormalizeMo2Path(gamePath) / "Data";
+    fs::path profilePath = aRootPath / "profiles" / selectedProfile;
+    std::error_code profileEc;
+    if (!fs::exists(profilePath, profileEc) || profileEc)
+    {
+        if (!configuredProfile.empty() && configuredProfile != selectedProfile)
+        {
+            if (!forcedProfile.empty())
+            {
+                spdlog::warn("ESLoader: MO2 profile override '{}' not found, falling back to '{}'", forcedProfile.c_str(), configuredProfile.c_str());
+            }
+
+            profilePath = aRootPath / "profiles" / configuredProfile;
+            selectedProfile = configuredProfile;
+            profileEc.clear();
+        }
+    }
+
+    if (!fs::exists(profilePath, profileEc) || profileEc)
+    {
+        spdlog::warn("ESLoader: MO2 profile '{}' not found under {}", selectedProfile.c_str(), (aRootPath / "profiles").string());
+        return std::nullopt;
+    }
+
+    Mo2Context context{};
+    context.dataPath = dataRoot;
+    context.loadOrderPath = profilePath / "loadorder.txt";
+    context.pluginsPath = profilePath / "plugins.txt";
+    context.profile = selectedProfile;
+
+    return context;
+}
+
+std::optional<Mo2Context> SearchMo2Root(fs::path start, const char* aForcedProfile, std::vector<std::string>* aTrace)
+{
+    if (start.empty())
+        return std::nullopt;
+
+    std::error_code ec;
+    auto canonical = fs::weakly_canonical(start, ec);
+    if (!ec)
+        start = canonical;
+    else
+    {
+        canonical = fs::absolute(start, ec);
+        if (!ec)
+            start = canonical;
+    }
+
+    fs::path search = start;
+    fs::path previous;
+
+    while (true)
+    {
+        if (aTrace)
+            aTrace->push_back(search.string());
+
+        const fs::path iniPath = search / "ModOrganizer.ini";
+        std::error_code existsEc;
+        if (fs::exists(iniPath, existsEc) && !existsEc)
+        {
+            if (auto context = ParseMo2Instance(search, iniPath, aForcedProfile))
+                return context;
+        }
+
+        if (!search.has_parent_path() || search == previous)
+            break;
+
+        previous = search;
+        search = search.parent_path();
+    }
+
+    return std::nullopt;
+}
+
+std::optional<Mo2Context> DetectMo2Instance()
+{
+    std::vector<fs::path> candidates;
+    std::vector<std::string> trace;
+
+    const char* envInstance = std::getenv("MO2_INSTANCE_DIR");
+    const char* envProfile = std::getenv("MO2_PROFILE");
+
+    if (envInstance && envInstance[0] != '\0')
+        candidates.emplace_back(NormalizeMo2Path(envInstance));
+
+    if (auto exeDir = ResolveExecutableDirectory(); !exeDir.empty())
+        candidates.push_back(exeDir);
+
+    std::error_code ec;
+    auto cwd = fs::current_path(ec);
+    if (!ec)
+        candidates.push_back(cwd);
+
+#if defined(_WIN32)
+    if (const char* localAppData = std::getenv("LOCALAPPDATA"); localAppData && localAppData[0] != '\0')
+    {
+        candidates.emplace_back(fs::path(localAppData) / "ModOrganizer");
+        candidates.emplace_back(fs::path(localAppData) / "ModOrganizer" / "Skyrim Special Edition");
+    }
+#endif
+
+    for (const auto& root : candidates)
+    {
+        if (auto context = SearchMo2Root(root, envProfile, &trace))
+            return context;
+    }
+
+    if (!trace.empty())
+    {
+        std::string message = "ESLoader: no Mod Organizer installation detected. searched paths: ";
+        for (size_t i = 0; i < trace.size(); ++i)
+        {
+            message += trace[i];
+            if (i + 1 < trace.size())
+                message += ", ";
+        }
+        spdlog::info(message);
+    }
+
+    return std::nullopt;
+}
+
+bool LoadPluginsTxtFromPath(const fs::path& aPluginsPath, Vector<ESLoader::PluginData>& outOrder)
+{
+    std::ifstream pluginsFile(aPluginsPath.c_str());
+    if (!pluginsFile.is_open())
+        return false;
+
+    uint8_t standardId = 0x0;
+    uint16_t liteId = 0x0;
+
+    while (!pluginsFile.eof())
+    {
+        String line;
+        std::getline(pluginsFile, line);
+
+        if (line.empty() || line[0] == '#')
+            continue;
+
+        if (!line.empty() && line[0] == '*')
+            line.erase(line.begin());
+
+        line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
+        if (line.empty())
+            continue;
+
+        ESLoader::PluginData plugin{};
+        plugin.m_filename = line;
+        const char extensionType = line.back();
+
+        switch (extensionType)
+        {
+        case 'm':
+        case 'p':
+            plugin.m_standardId = standardId++;
+            plugin.m_isLite = false;
+            outOrder.push_back(plugin);
+            break;
+        case 'l':
+            plugin.m_liteId = liteId++;
+            plugin.m_isLite = true;
+            outOrder.push_back(plugin);
+            break;
+        default:
+            break;
+        }
+    }
+
+    return !outOrder.empty();
+}
+
+bool LoadPluginsTxtFromLocalAppData(Vector<ESLoader::PluginData>& outOrder)
+{
+#if defined(_WIN32)
+    if (char* localAppData = std::getenv("LOCALAPPDATA"))
+    {
+        const fs::path pluginsPath = fs::path(localAppData) / "Skyrim Special Edition" / "plugins.txt";
+        return LoadPluginsTxtFromPath(pluginsPath, outOrder);
+    }
+#endif
+
+    return false;
+}
+} // namespace
 
 namespace ESLoader
 {
@@ -29,7 +383,18 @@ String ReadWString(Buffer::Reader& aReader) noexcept
 
 ESLoader::ESLoader()
 {
-    m_directory = fs::current_path() / "Data"; //< Keep upper case to match Skyrim's file system
+    if (auto context = DetectMo2Instance())
+    {
+        m_directory = context->dataPath;
+        m_loadOrderFile = context->loadOrderPath;
+        m_pluginsFile = context->pluginsPath;
+        spdlog::info("Detected Mod Organizer 2 profile '{}' (Data: {}, loadorder: {}).", context->profile, m_directory.string(), m_loadOrderFile.string());
+    }
+    else
+    {
+        m_directory = fs::current_path() / "Data"; //< Keep upper case to match Skyrim's file system
+        m_loadOrderFile = m_directory / "loadorder.txt";
+    }
 }
 
 UniquePtr<RecordCollection> ESLoader::BuildRecordCollection() noexcept
@@ -56,88 +421,49 @@ UniquePtr<RecordCollection> ESLoader::BuildRecordCollection() noexcept
     return std::move(recordCollection);
 }
 
-static bool LoadPluginsTxt(Vector<PluginData>& outOrder)
-{
-    // Try to read plugins.txt from LOCALAPPDATA (Windows)
-    #if defined(_WIN32)
-    char* localAppData = std::getenv("LOCALAPPDATA");
-    if (localAppData)
-    {
-        fs::path pluginsPath = fs::path(localAppData) / "Skyrim Special Edition" / "plugins.txt";
-        std::ifstream pluginsFile(pluginsPath.c_str());
-        if (pluginsFile.is_open())
-        {
-            uint8_t standardId = 0x0;
-            uint16_t liteId = 0x0;
-            while (!pluginsFile.eof())
-            {
-                String line;
-                std::getline(pluginsFile, line);
-                if (line.empty() || line[0] == '#')
-                    continue;
-                // Some tools prefix active plugins with '*'
-                if (!line.empty() && line[0] == '*')
-                    line.erase(line.begin());
-                // Trim CR just in case
-                line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
-                if (line.empty())
-                    continue;
-
-                PluginData plugin;
-                plugin.m_filename = line;
-                char extensionType = line.back();
-                switch (extensionType)
-                {
-                case 'm':
-                case 'p':
-                {
-                    PluginData p{};
-                    p.m_filename = line;
-                    p.m_standardId = standardId++;
-                    p.m_isLite = false;
-                    outOrder.push_back(p);
-                    break;
-                }
-                case 'l':
-                {
-                    PluginData p{};
-                    p.m_filename = line;
-                    p.m_liteId = liteId++;
-                    p.m_isLite = true;
-                    outOrder.push_back(p);
-                    break;
-                }
-                default:
-                    break;
-                }
-            }
-            return !outOrder.empty();
-        }
-    }
-    #endif
-    return false;
-}
-
 bool ESLoader::LoadLoadOrder()
 {
+    m_loadOrder.clear();
+    m_masterFiles.clear();
+
     std::ifstream loadOrderFile;
-    auto loadOrderPath = m_directory / "loadorder.txt";
-    loadOrderFile.open(loadOrderPath.c_str());
+    const fs::path loadOrderPath = !m_loadOrderFile.empty() ? m_loadOrderFile : (m_directory / "loadorder.txt");
+    if (!loadOrderPath.empty())
+        loadOrderFile.open(loadOrderPath.c_str());
+    else
+        loadOrderFile.setstate(std::ios::failbit);
+
     if (loadOrderFile.fail())
     {
-        // Try plugins.txt fallback (MO2 / vanilla)
-        if (LoadPluginsTxt(m_loadOrder))
+        bool loaded = false;
+        bool usedProfilePlugins = false;
+
+        if (!m_pluginsFile.empty())
         {
-            // Populate master mapping for both ESM/ESP (non-lite)
+            loaded = LoadPluginsTxtFromPath(m_pluginsFile, m_loadOrder);
+            usedProfilePlugins = loaded;
+        }
+
+        if (!loaded)
+            loaded = LoadPluginsTxtFromLocalAppData(m_loadOrder);
+
+        if (loaded)
+        {
             for (const auto& p : m_loadOrder)
             {
                 if (!p.m_isLite)
                     m_masterFiles[p.m_filename] = p.m_standardId;
             }
+
+            if (usedProfilePlugins)
+                spdlog::info("ESLoader: queued {} plugins from {}", m_loadOrder.size(), m_pluginsFile.string());
+            else
+                spdlog::info("ESLoader: queued {} plugins from plugins.txt in LOCALAPPDATA", m_loadOrder.size());
+
             return true;
         }
         // Fallback to base ESMs minimal set
-        spdlog::warn("Failed to open loadorder.txt; falling back to base ESM set");
+        spdlog::warn("Failed to open loadorder.txt at {}; falling back to base ESM set", loadOrderPath.string());
         Vector<String> base = {"Skyrim.esm", "Update.esm", "Dawnguard.esm", "HearthFires.esm", "Dragonborn.esm"};
         uint8_t standardId = 0x0;
         for (auto& name : base)
@@ -150,6 +476,7 @@ bool ESLoader::LoadLoadOrder()
             m_masterFiles[name] = standardId;
             standardId += 1;
         }
+        spdlog::info("ESLoader: queued {} base-game plugins (fallback set)", m_loadOrder.size());
         return true;
     }
 
@@ -192,6 +519,8 @@ bool ESLoader::LoadLoadOrder()
         default: spdlog::error("Extension in loadorder.txt not recognized: {}", line);
         }
     }
+
+    spdlog::info("ESLoader: queued {} plugins from {}", m_loadOrder.size(), loadOrderPath.string());
 
     return true;
 }

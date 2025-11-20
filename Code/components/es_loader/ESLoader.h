@@ -40,7 +40,9 @@ private:
 
     fs::path GetPath(String& aFilename);
 
-    fs::path m_directory = "";
+    fs::path m_directory{};
+    fs::path m_loadOrderFile{};
+    fs::path m_pluginsFile{};
     Vector<PluginData> m_loadOrder{};
     TiltedPhoques::Map<String, uint8_t> m_masterFiles{};
 };
