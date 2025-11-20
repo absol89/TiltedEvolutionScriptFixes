@@ -56,6 +56,7 @@ private:
     void ApplyEquipmentChange(Actor* pActor, const NotifyEquipmentChanges& acMessage) noexcept;
     void ProcessPendingEquipment() noexcept;
     void ProcessPendingEquipmentRequests() noexcept;
+    void ProcessPendingInventoryChanges() noexcept;
     bool SendEquipmentChange(const EquipmentChangeEvent& acEvent) noexcept;
     enum class ActorReadinessStatus : uint8_t
     {
@@ -78,6 +79,8 @@ private:
     */
     void RunNakedNPCBugChecks() noexcept;
 
+    bool TryApplyInventoryChange(const NotifyInventoryChanges& acMessage) noexcept;
+
     World& m_world;
     entt::dispatcher& m_dispatcher;
     TransportService& m_transport;
@@ -89,4 +92,5 @@ private:
     entt::scoped_connection m_equipmentChangeConnection;
 
     TiltedPhoques::Vector<EquipmentChangeEvent> m_pendingEquipmentRequests;
+    TiltedPhoques::Vector<NotifyInventoryChanges> m_pendingInventoryChanges;
 };
