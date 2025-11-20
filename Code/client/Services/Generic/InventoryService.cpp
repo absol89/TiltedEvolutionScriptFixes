@@ -32,6 +32,7 @@
 #include <DefaultObjectManager.h>
 #include <Games/Primitives.h>
 #include <ExtraData/ExtraContainerChanges.h>
+#include <TESObjectREFR.h>
 
 InventoryService::InventoryService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
     : m_world(aWorld)
@@ -394,8 +395,16 @@ bool InventoryService::TryApplyInventoryChange(const NotifyInventoryChanges& acM
 
         if (pActor->GetExtension()->IsLocalPlayer())
         {
-            if (dropInstanceId && Actor::HasTrackedDrop(pActor->formID, *dropInstanceId))
+            if (!dropInstanceId)
                 return true;
+
+            if (auto handleOpt = Actor::GetTrackedDropHandle(pActor->formID, *dropInstanceId))
+            {
+                if (auto* pExisting = TESObjectREFR::GetByHandle(*handleOpt))
+                    return true;
+            }
+
+            return false;
         }
 
         struct DropSyncScope
@@ -436,6 +445,9 @@ bool InventoryService::TryApplyInventoryChange(const NotifyInventoryChanges& acM
             return false;
         }
 
+        if (pActor->GetExtension()->IsLocalPlayer())
+            return true;
+
         if (auto handleOpt = Actor::ConsumeTrackedDrop(pActor->formID, *dropInstanceId))
         {
             uint32_t handleBits = *handleOpt;
@@ -466,7 +478,10 @@ bool InventoryService::TryApplyInventoryChange(const NotifyInventoryChanges& acM
             return false;
         }
 
-        pActor->AddOrRemoveItem(acMessage.Item);
+        if (acMessage.Item.Count < 0 && !dropInstanceId)
+            pActor->AddOrRemoveItem(acMessage.Item);
+        else
+            pActor->DropOrPickUpObject(acMessage.Item, pDropLocation, pDropRotation);
     }
     else
     {
