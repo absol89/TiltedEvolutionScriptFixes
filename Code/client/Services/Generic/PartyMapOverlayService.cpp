@@ -55,6 +55,30 @@ std::string JsonEscapeString(const TiltedPhoques::String& input)
     }
     return escaped;
 }
+
+bool HasMenuOpen(UI* apUI, const char* acName)
+{
+    if (!apUI || !acName)
+        return false;
+
+    const BSFixedString desired(acName);
+    if (apUI->GetMenuOpen(desired))
+        return true;
+
+    for (auto* pMenu : apUI->menuStack)
+    {
+        if (!pMenu)
+            continue;
+        if (auto* pName = apUI->LookupMenuNameByInstance(pMenu))
+        {
+            if (*pName == desired)
+                return true;
+        }
+    }
+
+    return false;
+}
+
 }
 
 PartyMapOverlayService::PartyMapOverlayService(World& aWorld, entt::dispatcher& aDispatcher) noexcept
@@ -282,6 +306,17 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
     UI* pUI = UI::Get();
     const bool mapOpen = pUI && pUI->GetMenuOpen(BSFixedString("MapMenu"));
     if (!mapOpen)
+    {
+        m_world.GetOverlayService().SetPartyPinsJson("[]");
+        return;
+    }
+
+    const bool fastTravelPromptOpen = HasMenuOpen(pUI, "MessageBoxMenu");
+    const bool loadingScreenOpen = HasMenuOpen(pUI, "LoadingMenu") || HasMenuOpen(pUI, "Loading Menu") ||
+                                   HasMenuOpen(pUI, "FaderMenu") || HasMenuOpen(pUI, "Fader Menu") ||
+                                   HasMenuOpen(pUI, "LoadWaitSpinner") || HasMenuOpen(pUI, "Load Wait Spinner") ||
+                                   HasMenuOpen(pUI, "Sleep/Wait Menu");
+    if (fastTravelPromptOpen || loadingScreenOpen)
     {
         m_world.GetOverlayService().SetPartyPinsJson("[]");
         return;
