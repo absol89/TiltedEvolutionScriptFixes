@@ -73,6 +73,7 @@ private:
     std::unordered_map<uint32_t, std::unordered_map<uint32_t, glm::vec3>> m_lastPerWorld;
     // last projected screen pos cache to hide brief transition gaps
     std::unordered_map<uint32_t, LastScreen> m_lastScreen;
+    uint32_t m_lastValidDisplayWorldId{0};
 
     // connections
     entt::scoped_connection m_updateConnection;

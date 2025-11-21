@@ -30,6 +30,7 @@
 #include <Games/Skyrim/PlayerCharacter.h>
 #include <Forms/TESWorldSpace.h>
 #include <Forms/TESObjectCELL.h>
+#include <Games/Skyrim/Forms/TESForm.h>
 #include <Games/Skyrim/TESObjectREFR.h>
 #include <Games/Skyrim/Interface/Menus/HUDMenuUtils.h>
 #include <Games/Skyrim/WorldMapProjector.h>
@@ -77,6 +78,7 @@ void PartyMapOverlayService::OnDisconnected(const DisconnectedEvent&) noexcept
     m_worlds.clear();
     m_lastPerWorld.clear();
     m_lastScreen.clear();
+    m_lastValidDisplayWorldId = 0;
 }
 
 void PartyMapOverlayService::OnPartyJoined(const PartyJoinedEvent&) noexcept
@@ -90,6 +92,7 @@ void PartyMapOverlayService::OnPartyLeft(const PartyLeftEvent&) noexcept
     m_worlds.clear();
     m_lastPerWorld.clear();
     m_lastScreen.clear();
+    m_lastValidDisplayWorldId = 0;
 }
 
 void PartyMapOverlayService::OnPlayerCellChanged(const NotifyPlayerCellChanged& aMsg) noexcept
@@ -141,6 +144,28 @@ void PartyMapOverlayService::OnPartyPositions(const NotifyPartyPositions& aMsg) 
         if (info.HasWorld)
         {
             m_lastPerWorld[e.PlayerId][info.WorldSpaceFormId] = pos;
+
+            if (auto* pFromWs = Cast<TESWorldSpace>(TESForm::GetById(info.WorldSpaceFormId)))
+            {
+                if (auto* pDispWs = WorldMapProjector::GetDisplayWorld(pFromWs))
+                {
+                    glm::vec3 dispPos{};
+                    bool converted = false;
+
+                    if (pDispWs == pFromWs)
+                    {
+                        dispPos = pos;
+                        converted = true;
+                    }
+                    else
+                    {
+                        converted = WorldMapProjector::Convert(pFromWs, pos, pDispWs, dispPos);
+                    }
+
+                    if (converted)
+                        m_lastPerWorld[e.PlayerId][pDispWs->formID] = dispPos;
+                }
+            }
         }
     }
 }
@@ -267,6 +292,16 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
     if (auto* pPc = PlayerCharacter::Get())
         pMyWs = pPc->GetWorldSpace();
     TESWorldSpace* pDispWs = WorldMapProjector::GetDisplayWorld(pMyWs);
+
+    if (!pDispWs && m_lastValidDisplayWorldId != 0)
+    {
+        if (auto* pForm = TESForm::GetById(m_lastValidDisplayWorldId))
+            pDispWs = Cast<TESWorldSpace>(pForm);
+    }
+
+    if (pDispWs)
+        m_lastValidDisplayWorldId = pDispWs->formID;
+
     const uint32_t dispWsId = pDispWs ? pDispWs->formID : 0u;
 
     // Screen size
@@ -404,16 +439,23 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
             }
         }
 
-        // 5) Retain last projected screen position briefly to hide gaps during transitions
+        // 5) Retain last projected screen position. If a player is currently in an
+        //    interior (no valid worldspace) keep showing their last known map spot
+        //    indefinitely so they don't vanish from the world map.
         if (!drew)
         {
             constexpr uint64_t cKeepMs = 3000; // 3 seconds
             auto itLastScr = m_lastScreen.find(pid);
-            if (itLastScr != m_lastScreen.end() && (tick - itLastScr->second.Tick) <= cKeepMs)
+            const bool allowStaleFallback = !hasWorld;
+            if (itLastScr != m_lastScreen.end())
             {
-                sx = itLastScr->second.sx;
-                sy = itLastScr->second.sy;
-                drew = true;
+                const uint64_t age = tick - itLastScr->second.Tick;
+                if (allowStaleFallback || age <= cKeepMs)
+                {
+                    sx = itLastScr->second.sx;
+                    sy = itLastScr->second.sy;
+                    drew = true;
+                }
             }
         }
 
