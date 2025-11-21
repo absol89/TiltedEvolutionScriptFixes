@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <mutex>
 #include <spdlog/spdlog.h>
 #include <string>
 #include <string_view>
@@ -38,6 +39,11 @@ struct Mo2Context
     fs::path pluginsPath;
     String profile;
 };
+
+std::once_flag s_loadOrderOnceFlag;
+ESLoader::PluginCollection s_cachedLoadOrder;
+TiltedPhoques::Map<String, uint8_t> s_cachedMasterFiles;
+bool s_loadOrderSuccess = false;
 
 fs::path ResolveExecutableDirectory() noexcept
 {
@@ -422,6 +428,25 @@ UniquePtr<RecordCollection> ESLoader::BuildRecordCollection() noexcept
 }
 
 bool ESLoader::LoadLoadOrder()
+{
+    std::call_once(s_loadOrderOnceFlag, [this]() {
+        s_loadOrderSuccess = LoadLoadOrderFromDisk();
+        if (s_loadOrderSuccess)
+        {
+            s_cachedLoadOrder = m_loadOrder;
+            s_cachedMasterFiles = m_masterFiles;
+        }
+    });
+
+    if (!s_loadOrderSuccess)
+        return false;
+
+    m_loadOrder = s_cachedLoadOrder;
+    m_masterFiles = s_cachedMasterFiles;
+    return true;
+}
+
+bool ESLoader::LoadLoadOrderFromDisk()
 {
     m_loadOrder.clear();
     m_masterFiles.clear();

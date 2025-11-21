@@ -36,6 +36,7 @@ public:
 
 private:
     bool LoadLoadOrder();
+    bool LoadLoadOrderFromDisk();
     UniquePtr<RecordCollection> LoadFiles();
 
     fs::path GetPath(String& aFilename);
