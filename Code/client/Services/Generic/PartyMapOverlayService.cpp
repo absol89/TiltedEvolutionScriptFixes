@@ -84,6 +84,8 @@ bool HasMenuOpen(UI* apUI, const char* acName)
 PartyMapOverlayService::PartyMapOverlayService(World& aWorld, entt::dispatcher& aDispatcher) noexcept
     : m_world(aWorld)
 {
+    WorldMapProjector::WarmupAsync();
+
     // Update position cache each frame
     m_updateConnection = aDispatcher.sink<UpdateEvent>().connect<&PartyMapOverlayService::OnUpdate>(this);
 

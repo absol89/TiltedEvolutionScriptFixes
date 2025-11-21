@@ -10,6 +10,9 @@ struct TESWorldSpace;
 // for use with the world map projection. Uses ESM WRLD ONAM parent links; no runtime addresses.
 struct WorldMapProjector
 {
+    // Kick off asynchronous preload of WRLD ONAM data.
+    static void WarmupAsync() noexcept;
+
     // Convert a position from source worldspace to destination worldspace.
     // Returns true on success and writes out position in destination worldspace coordinates.
     static bool Convert(TESWorldSpace* apFromWs,
@@ -28,4 +31,3 @@ private:
                                       TESWorldSpace* apToWs,
                                       glm::vec3& aOutToPos) noexcept;
 };
-
