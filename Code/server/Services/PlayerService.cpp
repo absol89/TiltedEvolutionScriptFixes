@@ -203,7 +203,6 @@ void PlayerService::OnPlayerRespawnRequest(const PacketEvent<PlayerRespawnReques
             NotifyInventoryChanges notifyInventoryChanges{};
             notifyInventoryChanges.ServerId = World::ToInteger(*entity);
             notifyInventoryChanges.Item = entry;
-            notifyInventoryChanges.Drop = false;
 
             // Exclude respawned player from inventory changes notification...
             if (!GameServer::Get()->SendToPlayersInRange(notifyInventoryChanges, *entity, acMessage.GetSender()))

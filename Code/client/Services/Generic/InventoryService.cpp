@@ -77,23 +77,7 @@ void InventoryService::OnInventoryChangeEvent(const InventoryChangeEvent& acEven
     RequestInventoryChanges request;
     request.ServerId = serverIdRes.value();
     request.Item = acEvent.Item;
-    request.Drop = acEvent.Drop;
     request.UpdateClients = acEvent.UpdateClients;
-    if (acEvent.DropLocation)
-    {
-        request.HasDropLocation = true;
-        request.DropLocation = *acEvent.DropLocation;
-    }
-    if (acEvent.DropRotation)
-    {
-        request.HasDropRotation = true;
-        request.DropRotation = *acEvent.DropRotation;
-    }
-    if (acEvent.DropInstanceId)
-    {
-        request.HasDropInstanceId = true;
-        request.DropInstanceId = *acEvent.DropInstanceId;
-    }
 
     m_transport.Send(request);
 
@@ -351,8 +335,6 @@ bool InventoryService::TryApplyInventoryChange(const NotifyInventoryChanges& acM
     if (!pObject)
         return false;
 
-    Actor* pActor = Cast<Actor>(pObject);
-
     if (acMessage.Silent)
     {
         ScopedInventoryOverride _;
@@ -360,112 +342,7 @@ bool InventoryService::TryApplyInventoryChange(const NotifyInventoryChanges& acM
         return true;
     }
 
-    std::optional<uint32_t> dropInstanceId{};
-    if (acMessage.HasDropInstanceId)
-        dropInstanceId = acMessage.DropInstanceId;
-
-    NiPoint3 dropLocation{};
-    NiPoint3 dropRotation{};
-    NiPoint3* pDropLocation = nullptr;
-    NiPoint3* pDropRotation = nullptr;
-
-    if (acMessage.HasDropLocation)
-    {
-        dropLocation = NiPoint3(acMessage.DropLocation);
-        pDropLocation = &dropLocation;
-    }
-
-    if (acMessage.HasDropRotation)
-    {
-        dropRotation = NiPoint3(acMessage.DropRotation);
-        pDropRotation = &dropRotation;
-    }
-
-    if (acMessage.Drop)
-    {
-        if (!pActor)
-            return false;
-
-        const auto readiness = EvaluateActorReadiness(pActor);
-        if (readiness != ActorReadinessStatus::Ready)
-        {
-            spdlog::debug("{}: actor {:X} not ready (waiting for {}) while processing drop", __FUNCTION__, pActor->formID, DescribeReadiness(readiness));
-            return false;
-        }
-
-        if (pActor->GetExtension()->IsLocalPlayer())
-        {
-            if (!dropInstanceId)
-                return true;
-
-            if (auto handleOpt = Actor::GetTrackedDropHandle(pActor->formID, *dropInstanceId))
-            {
-                if (auto* pExisting = TESObjectREFR::GetByHandle(*handleOpt))
-                    return true;
-            }
-
-            return false;
-        }
-
-        struct DropSyncScope
-        {
-            DropSyncScope(uint32_t aActorFormId, const std::optional<uint32_t>& aDropId)
-            {
-                if (aDropId)
-                {
-                    DropSync::PendingDropActorFormId = aActorFormId;
-                    DropSync::PendingDropId = aDropId;
-                    bActive = true;
-                }
-            }
-
-            ~DropSyncScope()
-            {
-                if (bActive)
-                {
-                    DropSync::PendingDropId.reset();
-                    DropSync::PendingDropActorFormId = 0;
-                }
-            }
-
-            bool bActive{false};
-        } dropScope(pActor->formID, dropInstanceId);
-
-        ScopedInventoryOverride _;
-        pActor->DropOrPickUpObject(acMessage.Item, pDropLocation, pDropRotation);
-        return true;
-    }
-
-    if (dropInstanceId && pActor)
-    {
-        const auto readiness = EvaluateActorReadiness(pActor);
-        if (readiness != ActorReadinessStatus::Ready)
-        {
-            spdlog::debug("{}: actor {:X} not ready (waiting for {}) while consuming drop instance", __FUNCTION__, pActor->formID, DescribeReadiness(readiness));
-            return false;
-        }
-
-        if (pActor->GetExtension()->IsLocalPlayer())
-            return true;
-
-        if (auto handleOpt = Actor::ConsumeTrackedDrop(pActor->formID, *dropInstanceId))
-        {
-            uint32_t handleBits = *handleOpt;
-            if (auto* pDroppedRef = TESObjectREFR::GetByHandle(handleBits))
-            {
-                ScopedInventoryOverride _;
-                int32_t count = acMessage.Item.Count > 0 ? acMessage.Item.Count : -acMessage.Item.Count;
-                if (count <= 0)
-                    count = 1;
-                pActor->PickUpObject(pDroppedRef, count, false, 0.0f);
-                return true;
-            }
-            else
-            {
-                Actor::TrackRemoteDrop(pActor->formID, *dropInstanceId, handleBits);
-            }
-        }
-    }
+    Actor* pActor = Cast<Actor>(pObject);
 
     ScopedInventoryOverride _;
 
@@ -478,16 +355,11 @@ bool InventoryService::TryApplyInventoryChange(const NotifyInventoryChanges& acM
             return false;
         }
 
-        if (acMessage.Item.Count < 0 && !dropInstanceId)
-            pActor->AddOrRemoveItem(acMessage.Item);
-        else
-            pActor->DropOrPickUpObject(acMessage.Item, pDropLocation, pDropRotation);
-    }
-    else
-    {
-        pObject->AddOrRemoveItem(acMessage.Item);
+        pActor->AddOrRemoveItem(acMessage.Item);
+        return true;
     }
 
+    pObject->AddOrRemoveItem(acMessage.Item);
     return true;
 }
 

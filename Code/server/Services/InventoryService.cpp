@@ -11,11 +11,6 @@
 #include <Messages/NotifyEquipmentChanges.h>
 #include <Messages/DrawWeaponRequest.h>
 
-#include <Setting.h>
-namespace
-{
-Console::Setting bEnableItemDrops{"Gameplay:bEnableItemDrops", "(Experimental) Syncs dropped items by players", false};
-}
 
 InventoryService::InventoryService(World& aWorld, entt::dispatcher& aDispatcher)
     : m_world(aWorld)
@@ -64,22 +59,6 @@ void InventoryService::OnInventoryChanges(const PacketEvent<RequestInventoryChan
     NotifyInventoryChanges notify;
     notify.ServerId = message.ServerId;
     notify.Item = message.Item;
-    notify.Drop = message.Drop;
-    if (message.HasDropInstanceId)
-    {
-        notify.HasDropInstanceId = true;
-        notify.DropInstanceId = message.DropInstanceId;
-    }
-    if (message.HasDropLocation)
-    {
-        notify.HasDropLocation = true;
-        notify.DropLocation = message.DropLocation;
-    }
-    if (message.HasDropRotation)
-    {
-        notify.HasDropRotation = true;
-        notify.DropRotation = message.DropRotation;
-    }
 
     if (!GameServer::Get()->SendToPlayersInRange(notify, *entity, acMessage.GetSender()))
         spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);

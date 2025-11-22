@@ -9,6 +9,7 @@
 #include <Events/InventoryChangeEvent.h>
 #include <Events/ScriptAnimationEvent.h>
 #include <Events/LockChangeEvent.h>
+#include <Sync/DropExecutionContext.h>
 
 #include <ExtraData/ExtraDataList.h>
 #include <ExtraData/ExtraCharge.h>
@@ -1060,7 +1061,10 @@ void TP_MAKE_THISCALL(HookAddInventoryItem, TESObjectREFR, TESBoundObject* apIte
 BSPointerHandle<TESObjectREFR>*
 TP_MAKE_THISCALL(HookRemoveInventoryItem, TESObjectREFR, BSPointerHandle<TESObjectREFR>* apResult, TESBoundObject* apItem, int32_t aCount, ITEM_REMOVE_REASON aReason, ExtraDataList* apExtraList, TESObjectREFR* apMoveToRef, const NiPoint3* apDropLoc, const NiPoint3* apRotate)
 {
-    if (!ScopedInventoryOverride::IsOverriden())
+    const auto dropMode = DropExecution::GetCurrentMode();
+    const bool isDropContext = dropMode == DropExecution::Mode::LocalDrop || dropMode == DropExecution::Mode::RemoteDrop;
+
+    if (!ScopedInventoryOverride::IsOverriden() && !isDropContext)
     {
         auto& modSystem = World::Get().GetModSystem();
 

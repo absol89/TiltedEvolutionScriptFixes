@@ -169,7 +169,7 @@ char TP_MAKE_THISCALL(HookPickUpObject, PlayerCharacter, TESObjectREFR* apObject
     // The inventory change event should always be sent to the server, otherwise the server inventory won't be updated.
     bool shouldUpdateClients = apObject->IsTemporary() && !ScopedActivateOverride::IsOverriden();
 
-    World::Get().GetRunner().Trigger(InventoryChangeEvent(apThis->formID, std::move(item), false, shouldUpdateClients));
+    World::Get().GetRunner().Trigger(InventoryChangeEvent(apThis->formID, std::move(item), shouldUpdateClients));
 
     ScopedInventoryOverride _;
 

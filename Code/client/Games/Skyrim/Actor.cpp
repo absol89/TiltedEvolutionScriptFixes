@@ -16,6 +16,8 @@
 
 #include <Events/HealthChangeEvent.h>
 #include <Events/InventoryChangeEvent.h>
+#include <Events/DropItemEvent.h>
+#include <Events/PickupDroppedItemEvent.h>
 #include <Events/MountEvent.h>
 #include <Events/DialogueEvent.h>
 #include <Events/HitEvent.h>
@@ -35,7 +37,11 @@
 #include <Games/Misc/ActorKnowledge.h>
 #include <Games/Skyrim/TESObjectREFR.h>
 
+#include <Sync/DropManager.h>
+#include <Sync/DropExecutionContext.h>
+
 #include <optional>
+#include <chrono>
 
 #include <ExtraData/ExtraDataList.h>
 #include <ExtraData/ExtraCharge.h>
@@ -63,9 +69,6 @@
 namespace
 {
 constexpr float kDropSearchRadiusSquared = 200.0f * 200.0f;
-using DropHandleMap = TiltedPhoques::Map<uint32_t, TiltedPhoques::Map<uint32_t, uint32_t>>;
-DropHandleMap s_actorDropHandles;
-TiltedPhoques::Map<uint32_t, uint32_t> s_actorNextDropId;
 
 TESObjectREFR* FindDroppedReferenceNear(const TESBoundObject* apObject, const NiPoint3& acCenter)
 {
@@ -124,96 +127,6 @@ TESObjectREFR* FindDroppedReferenceNear(const TESBoundObject* apObject, const Ni
     return pClosest;
 }
 } // namespace
-
-namespace DropSync
-{
-    thread_local std::optional<uint32_t> PendingDropId{};
-    thread_local uint32_t PendingDropActorFormId = 0;
-} // namespace DropSync
-
-uint32_t Actor::RegisterLocalDrop(uint32_t aActorFormId, uint32_t aHandleBits) noexcept
-{
-    if (aHandleBits == 0)
-        return 0;
-
-    auto& nextId = s_actorNextDropId[aActorFormId];
-    uint32_t dropId = ++nextId;
-    s_actorDropHandles[aActorFormId][dropId] = aHandleBits;
-    return dropId;
-}
-
-void Actor::TrackRemoteDrop(uint32_t aActorFormId, uint32_t aDropId, uint32_t aHandleBits) noexcept
-{
-    if (aDropId == 0 || aHandleBits == 0)
-        return;
-
-    s_actorDropHandles[aActorFormId][aDropId] = aHandleBits;
-    auto& nextId = s_actorNextDropId[aActorFormId];
-    if (aDropId > nextId)
-        nextId = aDropId;
-}
-
-std::optional<uint32_t> Actor::ConsumeTrackedDrop(uint32_t aActorFormId, uint32_t aDropId) noexcept
-{
-    if (aDropId == 0)
-        return std::nullopt;
-
-    if (s_actorDropHandles.find(aActorFormId) == s_actorDropHandles.end())
-        return std::nullopt;
-
-    auto& bucket = s_actorDropHandles.at(aActorFormId);
-    auto handleIt = bucket.find(aDropId);
-    if (handleIt == bucket.end())
-        return std::nullopt;
-
-    uint32_t handleBits = handleIt->second;
-    bucket.erase(handleIt);
-    if (bucket.empty())
-        s_actorDropHandles.erase(aActorFormId);
-
-    return handleBits;
-}
-
-std::optional<uint32_t> Actor::ConsumeTrackedDropByHandle(uint32_t aActorFormId, uint32_t aHandleBits) noexcept
-{
-    if (aHandleBits == 0)
-        return std::nullopt;
-
-    if (s_actorDropHandles.find(aActorFormId) == s_actorDropHandles.end())
-        return std::nullopt;
-
-    auto& bucket = s_actorDropHandles.at(aActorFormId);
-    for (auto it = bucket.begin(); it != bucket.end(); ++it)
-    {
-        if (it->second == aHandleBits)
-        {
-            uint32_t dropId = it->first;
-            bucket.erase(dropId);
-            if (bucket.empty())
-                s_actorDropHandles.erase(aActorFormId);
-            return dropId;
-        }
-    }
-
-    return std::nullopt;
-}
-
-std::optional<uint32_t> Actor::GetTrackedDropHandle(uint32_t aActorFormId, uint32_t aDropId) noexcept
-{
-    if (aDropId == 0)
-        return std::nullopt;
-
-    const auto actorIt = s_actorDropHandles.find(aActorFormId);
-    if (actorIt == s_actorDropHandles.end())
-        return std::nullopt;
-
-    const auto& bucket = actorIt->second;
-    const auto handleIt = bucket.find(aDropId);
-    if (handleIt == bucket.end())
-        return std::nullopt;
-
-    return handleIt->second;
-}
 
 #ifdef SAVE_STUFF
 
@@ -1254,37 +1167,56 @@ void TP_MAKE_THISCALL(HookAddInventoryItem, Actor, TESBoundObject* apItem, Extra
 
 void* TP_MAKE_THISCALL(HookPickUpObject, Actor, TESObjectREFR* apObject, int32_t aCount, bool aUnk1, float aUnk2)
 {
-    if (!ScopedInventoryOverride::IsOverriden())
+    const bool isRemotePickup = DropExecution::GetCurrentMode() == DropExecution::Mode::RemotePickup;
+    std::optional<uint64_t> dropId{};
+
+    if (apObject)
     {
-        auto& modSystem = World::Get().GetModSystem();
-
-        Inventory::Entry item{};
-        modSystem.GetServerModId(apObject->baseForm->formID, item.BaseId);
-        item.Count = aCount;
-
-        if (apObject->GetExtraDataList())
-            apThis->GetItemFromExtraData(item, apObject->GetExtraDataList());
-
-        // This is here so that objects that are picked up on both clients, aka non temps, are synced through activation sync.
-        // The inventory change event should always be sent to the server, otherwise the server inventory won't be updated.
-        bool shouldUpdateClients = apObject->IsTemporary() && !ScopedActivateOverride::IsOverriden();
-
-        std::optional<NiPoint3> pickupLocation{};
-        std::optional<NiPoint3> pickupRotation{};
-        std::optional<uint32_t> dropInstanceId{};
-        if (apObject)
-        {
-            pickupLocation.emplace(apObject->position);
-            pickupRotation.emplace(apObject->rotation);
-            auto handle = apObject->GetHandle();
-            if (handle && handle.handle.iBits)
-                dropInstanceId = Actor::ConsumeTrackedDropByHandle(apThis->formID, handle.handle.iBits);
-        }
-
-        World::Get().GetRunner().Trigger(InventoryChangeEvent(apThis->formID, std::move(item), false, shouldUpdateClients, std::move(pickupLocation), std::move(pickupRotation), dropInstanceId));
+        auto handle = apObject->GetHandle();
+        if (handle && handle.handle.iBits)
+            dropId = DropManager::GetDropIdForHandle(handle.handle.iBits);
     }
 
-    return TiltedPhoques::ThisCall(RealPickUpObject, apThis, apObject, aCount, aUnk1, aUnk2);
+    if (!ScopedInventoryOverride::IsOverriden() && !isRemotePickup)
+    {
+        if (dropId)
+        {
+            World::Get().GetRunner().Trigger(PickupDroppedItemEvent(apThis->formID, *dropId));
+            DropManager::RemoveServerDrop(*dropId);
+        }
+        else
+        {
+            auto& modSystem = World::Get().GetModSystem();
+
+            Inventory::Entry item{};
+            modSystem.GetServerModId(apObject->baseForm->formID, item.BaseId);
+            item.Count = aCount;
+
+            if (apObject->GetExtraDataList())
+                apThis->GetItemFromExtraData(item, apObject->GetExtraDataList());
+
+            bool shouldUpdateClients = apObject->IsTemporary() && !ScopedActivateOverride::IsOverriden();
+
+            std::optional<NiPoint3> pickupLocation{};
+            std::optional<NiPoint3> pickupRotation{};
+            if (apObject)
+            {
+                pickupLocation.emplace(apObject->position);
+                pickupRotation.emplace(apObject->rotation);
+            }
+
+            World::Get().GetRunner().Trigger(InventoryChangeEvent(apThis->formID, std::move(item), shouldUpdateClients));
+        }
+    }
+
+    auto* pResult = TiltedPhoques::ThisCall(RealPickUpObject, apThis, apObject, aCount, aUnk1, aUnk2);
+
+    if (isRemotePickup)
+    {
+        DropManager::RemoveServerDrop(DropExecution::GetCurrentDrop());
+    }
+
+    return pResult;
 }
 
 void Actor::PickUpObject(TESObjectREFR* apObject, int32_t aCount, bool aUnk1, float aUnk2) noexcept
@@ -1304,6 +1236,10 @@ void* TP_MAKE_THISCALL(HookDropObject, Actor, void* apResult, TESBoundObject* ap
         apThis->GetItemFromExtraData(item, apExtraData);
 
     const bool shouldSend = !ScopedInventoryOverride::IsOverriden();
+    const bool isRemoteDrop = DropExecution::GetCurrentMode() == DropExecution::Mode::RemoteDrop;
+    std::optional<DropExecution::Scope> localDropScope{};
+    if (!isRemoteDrop)
+        localDropScope.emplace(DropExecution::Mode::LocalDrop, apThis->formID, 0);
 
     void* pReturn = nullptr;
     {
@@ -1320,46 +1256,33 @@ void* TP_MAKE_THISCALL(HookDropObject, Actor, void* apResult, TESBoundObject* ap
             pDroppedRef = TESObjectREFR::GetByHandle(handleBits);
     }
 
-    if (DropSync::PendingDropId)
-    {
-        if (handleBits)
-            Actor::TrackRemoteDrop(DropSync::PendingDropActorFormId, *DropSync::PendingDropId, handleBits);
-        DropSync::PendingDropId.reset();
-        DropSync::PendingDropActorFormId = 0;
-    }
-
-    std::optional<NiPoint3> dropLocation{};
-    std::optional<NiPoint3> dropRotation{};
+    NiPoint3 dropLocation = apLocation ? *apLocation : apThis->position;
+    NiPoint3 dropRotation = apRotation ? *apRotation : apThis->rotation;
 
     if (pDroppedRef)
     {
-        dropLocation.emplace(pDroppedRef->position);
-        dropRotation.emplace(pDroppedRef->rotation);
+        dropLocation = pDroppedRef->position;
+        dropRotation = pDroppedRef->rotation;
     }
 
-    if (!dropLocation)
+    if (isRemoteDrop)
     {
-        if (apLocation)
-            dropLocation.emplace(*apLocation);
-        else
-            dropLocation.emplace(apThis->position);
+        if (handleBits)
+            DropManager::BindHandleToServerDrop(DropExecution::GetCurrentDrop(), DropExecution::GetCurrentActor(), handleBits);
+        return pReturn;
     }
-
-    if (!dropRotation)
-    {
-        if (apRotation)
-            dropRotation.emplace(*apRotation);
-        else
-            dropRotation.emplace(apThis->rotation);
-    }
-
-    std::optional<uint32_t> dropInstanceId{};
-    if (shouldSend && handleBits)
-        dropInstanceId = Actor::RegisterLocalDrop(apThis->formID, handleBits);
 
     if (shouldSend)
     {
-        World::Get().GetRunner().Trigger(InventoryChangeEvent(apThis->formID, std::move(item), true, true, std::move(dropLocation), std::move(dropRotation), dropInstanceId));
+        DropManager::LocalDropData dropData{};
+        dropData.ActorFormId = apThis->formID;
+        dropData.Item = item;
+        dropData.HandleBits = handleBits;
+        dropData.Location = dropLocation;
+        dropData.Rotation = dropRotation;
+
+        const uint32_t clientDropId = DropManager::RegisterLocalDrop(dropData);
+        World::Get().GetRunner().Trigger(DropItemEvent(apThis->formID, item, clientDropId, dropLocation, dropRotation, handleBits));
     }
 
     return pReturn;

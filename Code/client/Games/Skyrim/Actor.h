@@ -238,6 +238,7 @@ struct Actor : TESObjectREFR
     void QueueUpdate() noexcept;
     bool InitiateMountPackage(Actor* apMount) noexcept;
     void GenerateMagicCasters() noexcept;
+
     void DispelAllSpells(bool aNow = false) noexcept;
     void Reset() noexcept;
     void Kill() noexcept;
@@ -245,11 +246,6 @@ struct Actor : TESObjectREFR
     void PickUpObject(TESObjectREFR* apObject, int32_t aCount, bool aUnk1, float aUnk2) noexcept;
     void DropOrPickUpObject(const Inventory::Entry& arEntry, NiPoint3* apPoint, NiPoint3* apRotate) noexcept;
     void DropObject(TESBoundObject* apObject, ExtraDataList* apExtraData, int32_t aCount, NiPoint3* apLocation, NiPoint3* apRotation) noexcept;
-    static uint32_t RegisterLocalDrop(uint32_t aActorFormId, uint32_t aHandleBits) noexcept;
-    static void TrackRemoteDrop(uint32_t aActorFormId, uint32_t aDropId, uint32_t aHandleBits) noexcept;
-    static std::optional<uint32_t> ConsumeTrackedDrop(uint32_t aActorFormId, uint32_t aDropId) noexcept;
-    static std::optional<uint32_t> ConsumeTrackedDropByHandle(uint32_t aActorFormId, uint32_t aHandleBits) noexcept;
-    static std::optional<uint32_t> GetTrackedDropHandle(uint32_t aActorFormId, uint32_t aDropId) noexcept;
     void SpeakSound(const char* pFile);
     void StartCombatEx(Actor* apTarget) noexcept;
     void SetCombatTargetEx(Actor* apTarget) noexcept;
@@ -386,9 +382,3 @@ static_assert(offsetof(Actor, equippedShout) == 0x1E8);
 static_assert(offsetof(Actor, actorLock) == 0x284);
 static_assert(sizeof(Actor) == 0x2B8);
 static_assert(sizeof(Actor::SpellItemEntry) == 0x18);
-
-namespace DropSync
-{
-    extern thread_local std::optional<uint32_t> PendingDropId;
-    extern thread_local uint32_t PendingDropActorFormId;
-}
