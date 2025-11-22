@@ -111,6 +111,15 @@ std::vector<DropStorage::CachedDrop> DropStorage::GetDropsForCell(const GameId& 
     return drops;
 }
 
+std::vector<DropStorage::CachedDrop> DropStorage::GetAllDrops() const noexcept
+{
+    std::vector<CachedDrop> drops;
+    drops.reserve(m_cachedDrops.size());
+    for (const auto& [_, drop] : m_cachedDrops)
+        drops.push_back(drop);
+    return drops;
+}
+
 void DropStorage::RemoveCachedDrop(uint64_t aDropId) noexcept
 {
     if (m_cachedDrops.erase(aDropId) > 0)

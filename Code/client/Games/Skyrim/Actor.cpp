@@ -1186,7 +1186,7 @@ void* TP_MAKE_THISCALL(HookPickUpObject, Actor, TESObjectREFR* apObject, int32_t
         }
     }
 
-    if (!ScopedInventoryOverride::IsOverriden() && !isRemotePickup)
+    if (!isRemotePickup)
     {
         if (dropId)
         {

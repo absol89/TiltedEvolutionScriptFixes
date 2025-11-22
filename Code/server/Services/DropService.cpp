@@ -166,7 +166,10 @@ void DropService::OnDropRequest(const PacketEvent<RequestActorDrop>& acMessage) 
         return;
     }
 
-    spdlog::info("DropService: drop request actor {:X} server {:X}", message.ServerId, view.get<FormIdComponent>(*entity).Id);
+    uint32_t actorFormId = 0;
+    if (auto* pFormIdComponent = m_world.try_get<FormIdComponent>(*entity))
+        actorFormId = pFormIdComponent->Id;
+    spdlog::info("DropService: drop request actor {:X} server {:X}", message.ServerId, actorFormId);
     auto& inventoryComponent = view.get<InventoryComponent>(*it);
     inventoryComponent.Content.AddOrRemoveEntry(message.Item);
 

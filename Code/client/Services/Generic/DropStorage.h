@@ -30,6 +30,7 @@ public:
     bool EnsureInitialized() noexcept;
     void Shutdown() noexcept;
     std::vector<CachedDrop> GetDropsForCell(const GameId& aCellId, const GameId& aWorldId) const noexcept;
+    std::vector<CachedDrop> GetAllDrops() const noexcept;
     void RemoveCachedDrop(uint64_t aDropId) noexcept;
 
     void OnServerDropTracked(uint64_t aDropId, const DropManager::ServerDropData& acData) noexcept override;
