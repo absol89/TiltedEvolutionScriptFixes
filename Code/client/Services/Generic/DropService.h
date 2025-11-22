@@ -50,7 +50,7 @@ private:
     uint32_t SendDropSyncRequest(bool aRequestAll, bool aHasCellFilter, const GameId& acCellId, bool aHasWorldFilter, const GameId& acWorldId) noexcept;
     void HandleDropSyncResponse(const NotifyDroppedItems& acMessage) noexcept;
     void ProcessDropEntry(const NotifyDroppedItems::Entry& acEntry, bool aForceMaterialize) noexcept;
-    void MaterializeDrop(uint64_t aDropId, const DropManager::ServerDropData& acData, bool aForce) noexcept;
+    bool MaterializeDrop(uint64_t aDropId, const DropManager::ServerDropData& acData, bool aForce) noexcept;
     bool SpawnLocalDrop(const DropManager::ServerDropData& acData, uint64_t aDropId) const noexcept;
     bool RemoveNearbyReference(uint64_t aDropId, const char* apReason) noexcept;
     void ReconcileCachedDrops(const GameId& acCellId, const GameId& acWorldId, const TiltedPhoques::Vector<uint64_t>& acAuthoritativeDropIds) noexcept;
@@ -69,6 +69,7 @@ private:
         PendingType Type{};
         NotifyActorDrop DropMessage{};
         NotifyDroppedItemPickedUp PickupMessage{};
+        uint32_t RetryCounter{0};
     };
 
     World& m_world;

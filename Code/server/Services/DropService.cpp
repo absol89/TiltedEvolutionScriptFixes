@@ -277,8 +277,7 @@ void DropService::OnPickupRequest(const PacketEvent<RequestPickupDroppedItem>& a
     notify.Item = pickupEntry;
     notify.DropId = drop.DropId;
 
-    if (!GameServer::Get()->SendToPlayersInRange(notify, *pickerEntity, acMessage.GetSender()))
-        spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
+    GameServer::Get()->SendToPlayers(notify, nullptr);
 
     m_activeDrops.erase(dropIt);
     RemovePersistedDrop(drop.DropId);

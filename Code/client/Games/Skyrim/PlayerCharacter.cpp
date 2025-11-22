@@ -7,6 +7,7 @@
 #include <Games/Overrides.h>
 
 #include <Events/InventoryChangeEvent.h>
+#include <Events/PickupDroppedItemEvent.h>
 #include <Events/BeastFormChangeEvent.h>
 #include <Events/AddExperienceEvent.h>
 #include <Events/SetWaypointEvent.h>
@@ -23,6 +24,8 @@
 #include <Forms/TESObjectCELL.h>
 
 #include <ModCompat/BehaviorVar.h>
+#include <Sync/DropManager.h>
+#include <Sync/DropExecutionContext.h>
 #include <cmath>
 
 int32_t PlayerCharacter::LastUsedCombatSkill = -1;
@@ -40,6 +43,11 @@ static TAddSkillExperience* RealAddSkillExperience = nullptr;
 static TCalculateExperience* RealCalculateExperience = nullptr;
 static TSetWaypoint* RealSetWaypoint = nullptr;
 static TRemoveWaypoint* RealRemoveWaypoint = nullptr;
+
+namespace
+{
+constexpr float kDropSearchRadiusSquared = 200.f * 200.f;
+}
 
 PlayerCharacter* PlayerCharacter::Get() noexcept
 {
@@ -153,23 +161,47 @@ void PlayerCharacter::RemoveWaypoint() noexcept
 
 char TP_MAKE_THISCALL(HookPickUpObject, PlayerCharacter, TESObjectREFR* apObject, int32_t aCount, bool aUnk1, bool aUnk2)
 {
-    auto& modSystem = World::Get().GetModSystem();
+    const bool isRemotePickup = DropExecution::GetCurrentMode() == DropExecution::Mode::RemotePickup;
+    std::optional<uint64_t> dropId{};
 
-    Inventory::Entry item{};
-    modSystem.GetServerModId(apObject->baseForm->formID, item.BaseId);
-    item.Count = aCount;
-
-    if (apObject->GetExtraDataList() && !ScopedExtraDataOverride::IsOverriden())
+    if (apObject)
     {
-        ScopedExtraDataOverride _;
-        apThis->GetItemFromExtraData(item, apObject->GetExtraDataList());
+        auto handle = apObject->GetHandle();
+        if (handle && handle.handle.iBits)
+            dropId = DropManager::GetDropIdForHandle(handle.handle.iBits);
+
+        if (!dropId)
+        {
+            GameId objectId{};
+            World::Get().GetModSystem().GetServerModId(apObject->baseForm->formID, objectId);
+            if (objectId.ModId || objectId.BaseId)
+                dropId = DropManager::FindDropBySignature(objectId, apObject->position, kDropSearchRadiusSquared);
+        }
     }
 
-    // This is here so that objects that are picked up on both clients, aka non temps, are synced through activation sync.
-    // The inventory change event should always be sent to the server, otherwise the server inventory won't be updated.
-    bool shouldUpdateClients = apObject->IsTemporary() && !ScopedActivateOverride::IsOverriden();
+    if (!isRemotePickup && dropId)
+    {
+        spdlog::info("PlayerCharacter {:X} triggering pickup for drop {}", apThis->formID, *dropId);
+        World::Get().GetRunner().Trigger(PickupDroppedItemEvent(apThis->formID, *dropId));
+        DropManager::RemoveServerDrop(*dropId);
+    }
+    else
+    {
+        auto& modSystem = World::Get().GetModSystem();
 
-    World::Get().GetRunner().Trigger(InventoryChangeEvent(apThis->formID, std::move(item), shouldUpdateClients));
+        Inventory::Entry item{};
+        modSystem.GetServerModId(apObject->baseForm->formID, item.BaseId);
+        item.Count = aCount;
+
+        if (apObject->GetExtraDataList() && !ScopedExtraDataOverride::IsOverriden())
+        {
+            ScopedExtraDataOverride _;
+            apThis->GetItemFromExtraData(item, apObject->GetExtraDataList());
+        }
+
+        const bool shouldUpdateClients = apObject->IsTemporary() && !ScopedActivateOverride::IsOverriden();
+        World::Get().GetRunner().Trigger(InventoryChangeEvent(apThis->formID, std::move(item), shouldUpdateClients));
+    }
 
     ScopedInventoryOverride _;
 

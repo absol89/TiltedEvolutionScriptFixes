@@ -252,7 +252,10 @@ bool DropService::ApplyDrop(const NotifyActorDrop& acMessage) noexcept
     }
 
     if (!EnsureActorReady(pActor, "drop"))
+    {
+        spdlog::debug("DropService: actor {:X} not ready for drop {}", pActor->formID, acMessage.DropId);
         return false;
+    }
 
     NiPoint3 location = acMessage.HasLocation ? ToPoint(acMessage.Location) : pActor->position;
     NiPoint3 rotation = acMessage.HasRotation ? ToPoint(acMessage.Rotation) : pActor->rotation;
@@ -271,6 +274,8 @@ bool DropService::ApplyDrop(const NotifyActorDrop& acMessage) noexcept
     {
         DropExecution::Scope scope(DropExecution::Mode::RemoteDrop, pActor->formID, acMessage.DropId);
         ScopedInventoryOverride _;
+        if (!ScopedInventoryOverride::IsOverriden())
+            spdlog::debug("DropService: spawning drop {} for actor {:X}", acMessage.DropId, pActor->formID);
         pActor->DropOrPickUpObject(acMessage.Item, &location, &rotation);
     }
 
@@ -281,6 +286,7 @@ bool DropService::ApplyDrop(const NotifyActorDrop& acMessage) noexcept
 
 void DropService::OnNotifyPickup(const NotifyDroppedItemPickedUp& acMessage) noexcept
 {
+    spdlog::info("DropService: received pickup notify drop {} from actor {:X}", acMessage.DropId, acMessage.ServerId);
     if (!ApplyPickup(acMessage))
     {
         PendingAction pending{};
@@ -291,6 +297,7 @@ void DropService::OnNotifyPickup(const NotifyDroppedItemPickedUp& acMessage) noe
     }
     else
     {
+        m_dropStorage.RemoveCachedDrop(acMessage.DropId);
         spdlog::info("DropService: processed pickup {} immediately", acMessage.DropId);
     }
 }
@@ -375,12 +382,22 @@ void DropService::OnUpdate(const UpdateEvent&) noexcept
     {
         bool applied = false;
         if (action.Type == PendingType::Drop)
+        {
             applied = ApplyDrop(action.DropMessage);
+            if (!applied)
+                ++action.RetryCounter;
+        }
         else
+        {
             applied = ApplyPickup(action.PickupMessage);
+            if (!applied)
+                ++action.RetryCounter;
+        }
 
-        if (!applied)
+        if (!applied && action.RetryCounter < 10)
             remaining.push_back(std::move(action));
+        else if (!applied)
+            spdlog::warn("DropService: dropping pending {} after {} retries", action.Type == PendingType::Drop ? "drop" : "pickup", action.RetryCounter);
     }
 
     m_pendingActions = std::move(remaining);
@@ -565,26 +582,46 @@ void DropService::ProcessDropEntry(const NotifyDroppedItems::Entry& acEntry, boo
     data.WorldSpaceId = acEntry.WorldSpaceId;
 
     DropManager::TrackServerDrop(acEntry.DropId, data);
-    MaterializeDrop(acEntry.DropId, data, aForceMaterialize);
+    if (!MaterializeDrop(acEntry.DropId, data, aForceMaterialize))
+    {
+        PendingAction pending{};
+        pending.Type = PendingType::Drop;
+        pending.DropMessage.DropId = acEntry.DropId;
+        pending.DropMessage.ServerId = acEntry.ServerId;
+        pending.DropMessage.Item = acEntry.Item;
+        pending.DropMessage.HasLocation = acEntry.HasLocation;
+        if (acEntry.HasLocation)
+            pending.DropMessage.Location = acEntry.Location;
+        pending.DropMessage.HasRotation = acEntry.HasRotation;
+        if (acEntry.HasRotation)
+            pending.DropMessage.Rotation = acEntry.Rotation;
+        m_pendingActions.push_back(std::move(pending));
+        spdlog::debug("DropService: queued drop {} for delayed materialization", acEntry.DropId);
+    }
 }
 
-void DropService::MaterializeDrop(uint64_t aDropId, const DropManager::ServerDropData& acData, bool aForce) noexcept
+bool DropService::MaterializeDrop(uint64_t aDropId, const DropManager::ServerDropData& acData, bool aForce) noexcept
 {
     if (DropManager::GetHandleForDrop(aDropId))
-        return;
+        return true;
 
     const bool hasLocation = std::abs(acData.Location.x) > std::numeric_limits<float>::epsilon() || std::abs(acData.Location.y) > std::numeric_limits<float>::epsilon() || std::abs(acData.Location.z) > std::numeric_limits<float>::epsilon();
     if (!hasLocation)
-        return;
+        return false;
 
     if (!aForce)
     {
         if (!(GetPlayerCellId() == acData.CellId))
-            return;
+            return false;
     }
 
     if (!SpawnLocalDrop(acData, aDropId))
+    {
         spdlog::warn("DropService: failed to materialize drop {} in cell {:X}:{:X}", aDropId, acData.CellId.ModId, acData.CellId.BaseId);
+        return false;
+    }
+
+    return true;
 }
 
 bool DropService::SpawnLocalDrop(const DropManager::ServerDropData& acData, uint64_t aDropId) const noexcept
