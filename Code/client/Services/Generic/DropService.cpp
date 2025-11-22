@@ -70,6 +70,7 @@ void DropService::OnDropEvent(const DropItemEvent& acEvent) noexcept
     request.HasRotation = true;
     request.Rotation = ToNetVector(acEvent.Rotation);
 
+    spdlog::info("DropService: requesting drop for actor {:X}, server {:X}, item {:X}:{:X}", acEvent.ActorFormId, *serverIdRes, acEvent.Item.BaseId.ModId, acEvent.Item.BaseId.BaseId);
     m_transport.Send(request);
 }
 
@@ -88,6 +89,9 @@ void DropService::OnPickupEvent(const PickupDroppedItemEvent& acEvent) noexcept
     RequestPickupDroppedItem request{};
     request.ServerId = *serverIdRes;
     request.DropId = acEvent.DropId;
+    if (const auto dropOpt = DropManager::GetServerDrop(acEvent.DropId); dropOpt)
+        request.Item = dropOpt->Item;
+    spdlog::info("DropService: requesting pickup for actor {:X} (server {:X}), drop {}", acEvent.ActorFormId, *serverIdRes, acEvent.DropId);
     m_transport.Send(request);
 }
 
@@ -99,6 +103,11 @@ void DropService::OnNotifyDrop(const NotifyActorDrop& acMessage) noexcept
         pending.Type = PendingType::Drop;
         pending.DropMessage = acMessage;
         m_pendingActions.push_back(std::move(pending));
+        spdlog::debug("DropService: queued drop {} for later", acMessage.DropId);
+    }
+    else
+    {
+        spdlog::info("DropService: processed drop {} immediately", acMessage.DropId);
     }
 }
 
@@ -151,6 +160,8 @@ bool DropService::ApplyDrop(const NotifyActorDrop& acMessage) noexcept
         pActor->DropOrPickUpObject(acMessage.Item, &location, &rotation);
     }
 
+    spdlog::info("DropService: applied remote drop {} for actor {:X}", acMessage.DropId, pActor->formID);
+
     return true;
 }
 
@@ -162,6 +173,11 @@ void DropService::OnNotifyPickup(const NotifyDroppedItemPickedUp& acMessage) noe
         pending.Type = PendingType::Pickup;
         pending.PickupMessage = acMessage;
         m_pendingActions.push_back(std::move(pending));
+        spdlog::debug("DropService: queued pickup {} for later", acMessage.DropId);
+    }
+    else
+    {
+        spdlog::info("DropService: processed pickup {} immediately", acMessage.DropId);
     }
 }
 
@@ -208,6 +224,7 @@ bool DropService::ApplyPickup(const NotifyDroppedItemPickedUp& acMessage) noexce
     }
 
     DropManager::RemoveServerDrop(acMessage.DropId);
+    spdlog::info("DropService: applied remote pickup {} for actor {:X}", acMessage.DropId, pActor->formID);
     return true;
 }
 
@@ -231,6 +248,8 @@ void DropService::OnUpdate(const UpdateEvent&) noexcept
     }
 
     m_pendingActions = std::move(remaining);
+    if (!m_pendingActions.empty())
+        spdlog::debug("DropService: {} pending drop actions remain", m_pendingActions.size());
 }
 
 std::optional<uint32_t> DropService::ResolveServerId(uint32_t aFormId) const noexcept

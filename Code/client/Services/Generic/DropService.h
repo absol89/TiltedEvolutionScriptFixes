@@ -4,10 +4,17 @@
 
 #include <Messages/NotifyActorDrop.h>
 #include <Messages/NotifyDroppedItemPickedUp.h>
+#include <Messages/NotifyDroppedItems.h>
 #include <Messages/RequestActorDrop.h>
 #include <Messages/RequestPickupDroppedItem.h>
+#include <Messages/RequestDroppedItems.h>
+#include <Events/CellChangeEvent.h>
+#include <Events/ConnectedEvent.h>
+#include <Services/Generic/DropStorage.h>
 
 #include <optional>
+#include <string>
+#include <unordered_map>
 #include <TiltedCore/Stl.hpp>
 
 struct DropItemEvent;
@@ -22,19 +29,34 @@ class DropService
 {
 public:
     DropService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept;
-    ~DropService() = default;
+    ~DropService();
 
 private:
     void OnDropEvent(const DropItemEvent& acEvent) noexcept;
     void OnPickupEvent(const PickupDroppedItemEvent& acEvent) noexcept;
     void OnNotifyDrop(const NotifyActorDrop& acMessage) noexcept;
     void OnNotifyPickup(const NotifyDroppedItemPickedUp& acMessage) noexcept;
+    void OnNotifyDroppedItems(const NotifyDroppedItems& acMessage) noexcept;
+    void OnConnected(const ConnectedEvent& acEvent) noexcept;
+    void OnCellChange(const CellChangeEvent& acEvent) noexcept;
     void OnUpdate(const UpdateEvent& acEvent) noexcept;
 
     std::optional<uint32_t> ResolveServerId(uint32_t aFormId) const noexcept;
     bool EnsureActorReady(Actor* apActor, const char* apContext) const noexcept;
     bool ApplyDrop(const NotifyActorDrop& acMessage) noexcept;
     bool ApplyPickup(const NotifyDroppedItemPickedUp& acMessage) noexcept;
+    bool EnsureStorageReady() noexcept;
+    void RequestFullDropSync() noexcept;
+    uint32_t SendDropSyncRequest(bool aRequestAll, bool aHasCellFilter, const GameId& acCellId, bool aHasWorldFilter, const GameId& acWorldId) noexcept;
+    void HandleDropSyncResponse(const NotifyDroppedItems& acMessage) noexcept;
+    void ProcessDropEntry(const NotifyDroppedItems::Entry& acEntry, bool aForceMaterialize) noexcept;
+    void MaterializeDrop(uint64_t aDropId, const DropManager::ServerDropData& acData, bool aForce) noexcept;
+    bool SpawnLocalDrop(const DropManager::ServerDropData& acData, uint64_t aDropId) const noexcept;
+    bool RemoveNearbyReference(uint64_t aDropId, const char* apReason) noexcept;
+    void ReconcileCachedDrops(const GameId& acCellId, const GameId& acWorldId, const TiltedPhoques::Vector<uint64_t>& acAuthoritativeDropIds) noexcept;
+    GameId GetPlayerCellId() noexcept;
+    GameId GetPlayerWorldId() noexcept;
+    void RequestCellSync() noexcept;
 
     enum class PendingType
     {
@@ -57,6 +79,21 @@ private:
     entt::scoped_connection m_pickupEventConnection;
     entt::scoped_connection m_notifyDropConnection;
     entt::scoped_connection m_notifyPickupConnection;
+    entt::scoped_connection m_notifyDroppedItemsConnection;
+    entt::scoped_connection m_connectedEventConnection;
+    entt::scoped_connection m_cellChangeConnection;
     entt::scoped_connection m_updateConnection;
     TiltedPhoques::Vector<PendingAction> m_pendingActions;
+    DropStorage m_dropStorage;
+    std::string m_cachedUsername;
+    uint32_t m_nextDropSyncRequestId{1};
+
+    struct DropSyncContext
+    {
+        bool IsFullSync{false};
+        GameId CellId{};
+        GameId WorldSpaceId{};
+    };
+
+    std::unordered_map<uint32_t, DropSyncContext> m_pendingDropSyncs;
 };

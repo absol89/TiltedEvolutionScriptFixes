@@ -54,6 +54,7 @@
 #include <Forms/EnchantmentItem.h>
 #include <Forms/AlchemyItem.h>
 #include <Forms/TESObjectCELL.h>
+#include <Forms/TESWorldSpace.h>
 
 #include <Structs/Skyrim/AnimationGraphDescriptor_BHR_Master.h>
 
@@ -1175,12 +1176,21 @@ void* TP_MAKE_THISCALL(HookPickUpObject, Actor, TESObjectREFR* apObject, int32_t
         auto handle = apObject->GetHandle();
         if (handle && handle.handle.iBits)
             dropId = DropManager::GetDropIdForHandle(handle.handle.iBits);
+
+        if (!dropId)
+        {
+            GameId objectId{};
+            World::Get().GetModSystem().GetServerModId(apObject->baseForm->formID, objectId);
+            if (objectId.ModId || objectId.BaseId)
+                dropId = DropManager::FindDropBySignature(objectId, apObject->position, kDropSearchRadiusSquared);
+        }
     }
 
     if (!ScopedInventoryOverride::IsOverriden() && !isRemotePickup)
     {
         if (dropId)
         {
+            spdlog::info("Actor {:X} triggering pickup for drop {}", apThis->formID, *dropId);
             World::Get().GetRunner().Trigger(PickupDroppedItemEvent(apThis->formID, *dropId));
             DropManager::RemoveServerDrop(*dropId);
         }
@@ -1205,6 +1215,7 @@ void* TP_MAKE_THISCALL(HookPickUpObject, Actor, TESObjectREFR* apObject, int32_t
                 pickupRotation.emplace(apObject->rotation);
             }
 
+            spdlog::warn("Actor {:X} picking up object {:X}:{:X} without drop id, falling back to inventory change", apThis->formID, item.BaseId.ModId, item.BaseId.BaseId);
             World::Get().GetRunner().Trigger(InventoryChangeEvent(apThis->formID, std::move(item), shouldUpdateClients));
         }
     }
@@ -1274,12 +1285,33 @@ void* TP_MAKE_THISCALL(HookDropObject, Actor, void* apResult, TESBoundObject* ap
 
     if (shouldSend)
     {
+        GameId cellId{};
+        GameId worldId{};
+
+        auto& modSystem = World::Get().GetModSystem();
+        if (pDroppedRef)
+        {
+            if (auto* pCell = pDroppedRef->GetParentCellEx())
+                modSystem.GetServerModId(pCell->formID, cellId);
+
+            if (auto* pWorld = pDroppedRef->GetWorldSpace())
+                modSystem.GetServerModId(pWorld->formID, worldId);
+        }
+        else if (apThis->parentCell)
+        {
+            modSystem.GetServerModId(apThis->parentCell->formID, cellId);
+            if (apThis->parentCell->worldspace)
+                modSystem.GetServerModId(apThis->parentCell->worldspace->formID, worldId);
+        }
+
         DropManager::LocalDropData dropData{};
         dropData.ActorFormId = apThis->formID;
         dropData.Item = item;
         dropData.HandleBits = handleBits;
         dropData.Location = dropLocation;
         dropData.Rotation = dropRotation;
+        dropData.CellId = cellId;
+        dropData.WorldSpaceId = worldId;
 
         const uint32_t clientDropId = DropManager::RegisterLocalDrop(dropData);
         World::Get().GetRunner().Trigger(DropItemEvent(apThis->formID, item, clientDropId, dropLocation, dropRotation, handleBits));

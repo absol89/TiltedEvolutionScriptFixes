@@ -5,6 +5,7 @@ void RequestPickupDroppedItem::SerializeRaw(TiltedPhoques::Buffer::Writer& aWrit
 {
     Serialization::WriteVarInt(aWriter, ServerId);
     Serialization::WriteVarInt(aWriter, DropId);
+    Item.Serialize(aWriter);
 }
 
 void RequestPickupDroppedItem::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) noexcept
@@ -13,4 +14,5 @@ void RequestPickupDroppedItem::DeserializeRaw(TiltedPhoques::Buffer::Reader& aRe
 
     ServerId = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
     DropId = Serialization::ReadVarInt(aReader);
+    Item.Deserialize(aReader);
 }

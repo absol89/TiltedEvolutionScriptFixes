@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Message.h"
+#include <Structs/Inventory.h>
 
 struct RequestPickupDroppedItem final : ClientMessage
 {
@@ -16,9 +17,10 @@ struct RequestPickupDroppedItem final : ClientMessage
 
     bool operator==(const RequestPickupDroppedItem& acRhs) const noexcept
     {
-        return GetOpcode() == acRhs.GetOpcode() && ServerId == acRhs.ServerId && DropId == acRhs.DropId;
+        return GetOpcode() == acRhs.GetOpcode() && ServerId == acRhs.ServerId && DropId == acRhs.DropId && Item == acRhs.Item;
     }
 
     uint32_t ServerId{};
     uint64_t DropId{};
+    Inventory::Entry Item{};
 };

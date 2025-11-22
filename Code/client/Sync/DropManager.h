@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Structs/Inventory.h>
+#include <Structs/GameId.h>
 #include <Games/Primitives.h>
 #include <optional>
 
@@ -13,6 +14,8 @@ struct LocalDropData
     NiPoint3 Location{};
     NiPoint3 Rotation{};
     uint32_t HandleBits{};
+    GameId CellId{};
+    GameId WorldSpaceId{};
 };
 
 struct ServerDropData
@@ -22,6 +25,16 @@ struct ServerDropData
     NiPoint3 Location{};
     NiPoint3 Rotation{};
     uint32_t HandleBits{};
+    GameId CellId{};
+    GameId WorldSpaceId{};
+};
+
+struct StorageListener
+{
+    virtual ~StorageListener() = default;
+    virtual void OnServerDropTracked(uint64_t aDropId, const ServerDropData& acData) noexcept = 0;
+    virtual void OnDropHandleBound(uint64_t aDropId, uint32_t aHandleBits) noexcept = 0;
+    virtual void OnServerDropRemoved(uint64_t aDropId) noexcept = 0;
 };
 
 uint32_t RegisterLocalDrop(LocalDropData data) noexcept;
@@ -33,6 +46,8 @@ bool BindHandleToServerDrop(uint64_t dropId, uint32_t actorFormId, uint32_t hand
 std::optional<uint64_t> GetDropIdForHandle(uint32_t handleBits) noexcept;
 std::optional<uint32_t> GetHandleForDrop(uint64_t dropId) noexcept;
 std::optional<ServerDropData> GetServerDrop(uint64_t dropId) noexcept;
+std::optional<uint64_t> FindDropBySignature(const GameId& aBaseId, const NiPoint3& aLocation, float aRadiusSq) noexcept;
 
 void RemoveServerDrop(uint64_t dropId) noexcept;
+void SetStorageListener(StorageListener* apListener) noexcept;
 } // namespace DropManager
