@@ -925,6 +925,16 @@ void Actor::SetPlayerTeammate(bool aSet) noexcept
     return TiltedPhoques::ThisCall(setPlayerTeammate, this, aSet, true);
 }
 
+bool Actor::HasLineOfSight(TESObjectREFR* apTarget) noexcept
+{
+    if (!apTarget)
+        return false;
+
+    TP_THIS_FUNCTION(THasLineOfSight, bool, Actor, TESObjectREFR*);
+    POINTER_SKYRIMSE(THasLineOfSight, hasLineOfSight, 37716);
+    return TiltedPhoques::ThisCall(hasLineOfSight, this, apTarget);
+}
+
 void Actor::UnEquipAll() noexcept
 {
     EquipManager::Get()->UnequipAll(this);

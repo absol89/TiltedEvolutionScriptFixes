@@ -231,6 +231,7 @@ struct Actor : TESObjectREFR
     void SetNoBleedoutRecovery(bool aSet) noexcept;
     void SetPlayerRespawnMode(bool aSet = true) noexcept;
     void SetPlayerTeammate(bool aSet) noexcept;
+    bool HasLineOfSight(TESObjectREFR* apTarget) noexcept;
 
     // Actions
     void UnEquipAll() noexcept;
