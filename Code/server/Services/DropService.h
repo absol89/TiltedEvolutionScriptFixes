@@ -4,18 +4,24 @@
 #include <Messages/RequestActorDrop.h>
 #include <Messages/RequestPickupDroppedItem.h>
 #include <Messages/RequestDroppedItems.h>
+#include <Messages/NotifyDroppedItems.h>
 #include <TiltedCore/Stl.hpp>
+#include <Structs/Guid.h>
 #include <filesystem>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <Structs/GameId.h>
 
 struct NotifyActorDrop;
 struct NotifyDroppedItemPickedUp;
-struct NotifyDroppedItems;
 struct sqlite3;
 
 struct World;
 struct InventoryComponent;
 struct OwnerComponent;
+struct Player;
+struct UpdateEvent;
 
 class DropService
 {
@@ -29,6 +35,7 @@ private:
         uint64_t DropId{};
         uint32_t ServerId{};
         uint32_t ActorFormId{};
+        uint32_t OriginPlayerId{};
         Inventory::Entry DropEntry{};
         Inventory::Entry PickupEntry{};
         bool HasLocation{false};
@@ -37,24 +44,49 @@ private:
         Vector3_NetQuantize Rotation{};
         GameId CellId{};
         GameId WorldSpaceId{};
+        GameId ReferenceId{};
+        Guid ClientDropId{};
+        uint64_t SpawnEpoch{1};
+        uint64_t Version{1};
     };
 
     void OnDropRequest(const PacketEvent<RequestActorDrop>& acMessage) noexcept;
     void OnPickupRequest(const PacketEvent<RequestPickupDroppedItem>& acMessage) noexcept;
     void OnDroppedItemsRequest(const PacketEvent<RequestDroppedItems>& acMessage) noexcept;
+    void OnUpdate(const UpdateEvent& acEvent) noexcept;
     bool InitializeDatabase() noexcept;
     void ShutdownDatabase() noexcept;
     void LoadPersistedDrops() noexcept;
-    void PersistDrop(const ActiveDrop& acDrop) noexcept;
-    void RemovePersistedDrop(uint64_t aDropId) noexcept;
+    bool BeginTransaction() noexcept;
+    bool CommitTransaction() noexcept;
+    void RollbackTransaction() noexcept;
+    std::optional<uint64_t> FindExistingDropId(uint32_t aPlayerId, const Guid& acClientDropId) noexcept;
+    std::optional<ActiveDrop> FetchDropFromDatabase(uint64_t aDropId) noexcept;
+    bool InsertDrop(const ActiveDrop& acDrop, uint64_t& aOutDropId) noexcept;
+    bool InsertDropHistory(uint64_t aDropId, std::string_view aAction, uint32_t aPerformedBy, const std::string& acDetails) noexcept;
+    bool MarkDropInactive(uint64_t aDropId) noexcept;
+    bool UpdateInventoryForDelta(uint32_t aPlayerId, const Inventory::Entry& acEntry, int32_t aDelta, InventoryComponent& aInventoryComponent) noexcept;
+    bool EnsureStackForEntry(uint32_t aPlayerId, const Inventory::Entry& acEntry, const Inventory::Entry& acSignature, InventoryComponent& aInventoryComponent, std::string& aOutStackId, int32_t& aOutCount, bool aCreateIfMissing) noexcept;
+    ActiveDrop* ResolveActiveDrop(uint64_t aDropId) noexcept;
+    void TrackActiveDrop(const ActiveDrop& acDrop) noexcept;
+    void RemoveActiveDrop(uint64_t aDropId) noexcept;
+    void IndexDrop(uint64_t aDropId, const GameId& acCellId) noexcept;
+    void EraseDropFromIndex(uint64_t aDropId, const GameId& acCellId) noexcept;
+    NotifyDroppedItems::Entry MakeNotifyEntry(const ActiveDrop& acDrop) const noexcept;
+    void HandleUntrackedPickupRequest(const PacketEvent<RequestPickupDroppedItem>& acMessage) noexcept;
+    void BroadcastPickup(const NotifyDroppedItemPickedUp& acMessage) const noexcept;
+    void MigrateLegacyDrops() noexcept;
+    void CleanupExpiredDrops() noexcept;
 
     World& m_world;
     entt::scoped_connection m_requestDropConnection;
     entt::scoped_connection m_requestPickupConnection;
     entt::scoped_connection m_requestDroppedItemsConnection;
+    entt::scoped_connection m_updateConnection;
 
-    uint64_t m_nextDropId{1};
     TiltedPhoques::Map<uint64_t, ActiveDrop> m_activeDrops;
+    TiltedPhoques::Map<GameId, TiltedPhoques::Vector<uint64_t>> m_cellDropIndex;
     sqlite3* m_pDatabase{nullptr};
     std::filesystem::path m_databasePath;
+    double m_cleanupAccumulator{0.0};
 };

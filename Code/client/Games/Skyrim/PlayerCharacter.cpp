@@ -26,7 +26,9 @@
 #include <ModCompat/BehaviorVar.h>
 #include <Sync/DropManager.h>
 #include <Sync/DropExecutionContext.h>
+#include <optional>
 #include <cmath>
+#include <utility>
 
 int32_t PlayerCharacter::LastUsedCombatSkill = -1;
 
@@ -47,6 +49,69 @@ static TRemoveWaypoint* RealRemoveWaypoint = nullptr;
 namespace
 {
 constexpr float kDropSearchRadiusSquared = 200.f * 200.f;
+
+GameId ResolveReferenceId(TESObjectREFR* apReference) noexcept
+{
+    GameId reference{};
+    if (!apReference)
+        return reference;
+
+    World::Get().GetModSystem().GetServerModId(apReference->formID, reference);
+    return reference;
+}
+
+std::pair<GameId, GameId> ResolveReferenceCellMetadata(TESObjectREFR* apReference) noexcept
+{
+    GameId cell{};
+    GameId world{};
+
+    if (!apReference)
+        return {cell, world};
+
+    auto* pCell = apReference->parentCell ? apReference->parentCell : apReference->GetParentCell();
+    if (pCell)
+    {
+        auto& modSystem = World::Get().GetModSystem();
+        modSystem.GetServerModId(pCell->formID, cell);
+        if (pCell->worldspace)
+            modSystem.GetServerModId(pCell->worldspace->formID, world);
+    }
+
+    return {cell, world};
+}
+
+void PopulatePickupEventFromDrop(uint64_t aDropId, PickupDroppedItemEvent& aEvent) noexcept
+{
+    if (const auto dropOpt = DropManager::GetServerDrop(aDropId); dropOpt)
+    {
+        aEvent.HasItemData = true;
+        aEvent.Item = dropOpt->Item;
+        aEvent.HasLocation = true;
+        aEvent.Location = dropOpt->Location;
+        aEvent.HasRotation = true;
+        aEvent.Rotation = dropOpt->Rotation;
+        aEvent.CellId = dropOpt->CellId;
+        aEvent.WorldSpaceId = dropOpt->WorldSpaceId;
+    }
+}
+
+void PopulatePickupEventFromReference(TESObjectREFR* apReference, const Inventory::Entry& acItem, PickupDroppedItemEvent& aEvent) noexcept
+{
+    if (!apReference)
+        return;
+
+    aEvent.HasItemData = true;
+    aEvent.Item = acItem;
+    aEvent.HasLocation = true;
+    aEvent.Location = apReference->position;
+    aEvent.HasRotation = true;
+    aEvent.Rotation = apReference->rotation;
+
+    const auto cellMeta = ResolveReferenceCellMetadata(apReference);
+    aEvent.CellId = cellMeta.first;
+    aEvent.WorldSpaceId = cellMeta.second;
+    aEvent.ReferenceId = ResolveReferenceId(apReference);
+}
 }
 
 PlayerCharacter* PlayerCharacter::Get() noexcept
@@ -179,28 +244,52 @@ char TP_MAKE_THISCALL(HookPickUpObject, PlayerCharacter, TESObjectREFR* apObject
         }
     }
 
-    if (!isRemotePickup && dropId)
-    {
-        spdlog::info("PlayerCharacter {:X} triggering pickup for drop {}", apThis->formID, *dropId);
-        World::Get().GetRunner().Trigger(PickupDroppedItemEvent(apThis->formID, *dropId));
-        DropManager::RemoveServerDrop(*dropId);
-    }
-    else
+    Inventory::Entry fallbackItem{};
+    const bool hasReferenceObject = apObject != nullptr;
+    if (!dropId && apObject)
     {
         auto& modSystem = World::Get().GetModSystem();
-
-        Inventory::Entry item{};
-        modSystem.GetServerModId(apObject->baseForm->formID, item.BaseId);
-        item.Count = aCount;
+        modSystem.GetServerModId(apObject->baseForm->formID, fallbackItem.BaseId);
+        fallbackItem.Count = aCount;
 
         if (apObject->GetExtraDataList() && !ScopedExtraDataOverride::IsOverriden())
         {
             ScopedExtraDataOverride _;
-            apThis->GetItemFromExtraData(item, apObject->GetExtraDataList());
+            apThis->GetItemFromExtraData(fallbackItem, apObject->GetExtraDataList());
+        }
+    }
+
+    if (!isRemotePickup)
+    {
+        std::optional<PickupDroppedItemEvent> pickupEvent{};
+
+        if (dropId)
+        {
+            pickupEvent.emplace(apThis->formID, *dropId);
+            PopulatePickupEventFromDrop(*dropId, *pickupEvent);
+        }
+        else if (hasReferenceObject)
+        {
+            pickupEvent.emplace(apThis->formID, 0);
+            PopulatePickupEventFromReference(apObject, fallbackItem, *pickupEvent);
         }
 
-        const bool shouldUpdateClients = apObject->IsTemporary() && !ScopedActivateOverride::IsOverriden();
-        World::Get().GetRunner().Trigger(InventoryChangeEvent(apThis->formID, std::move(item), shouldUpdateClients));
+        if (pickupEvent)
+            World::Get().GetRunner().Trigger(*pickupEvent);
+
+        if (dropId)
+        {
+            spdlog::info("PlayerCharacter {:X} triggering pickup for drop {}", apThis->formID, *dropId);
+            DropManager::RemoveServerDrop(*dropId);
+        }
+        else if (hasReferenceObject)
+        {
+            Inventory::Entry item = fallbackItem;
+
+            const bool shouldUpdateClients = apObject->IsTemporary() && !ScopedActivateOverride::IsOverriden();
+            spdlog::warn("PlayerCharacter {:X} picking up object {:X}:{:X} without drop id, falling back to inventory change", apThis->formID, item.BaseId.ModId, item.BaseId.BaseId);
+            World::Get().GetRunner().Trigger(InventoryChangeEvent(apThis->formID, std::move(item), shouldUpdateClients));
+        }
     }
 
     ScopedInventoryOverride _;

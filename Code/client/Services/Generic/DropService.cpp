@@ -33,6 +33,7 @@
 #include <Games/Primitives.h>
 
 #include <spdlog/spdlog.h>
+#include <TiltedCore/Stl.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -40,7 +41,10 @@
 
 namespace
 {
-constexpr float kDropSearchRadiusSquared = 200.f * 200.f;
+constexpr float kDropSearchRadiusSquared = 400.f * 400.f;
+constexpr float kPickupRemovalRadiusSquared = 2500.f * 2500.f;
+constexpr float kMaterializeGraceSeconds = 0.06f;
+TiltedPhoques::Map<uint64_t, float> g_materializeGrace;
 
 NiPoint3 ToPoint(const Vector3_NetQuantize& aVector)
 {
@@ -170,12 +174,16 @@ void DropService::OnDropEvent(const DropItemEvent& acEvent) noexcept
 
     RequestActorDrop request{};
     request.ServerId = *serverIdRes;
+    request.ActorFormId = acEvent.ActorFormId;
     request.Item = acEvent.Item;
     request.ClientDropId = acEvent.ClientDropId;
     request.HasLocation = true;
     request.Location = ToNetVector(acEvent.Location);
     request.HasRotation = true;
     request.Rotation = ToNetVector(acEvent.Rotation);
+    request.CellId = acEvent.CellId;
+    request.WorldSpaceId = acEvent.WorldSpaceId;
+    request.ReferenceId = acEvent.ReferenceId;
 
     spdlog::info("DropService: requesting drop for actor {:X}, server {:X}, item {:X}:{:X}", acEvent.ActorFormId, *serverIdRes, acEvent.Item.BaseId.ModId, acEvent.Item.BaseId.BaseId);
     m_transport.Send(request);
@@ -198,8 +206,42 @@ void DropService::OnPickupEvent(const PickupDroppedItemEvent& acEvent) noexcept
     RequestPickupDroppedItem request{};
     request.ServerId = *serverIdRes;
     request.DropId = acEvent.DropId;
-    if (const auto dropOpt = DropManager::GetServerDrop(acEvent.DropId); dropOpt)
-        request.Item = dropOpt->Item;
+    if (acEvent.DropId)
+    {
+        if (const auto dropOpt = DropManager::GetServerDrop(acEvent.DropId); dropOpt)
+        {
+            request.Item = dropOpt->Item;
+            request.HasLocation = true;
+            request.Location = ToNetVector(dropOpt->Location);
+            request.HasRotation = true;
+            request.Rotation = ToNetVector(dropOpt->Rotation);
+            request.CellId = dropOpt->CellId;
+            request.WorldSpaceId = dropOpt->WorldSpaceId;
+            request.ReferenceId = dropOpt->ReferenceId;
+        }
+        else if (acEvent.HasItemData)
+        {
+            request.Item = acEvent.Item;
+        }
+    }
+    else
+    {
+        if (acEvent.HasItemData)
+            request.Item = acEvent.Item;
+
+        request.HasLocation = acEvent.HasLocation;
+        if (acEvent.HasLocation)
+            request.Location = ToNetVector(acEvent.Location);
+
+        request.HasRotation = acEvent.HasRotation;
+        if (acEvent.HasRotation)
+            request.Rotation = ToNetVector(acEvent.Rotation);
+
+        request.CellId = acEvent.CellId;
+        request.WorldSpaceId = acEvent.WorldSpaceId;
+        request.ReferenceId = acEvent.ReferenceId;
+    }
+
     spdlog::info("DropService: requesting pickup for actor {:X} (server {:X}), drop {}", acEvent.ActorFormId, *serverIdRes, acEvent.DropId);
     m_transport.Send(request);
 }
@@ -222,64 +264,168 @@ void DropService::OnNotifyDrop(const NotifyActorDrop& acMessage) noexcept
 
 bool DropService::ApplyDrop(const NotifyActorDrop& acMessage) noexcept
 {
-    Actor* pActor = Utils::GetByServerId<Actor>(acMessage.ServerId);
-    if (!pActor)
+    auto itEpoch = m_knownSpawnEpochs.find(acMessage.DropId);
+    if (itEpoch != std::end(m_knownSpawnEpochs) && acMessage.SpawnEpoch <= itEpoch->second)
     {
-        spdlog::warn("{}: could not find actor for server id {:X}", __FUNCTION__, acMessage.ServerId);
-        return false;
+        spdlog::debug("DropService: ignoring stale drop {} epoch {}", acMessage.DropId, acMessage.SpawnEpoch);
+        return true;
     }
+    m_knownSpawnEpochs[acMessage.DropId] = acMessage.SpawnEpoch;
+
+    Actor* pActor = Utils::GetByServerId<Actor>(acMessage.ServerId);
+    bool actorReady = pActor && EnsureActorReady(pActor, "drop");
+
+    DropManager::ServerDropData serverData{};
+    serverData.ServerId = acMessage.ServerId;
+    serverData.ActorFormId = acMessage.ActorFormId ? acMessage.ActorFormId : (pActor ? pActor->formID : 0);
+    serverData.CellId = acMessage.CellId;
+    serverData.WorldSpaceId = acMessage.WorldSpaceId;
+    serverData.ReferenceId = acMessage.ReferenceId;
+
+    std::optional<DropManager::LocalDropData> localDropData{};
+    TESObjectREFR* pLocalReference = nullptr;
+    bool localHandleValid = false;
 
     if (acMessage.HasClientDropId)
     {
-        auto localDataOpt = DropManager::ConsumeLocalDrop(acMessage.ClientDropId);
-        if (!localDataOpt)
+        localDropData = DropManager::ConsumeLocalDrop(acMessage.ClientDropId);
+        if (localDropData)
         {
-            spdlog::warn("{}: missing local drop data for client drop {}", __FUNCTION__, acMessage.ClientDropId);
-            return false;
+            serverData.Item = localDropData->Item;
+            serverData.Location = localDropData->Location;
+            serverData.Rotation = localDropData->Rotation;
+            serverData.CellId = localDropData->CellId;
+            serverData.WorldSpaceId = localDropData->WorldSpaceId;
+            serverData.HandleBits = localDropData->HandleBits;
+            serverData.ReferenceId = localDropData->ReferenceId;
+
+            if (serverData.HandleBits)
+            {
+                pLocalReference = TESObjectREFR::GetByHandle(serverData.HandleBits);
+                if (pLocalReference)
+                {
+                    localHandleValid = true;
+                }
+                else
+                {
+                    spdlog::warn("DropService: lost local handle {:X} for client drop {}, respawning authoritative reference", serverData.HandleBits, acMessage.ClientDropId.ToString());
+                    serverData.HandleBits = 0;
+                }
+            }
+
+            if (!localHandleValid && serverData.ReferenceId)
+            {
+                if (TESObjectREFR* pResolved = GetReferenceById(serverData.ReferenceId))
+                {
+                    auto resolvedHandle = pResolved->GetHandle();
+                    if (resolvedHandle && resolvedHandle.handle.iBits)
+                    {
+                        serverData.HandleBits = resolvedHandle.handle.iBits;
+                        pLocalReference = pResolved;
+                        localHandleValid = true;
+                        spdlog::info("DropService: rebound missing handle for client drop {} using reference {:X}:{:X}", acMessage.ClientDropId.ToString(), serverData.ReferenceId.ModId, serverData.ReferenceId.BaseId);
+                    }
+                }
+            }
         }
+        else
+        {
+            spdlog::warn("{}: missing local drop data for client drop {}, falling back to server payload", __FUNCTION__, acMessage.ClientDropId.ToString());
+        }
+    }
 
-        DropManager::ServerDropData serverData{};
-        serverData.ActorFormId = localDataOpt->ActorFormId;
-        serverData.Item = localDataOpt->Item;
-        serverData.Location = localDataOpt->Location;
-        serverData.Rotation = localDataOpt->Rotation;
-        serverData.HandleBits = localDataOpt->HandleBits;
-        serverData.CellId = localDataOpt->CellId;
-        serverData.WorldSpaceId = localDataOpt->WorldSpaceId;
+    if (!localDropData)
+    {
+        serverData.Item = acMessage.Item;
+        auto [cellId, worldId] = ResolveCellMetadata(m_world, pActor);
+        if (!serverData.CellId)
+            serverData.CellId = cellId;
+        if (!serverData.WorldSpaceId)
+            serverData.WorldSpaceId = worldId;
+    }
 
-        DropManager::TrackServerDrop(acMessage.DropId, serverData);
+    if (acMessage.HasLocation)
+        serverData.Location = ToPoint(acMessage.Location);
+    else if (!localDropData)
+        serverData.Location = pActor->position;
+
+    if (acMessage.HasRotation)
+        serverData.Rotation = ToPoint(acMessage.Rotation);
+    else if (!localDropData)
+        serverData.Rotation = pActor->rotation;
+
+    DropManager::TrackServerDrop(acMessage.DropId, serverData);
+
+    if (localHandleValid && pLocalReference)
+    {
+        if (acMessage.HasLocation)
+            pLocalReference->position = serverData.Location;
+        if (acMessage.HasRotation)
+            pLocalReference->rotation = serverData.Rotation;
+
+        if (serverData.HandleBits)
+            DropManager::BindHandleToServerDrop(acMessage.DropId, serverData.ActorFormId, serverData.HandleBits);
+        if (!serverData.ReferenceId)
+        {
+            GameId referenceId{};
+            m_world.GetModSystem().GetServerModId(pLocalReference->formID, referenceId);
+            serverData.ReferenceId = referenceId;
+        }
+        if (serverData.ReferenceId)
+            DropManager::SetReferenceForDrop(acMessage.DropId, serverData.ReferenceId);
+
+        spdlog::info("DropService: linked local drop {} (client {}) for actor {:X}", acMessage.DropId, acMessage.ClientDropId.ToString(), serverData.ActorFormId);
         return true;
     }
 
-    if (!EnsureActorReady(pActor, "drop"))
+    if (!actorReady)
     {
-        spdlog::debug("DropService: actor {:X} not ready for drop {}", pActor->formID, acMessage.DropId);
+        const bool materialized = MaterializeDrop(acMessage.DropId, serverData, true);
+        if (materialized)
+        {
+            spdlog::info("DropService: materialized drop {} without resolved actor {:X}", acMessage.DropId, acMessage.ServerId);
+            return true;
+        }
+
+        spdlog::debug("DropService: drop {} deferred (actor {:X} missing or not ready)", acMessage.DropId, acMessage.ServerId);
         return false;
     }
 
-    NiPoint3 location = acMessage.HasLocation ? ToPoint(acMessage.Location) : pActor->position;
-    NiPoint3 rotation = acMessage.HasRotation ? ToPoint(acMessage.Rotation) : pActor->rotation;
+    if (m_materializingDrops.find(acMessage.DropId) != std::end(m_materializingDrops))
+    {
+        spdlog::debug("DropService: drop {} already materializing, skipping duplicate spawn", acMessage.DropId);
+        m_materializingDrops.erase(acMessage.DropId);
+        return true;
+    }
+    m_materializingDrops.insert(acMessage.DropId);
+    NiPoint3 location = serverData.Location;
+    NiPoint3 rotation = serverData.Rotation;
 
-    DropManager::ServerDropData serverData{};
-    serverData.ActorFormId = pActor->formID;
-    serverData.Item = acMessage.Item;
-    serverData.Location = location;
-    serverData.Rotation = rotation;
-    serverData.HandleBits = 0;
-    auto [cellId, worldId] = ResolveCellMetadata(m_world, pActor);
-    serverData.CellId = cellId;
-    serverData.WorldSpaceId = worldId;
-    DropManager::TrackServerDrop(acMessage.DropId, serverData);
+    // Spawn immediately here; grace gate is handled in OnUpdate and MaterializeDrop (60ms).
 
     {
-        DropExecution::Scope scope(DropExecution::Mode::RemoteDrop, pActor->formID, acMessage.DropId);
+        DropExecution::Scope scope(DropExecution::Mode::RemoteDrop, serverData.ActorFormId, acMessage.DropId);
         ScopedInventoryOverride _;
         if (!ScopedInventoryOverride::IsOverriden())
-            spdlog::debug("DropService: spawning drop {} for actor {:X}", acMessage.DropId, pActor->formID);
-        pActor->DropOrPickUpObject(acMessage.Item, &location, &rotation);
+            spdlog::debug("DropService: spawning drop {} for actor {:X}", acMessage.DropId, serverData.ActorFormId);
+        pActor->DropOrPickUpObject(serverData.Item, &location, &rotation);
     }
 
-    spdlog::info("DropService: applied remote drop {} for actor {:X}", acMessage.DropId, pActor->formID);
+    m_localDrops.insert(acMessage.DropId);
+
+    if (!DropManager::GetHandleForDrop(acMessage.DropId))
+    {
+        spdlog::warn("DropService: actor {:X} failed to produce a handle for drop {}, forcing materialization", serverData.ActorFormId, acMessage.DropId);
+        if (!MaterializeDrop(acMessage.DropId, serverData, true))
+        {
+            spdlog::warn("DropService: fallback materialization failed for drop {}, deferring", acMessage.DropId);
+            m_materializingDrops.erase(acMessage.DropId);
+            return false;
+        }
+    }
+
+    m_materializingDrops.erase(acMessage.DropId);
+    spdlog::info("DropService: applied drop {} for actor {:X}", acMessage.DropId, serverData.ActorFormId);
 
     return true;
 }
@@ -297,17 +443,34 @@ void DropService::OnNotifyPickup(const NotifyDroppedItemPickedUp& acMessage) noe
     }
     else
     {
-        m_dropStorage.RemoveCachedDrop(acMessage.DropId);
+        if (acMessage.DropId)
+            m_dropStorage.RemoveCachedDrop(acMessage.DropId);
         spdlog::info("DropService: processed pickup {} immediately", acMessage.DropId);
     }
 }
 
 bool DropService::ApplyPickup(const NotifyDroppedItemPickedUp& acMessage) noexcept
 {
+    if (acMessage.DropId == 0)
+        return HandleUntrackedPickup(acMessage);
+
+    GameId trackedReferenceId{};
+    if (const auto dropOpt = DropManager::GetServerDrop(acMessage.DropId); dropOpt)
+        trackedReferenceId = dropOpt->ReferenceId;
+
+    if (!IsPickupRelevant(acMessage))
+    {
+        DropManager::RemoveServerDrop(acMessage.DropId);
+        ForgetLocalDrop(acMessage.DropId);
+        spdlog::debug("DropService: ignored pickup {} (out of range)", acMessage.DropId);
+        return true;
+    }
+
     Actor* pActor = Utils::GetByServerId<Actor>(acMessage.ServerId);
     if (!pActor)
     {
         DropManager::RemoveServerDrop(acMessage.DropId);
+        ForgetLocalDrop(acMessage.DropId);
         spdlog::warn("{}: could not find actor {:X} for pickup", __FUNCTION__, acMessage.ServerId);
         return true;
     }
@@ -315,6 +478,7 @@ bool DropService::ApplyPickup(const NotifyDroppedItemPickedUp& acMessage) noexce
     if (pActor->GetExtension()->IsLocalPlayer())
     {
         DropManager::RemoveServerDrop(acMessage.DropId);
+        ForgetLocalDrop(acMessage.DropId);
         return true;
     }
 
@@ -326,6 +490,14 @@ bool DropService::ApplyPickup(const NotifyDroppedItemPickedUp& acMessage) noexce
 
     DropExecution::Scope scope(DropExecution::Mode::RemotePickup, pActor->formID, acMessage.DropId);
 
+    auto tryRemoveById = [&]() -> bool {
+        if (trackedReferenceId && RemoveReferenceById(trackedReferenceId, "pickup notify tracked reference"))
+            return true;
+        if (acMessage.ReferenceId)
+            return RemoveReferenceById(acMessage.ReferenceId, "pickup notify reference id");
+        return false;
+    };
+
     if (handleOpt)
     {
         if (auto* pDroppedRef = TESObjectREFR::GetByHandle(*handleOpt))
@@ -336,12 +508,27 @@ bool DropService::ApplyPickup(const NotifyDroppedItemPickedUp& acMessage) noexce
         else
         {
             spdlog::debug("{}: drop handle {:X} missing for actor {:X}", __FUNCTION__, *handleOpt, pActor->formID);
-            RemoveNearbyReference(acMessage.DropId, "missing reference handle during pickup");
+            if (!tryRemoveById() && !RemoveNearbyReference(acMessage.DropId, "missing reference handle during pickup", kPickupRemovalRadiusSquared) && acMessage.HasLocation)
+                RemoveReferenceByLocation(acMessage.Item, acMessage.Location, "missing reference handle location fallback", kPickupRemovalRadiusSquared);
         }
     }
     else
     {
-        if (!RemoveNearbyReference(acMessage.DropId, "missing handle for pickup"))
+        bool removed = tryRemoveById();
+        if (!removed)
+            removed = RemoveNearbyReference(acMessage.DropId, "missing handle for pickup", kPickupRemovalRadiusSquared);
+        if (!removed && acMessage.HasLocation)
+            removed = RemoveReferenceByLocation(acMessage.Item, acMessage.Location, "missing handle location fallback", kPickupRemovalRadiusSquared);
+        if (!removed)
+        {
+            if (auto* pPlayer = PlayerCharacter::Get())
+            {
+                Vector3_NetQuantize approx = ToNetVector(pPlayer->position);
+                removed = RemoveReferenceByLocation(acMessage.Item, approx, "pickup fallback player proximity", kPickupRemovalRadiusSquared);
+            }
+        }
+
+        if (!removed)
         {
             ScopedInventoryOverride _;
             pActor->DropOrPickUpObject(acMessage.Item, nullptr, nullptr);
@@ -349,7 +536,57 @@ bool DropService::ApplyPickup(const NotifyDroppedItemPickedUp& acMessage) noexce
     }
 
     DropManager::RemoveServerDrop(acMessage.DropId);
+    ForgetLocalDrop(acMessage.DropId);
     spdlog::info("DropService: applied remote pickup {} for actor {:X}", acMessage.DropId, pActor->formID);
+    return true;
+}
+
+bool DropService::HandleUntrackedPickup(const NotifyDroppedItemPickedUp& acMessage) noexcept
+{
+    const GameId playerCell = GetPlayerCellId();
+    const GameId playerWorld = GetPlayerWorldId();
+
+    if (acMessage.CellId && playerCell && acMessage.CellId != playerCell)
+    {
+        spdlog::debug("DropService: ignoring pickup in cell {:X}:{:X}, player cell {:X}:{:X}", acMessage.CellId.ModId, acMessage.CellId.BaseId, playerCell.ModId, playerCell.BaseId);
+        return true;
+    }
+
+    if (acMessage.WorldSpaceId && playerWorld && acMessage.WorldSpaceId != playerWorld)
+    {
+        spdlog::debug("DropService: ignoring pickup in world {:X}:{:X}, player world {:X}:{:X}", acMessage.WorldSpaceId.ModId, acMessage.WorldSpaceId.BaseId, playerWorld.ModId, playerWorld.BaseId);
+        return true;
+    }
+
+    bool removed = RemoveReferenceById(acMessage.ReferenceId, "untracked pickup via reference id");
+    if (!removed && acMessage.HasLocation)
+        removed = RemoveReferenceByLocation(acMessage.Item, acMessage.Location, "untracked pickup via location", kPickupRemovalRadiusSquared);
+    if (!removed)
+    {
+        if (auto* pPlayer = PlayerCharacter::Get())
+        {
+            Vector3_NetQuantize approximate = ToNetVector(pPlayer->position);
+            removed = RemoveReferenceByLocation(acMessage.Item, approximate, "untracked pickup player proximity", kPickupRemovalRadiusSquared);
+        }
+    }
+
+    if (!removed)
+        spdlog::warn("DropService: pickup notify without drop id could not find reference ({:X}:{:X})", acMessage.Item.BaseId.ModId, acMessage.Item.BaseId.BaseId);
+
+    return true;
+}
+
+bool DropService::IsPickupRelevant(const NotifyDroppedItemPickedUp& acMessage) noexcept
+{
+    const GameId playerCell = GetPlayerCellId();
+    const GameId playerWorld = GetPlayerWorldId();
+
+    if (acMessage.CellId && playerCell && acMessage.CellId != playerCell)
+        return false;
+
+    if (acMessage.WorldSpaceId && playerWorld && acMessage.WorldSpaceId != playerWorld)
+        return false;
+
     return true;
 }
 
@@ -362,7 +599,6 @@ void DropService::OnNotifyDroppedItems(const NotifyDroppedItems& acMessage) noex
 void DropService::OnConnected(const ConnectedEvent&) noexcept
 {
     EnsureStorageReady();
-    RequestFullDropSync();
     RequestCellSync();
 }
 
@@ -371,8 +607,33 @@ void DropService::OnCellChange(const CellChangeEvent& acEvent) noexcept
     SendDropSyncRequest(false, true, acEvent.CellId, true, acEvent.WorldSpaceId);
 }
 
-void DropService::OnUpdate(const UpdateEvent&) noexcept
+void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept
 {
+    // Decrease grace timers for materialization gating
+    if (!g_materializeGrace.empty())
+    {
+        const float delta = static_cast<float>(acEvent.Delta);
+        TiltedPhoques::Vector<uint64_t> toErase;
+        toErase.reserve(g_materializeGrace.size());
+        for (const auto& kv : g_materializeGrace)
+        {
+            const uint64_t id = kv.first;
+            const float newValue = kv.second - delta;
+            if (newValue <= 0.f)
+            {
+                toErase.push_back(id);
+            }
+            else
+            {
+                g_materializeGrace[id] = newValue;
+            }
+        }
+        for (const auto id : toErase)
+        {
+            g_materializeGrace.erase(id);
+        }
+    }
+
     if (m_pendingActions.empty())
         return;
 
@@ -383,6 +644,14 @@ void DropService::OnUpdate(const UpdateEvent&) noexcept
         bool applied = false;
         if (action.Type == PendingType::Drop)
         {
+            // Respect grace wait for materialization
+            auto it = g_materializeGrace.find(action.DropMessage.DropId);
+            if (it != g_materializeGrace.end() && it->second > 0.f)
+            {
+                remaining.push_back(std::move(action));
+                continue;
+            }
+
             applied = ApplyDrop(action.DropMessage);
             if (!applied)
                 ++action.RetryCounter;
@@ -403,8 +672,9 @@ void DropService::OnUpdate(const UpdateEvent&) noexcept
     m_pendingActions = std::move(remaining);
     if (!m_pendingActions.empty())
         spdlog::debug("DropService: {} pending drop actions remain", m_pendingActions.size());
-}
 
+
+}
 std::optional<uint32_t> DropService::ResolveServerId(uint32_t aFormId) const noexcept
 {
     auto view = m_world.view<FormIdComponent>();
@@ -457,11 +727,6 @@ bool DropService::EnsureStorageReady() noexcept
     }
 
     return m_dropStorage.EnsureInitialized();
-}
-
-void DropService::RequestFullDropSync() noexcept
-{
-    SendDropSyncRequest(true, false, {}, false, {});
 }
 
 uint32_t DropService::SendDropSyncRequest(bool aRequestAll, bool aHasCellFilter, const GameId& acCellId, bool aHasWorldFilter, const GameId& acWorldId) noexcept
@@ -517,6 +782,7 @@ void DropService::HandleDropSyncResponse(const NotifyDroppedItems& acMessage) no
     for (const auto& entry : acMessage.Entries)
     {
         const bool forceMaterialize = context && !context->IsFullSync;
+        m_knownSpawnEpochs[entry.DropId] = entry.SpawnEpoch;
         ProcessDropEntry(entry, forceMaterialize);
         serverDropIds.push_back(entry.DropId);
     }
@@ -538,7 +804,9 @@ void DropService::HandleDropSyncResponse(const NotifyDroppedItems& acMessage) no
                 continue;
 
             bool removed = false;
-            if (entry.RefFormId)
+            if (entry.ReferenceId)
+                removed = RemoveReferenceById(entry.ReferenceId, "full sync stale reference");
+            if (entry.RefFormId && !removed)
             {
                 if (auto* pForm = TESForm::GetById(entry.RefFormId))
                 {
@@ -572,7 +840,14 @@ void DropService::HandleDropSyncResponse(const NotifyDroppedItems& acMessage) no
 
 void DropService::ProcessDropEntry(const NotifyDroppedItems::Entry& acEntry, bool aForceMaterialize) noexcept
 {
+    if (m_localDrops.find(acEntry.DropId) != std::end(m_localDrops))
+    {
+        spdlog::debug("DropService: skip drop {} from sync (already present locally)", acEntry.DropId);
+        return;
+    }
+
     DropManager::ServerDropData data{};
+    data.ServerId = acEntry.ServerId;
     data.ActorFormId = acEntry.ActorFormId;
     data.Item = acEntry.Item;
     data.Location = acEntry.HasLocation ? ToPoint(acEntry.Location) : NiPoint3{};
@@ -580,14 +855,19 @@ void DropService::ProcessDropEntry(const NotifyDroppedItems::Entry& acEntry, boo
     data.HandleBits = 0;
     data.CellId = acEntry.CellId;
     data.WorldSpaceId = acEntry.WorldSpaceId;
+    data.ReferenceId = acEntry.ReferenceId;
 
     DropManager::TrackServerDrop(acEntry.DropId, data);
     if (!MaterializeDrop(acEntry.DropId, data, aForceMaterialize))
     {
+        if (!aForceMaterialize && g_materializeGrace.find(acEntry.DropId) == std::end(g_materializeGrace))
+            g_materializeGrace[acEntry.DropId] = kMaterializeGraceSeconds;
+
         PendingAction pending{};
         pending.Type = PendingType::Drop;
         pending.DropMessage.DropId = acEntry.DropId;
         pending.DropMessage.ServerId = acEntry.ServerId;
+        pending.DropMessage.ActorFormId = acEntry.ActorFormId;
         pending.DropMessage.Item = acEntry.Item;
         pending.DropMessage.HasLocation = acEntry.HasLocation;
         if (acEntry.HasLocation)
@@ -595,6 +875,9 @@ void DropService::ProcessDropEntry(const NotifyDroppedItems::Entry& acEntry, boo
         pending.DropMessage.HasRotation = acEntry.HasRotation;
         if (acEntry.HasRotation)
             pending.DropMessage.Rotation = acEntry.Rotation;
+        pending.DropMessage.CellId = acEntry.CellId;
+        pending.DropMessage.WorldSpaceId = acEntry.WorldSpaceId;
+        pending.DropMessage.SpawnEpoch = acEntry.SpawnEpoch;
         m_pendingActions.push_back(std::move(pending));
         spdlog::debug("DropService: queued drop {} for delayed materialization", acEntry.DropId);
     }
@@ -605,6 +888,15 @@ bool DropService::MaterializeDrop(uint64_t aDropId, const DropManager::ServerDro
     if (DropManager::GetHandleForDrop(aDropId))
         return true;
 
+    if (TryBindExistingReference(aDropId, acData))
+        return true;
+
+    if (m_materializingDrops.find(aDropId) != std::end(m_materializingDrops))
+    {
+        spdlog::debug("DropService: drop {} already materializing, skipping duplicate spawn", aDropId);
+        return true;
+    }
+
     const bool hasLocation = std::abs(acData.Location.x) > std::numeric_limits<float>::epsilon() || std::abs(acData.Location.y) > std::numeric_limits<float>::epsilon() || std::abs(acData.Location.z) > std::numeric_limits<float>::epsilon();
     if (!hasLocation)
         return false;
@@ -613,14 +905,47 @@ bool DropService::MaterializeDrop(uint64_t aDropId, const DropManager::ServerDro
     {
         if (!(GetPlayerCellId() == acData.CellId))
             return false;
+
+        auto itTimer = g_materializeGrace.find(aDropId);
+        if (itTimer == std::end(g_materializeGrace))
+        {
+            g_materializeGrace[aDropId] = kMaterializeGraceSeconds;
+
+            PendingAction pending{};
+            pending.Type = PendingType::Drop;
+            pending.DropMessage.DropId = aDropId;
+            pending.DropMessage.ServerId = acData.ServerId;
+            pending.DropMessage.ActorFormId = acData.ActorFormId;
+            pending.DropMessage.Item = acData.Item;
+            pending.DropMessage.HasLocation = true;
+            pending.DropMessage.Location = ToNetVector(acData.Location);
+            pending.DropMessage.HasRotation = true;
+            pending.DropMessage.Rotation = ToNetVector(acData.Rotation);
+            pending.DropMessage.CellId = acData.CellId;
+            pending.DropMessage.WorldSpaceId = acData.WorldSpaceId;
+            pending.DropMessage.ReferenceId = acData.ReferenceId;
+            pending.DropMessage.SpawnEpoch = (m_knownSpawnEpochs.find(aDropId) != std::end(m_knownSpawnEpochs)) ? m_knownSpawnEpochs[aDropId] : 0;
+            m_pendingActions.push_back(std::move(pending));
+
+            spdlog::debug("DropService: scheduled grace wait before spawning drop {}", aDropId);
+            return false;
+        }
+
+        if (itTimer->second > 0.f)
+            return false;
     }
 
-    if (!SpawnLocalDrop(acData, aDropId))
+    m_materializingDrops.insert(aDropId);
+    const bool spawned = SpawnLocalDrop(acData, aDropId);
+    m_materializingDrops.erase(aDropId);
+
+    if (!spawned)
     {
         spdlog::warn("DropService: failed to materialize drop {} in cell {:X}:{:X}", aDropId, acData.CellId.ModId, acData.CellId.BaseId);
         return false;
     }
 
+    m_localDrops.insert(aDropId);
     return true;
 }
 
@@ -640,7 +965,7 @@ bool DropService::SpawnLocalDrop(const DropManager::ServerDropData& acData, uint
     return true;
 }
 
-bool DropService::RemoveNearbyReference(uint64_t aDropId, const char* apReason) noexcept
+bool DropService::RemoveNearbyReference(uint64_t aDropId, const char* apReason, float aRadiusSq) noexcept
 {
     const auto dropOpt = DropManager::GetServerDrop(aDropId);
     if (!dropOpt)
@@ -650,14 +975,115 @@ bool DropService::RemoveNearbyReference(uint64_t aDropId, const char* apReason) 
     if (!pObject)
         return false;
 
-    if (TESObjectREFR* pRef = FindReferenceNear(pObject, dropOpt->Location))
+    if (TESObjectREFR* pRef = FindReferenceNear(pObject, dropOpt->Location, aRadiusSq))
     {
-        pRef->Delete();
+        if (pRef->IsTemporary())
+            pRef->Delete();
+        else
+            pRef->Disable();
         spdlog::warn("DropService: {} -> removed fallback drop {} ({:X}:{:X})", apReason ? apReason : "cleanup", aDropId, dropOpt->Item.BaseId.ModId, dropOpt->Item.BaseId.BaseId);
         return true;
     }
 
     spdlog::debug("DropService: {} fallback failed for drop {}", apReason ? apReason : "cleanup", aDropId);
+    return false;
+}
+
+TESObjectREFR* DropService::GetReferenceById(const GameId& acReferenceId) noexcept
+{
+    if (!acReferenceId)
+        return nullptr;
+
+    auto& modSystem = m_world.GetModSystem();
+    const uint32_t formId = modSystem.GetGameId(acReferenceId);
+    if (!formId)
+        return nullptr;
+
+    TESForm* pForm = TESForm::GetById(formId);
+    return Cast<TESObjectREFR>(pForm);
+}
+
+bool DropService::RemoveReferenceById(const GameId& acReferenceId, const char* apReason) noexcept
+{
+    TESObjectREFR* pReference = GetReferenceById(acReferenceId);
+    if (!pReference)
+        return false;
+
+    if (pReference->IsTemporary())
+        pReference->Delete();
+    else
+        pReference->Disable();
+    spdlog::info("DropService: {} -> removed reference {:X}:{:X}", apReason ? apReason : "cleanup", acReferenceId.ModId, acReferenceId.BaseId);
+    return true;
+}
+
+bool DropService::RemoveReferenceByLocation(const Inventory::Entry& acItem, const Vector3_NetQuantize& acLocation, const char* apReason, float aRadiusSq) noexcept
+{
+    TESBoundObject* pObject = ResolveDroppedObject(acItem);
+    if (!pObject)
+        return false;
+
+    const NiPoint3 location = ToPoint(acLocation);
+    if (TESObjectREFR* pRef = FindReferenceNear(pObject, location, aRadiusSq))
+    {
+        if (pRef->IsTemporary())
+            pRef->Delete();
+        else
+            pRef->Disable();
+        spdlog::info("DropService: {} -> removed reference near ({:.2f}, {:.2f}, {:.2f}) for item {:X}:{:X}", apReason ? apReason : "cleanup", location.x, location.y, location.z, acItem.BaseId.ModId,
+                     acItem.BaseId.BaseId);
+        return true;
+    }
+
+    spdlog::debug("DropService: {} failed to remove reference by location for item {:X}:{:X}", apReason ? apReason : "cleanup", acItem.BaseId.ModId, acItem.BaseId.BaseId);
+    return false;
+}
+
+bool DropService::TryBindExistingReference(uint64_t aDropId, const DropManager::ServerDropData& acData) noexcept
+{
+    auto tryBind = [&](TESObjectREFR* apReference) -> bool {
+        if (!apReference)
+            return false;
+
+        auto handle = apReference->GetHandle();
+        if (!handle || handle.handle.iBits == 0)
+            return false;
+
+        if (!DropManager::BindHandleToServerDrop(aDropId, acData.ActorFormId, handle.handle.iBits))
+            return false;
+
+        GameId referenceId = acData.ReferenceId;
+        if (!referenceId)
+        {
+            auto& modSystem = m_world.GetModSystem();
+            modSystem.GetServerModId(apReference->formID, referenceId);
+        }
+
+        if (referenceId)
+            DropManager::SetReferenceForDrop(aDropId, referenceId);
+
+        m_localDrops.insert(aDropId);
+
+        spdlog::debug("DropService: rebound existing reference {:X}:{:X} for drop {}", referenceId.ModId, referenceId.BaseId, aDropId);
+        return true;
+    };
+
+    if (acData.ReferenceId)
+    {
+        if (TESObjectREFR* pRef = GetReferenceById(acData.ReferenceId))
+        {
+            if (tryBind(pRef))
+                return true;
+        }
+    }
+
+    TESBoundObject* pObject = ResolveDroppedObject(acData.Item);
+    if (!pObject)
+        return false;
+
+    if (TESObjectREFR* pNearby = FindReferenceNear(pObject, acData.Location, kDropSearchRadiusSquared))
+        return tryBind(pNearby);
+
     return false;
 }
 
@@ -674,7 +1100,9 @@ void DropService::ReconcileCachedDrops(const GameId& acCellId, const GameId& acW
             continue;
 
         bool removed = false;
-        if (cached.RefFormId)
+        if (cached.ReferenceId)
+            removed = RemoveReferenceById(cached.ReferenceId, "cell sync stale reference id");
+        if (cached.RefFormId && !removed)
         {
             if (auto* pForm = TESForm::GetById(cached.RefFormId))
             {
@@ -741,4 +1169,12 @@ void DropService::RequestCellSync() noexcept
 
     const GameId worldId = GetPlayerWorldId();
     SendDropSyncRequest(false, true, cellId, static_cast<bool>(worldId), worldId);
+}
+
+void DropService::ForgetLocalDrop(uint64_t aDropId) noexcept
+{
+    if (aDropId == 0)
+        return;
+
+    m_localDrops.erase(aDropId);
 }

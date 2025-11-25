@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Structs/Guid.h>
 #include <Structs/Inventory.h>
 #include <Structs/GameId.h>
 #include <Games/Primitives.h>
@@ -16,10 +17,13 @@ struct LocalDropData
     uint32_t HandleBits{};
     GameId CellId{};
     GameId WorldSpaceId{};
+    Guid ClientDropId{};
+    GameId ReferenceId{};
 };
 
 struct ServerDropData
 {
+    uint32_t ServerId{};
     uint32_t ActorFormId{};
     Inventory::Entry Item{};
     NiPoint3 Location{};
@@ -27,6 +31,7 @@ struct ServerDropData
     uint32_t HandleBits{};
     GameId CellId{};
     GameId WorldSpaceId{};
+    GameId ReferenceId{};
 };
 
 struct StorageListener
@@ -37,11 +42,12 @@ struct StorageListener
     virtual void OnServerDropRemoved(uint64_t aDropId) noexcept = 0;
 };
 
-uint32_t RegisterLocalDrop(LocalDropData data) noexcept;
-std::optional<LocalDropData> ConsumeLocalDrop(uint32_t clientDropId) noexcept;
+Guid RegisterLocalDrop(LocalDropData data) noexcept;
+std::optional<LocalDropData> ConsumeLocalDrop(const Guid& clientDropId) noexcept;
 
 void TrackServerDrop(uint64_t dropId, const ServerDropData& data) noexcept;
 bool BindHandleToServerDrop(uint64_t dropId, uint32_t actorFormId, uint32_t handleBits) noexcept;
+void SetReferenceForDrop(uint64_t dropId, const GameId& referenceId) noexcept;
 
 std::optional<uint64_t> GetDropIdForHandle(uint32_t handleBits) noexcept;
 std::optional<uint32_t> GetHandleForDrop(uint64_t dropId) noexcept;

@@ -25,7 +25,7 @@
 namespace
 {
 constexpr uint32_t kDropStorageMagic = 'D' | ('R' << 8) | ('O' << 16) | ('P' << 24);
-constexpr uint32_t kDropStorageVersion = 1;
+constexpr uint32_t kDropStorageVersion = 2;
 
 std::filesystem::path ResolveClientDataDirectory() noexcept
 {
@@ -133,11 +133,17 @@ void DropStorage::OnServerDropTracked(uint64_t aDropId, const DropManager::Serve
 
     CachedDrop drop{};
     drop.DropId = aDropId;
+    drop.ServerId = acData.ServerId;
     drop.CellId = acData.CellId;
     drop.WorldSpaceId = acData.WorldSpaceId;
+    drop.ReferenceId = acData.ReferenceId;
     drop.Item = acData.Item;
     drop.Location = acData.Location;
-    drop.RefFormId = 0;
+
+    if (auto it = m_cachedDrops.find(aDropId); it != m_cachedDrops.end())
+        drop.RefFormId = it->second.RefFormId;
+    else
+        drop.RefFormId = 0;
 
     m_cachedDrops[aDropId] = drop;
     spdlog::info("DropStorage: cached drop {} for cell {:X}:{:X}", aDropId, drop.CellId.ModId, drop.CellId.BaseId);
@@ -224,10 +230,26 @@ void DropStorage::Load() noexcept
     {
         CachedDrop drop{};
         input.read(reinterpret_cast<char*>(&drop.DropId), sizeof(drop.DropId));
+        if (version >= 2)
+            input.read(reinterpret_cast<char*>(&drop.ServerId), sizeof(drop.ServerId));
+        else
+            drop.ServerId = 0;
+
         input.read(reinterpret_cast<char*>(&drop.CellId.ModId), sizeof(drop.CellId.ModId));
         input.read(reinterpret_cast<char*>(&drop.CellId.BaseId), sizeof(drop.CellId.BaseId));
         input.read(reinterpret_cast<char*>(&drop.WorldSpaceId.ModId), sizeof(drop.WorldSpaceId.ModId));
         input.read(reinterpret_cast<char*>(&drop.WorldSpaceId.BaseId), sizeof(drop.WorldSpaceId.BaseId));
+
+        if (version >= 2)
+        {
+            input.read(reinterpret_cast<char*>(&drop.ReferenceId.ModId), sizeof(drop.ReferenceId.ModId));
+            input.read(reinterpret_cast<char*>(&drop.ReferenceId.BaseId), sizeof(drop.ReferenceId.BaseId));
+        }
+        else
+        {
+            drop.ReferenceId = {};
+        }
+
         input.read(reinterpret_cast<char*>(&drop.Location), sizeof(drop.Location));
         input.read(reinterpret_cast<char*>(&drop.RefFormId), sizeof(drop.RefFormId));
 
@@ -272,10 +294,13 @@ void DropStorage::Flush() noexcept
     for (const auto& [dropId, drop] : m_cachedDrops)
     {
         output.write(reinterpret_cast<const char*>(&drop.DropId), sizeof(drop.DropId));
+        output.write(reinterpret_cast<const char*>(&drop.ServerId), sizeof(drop.ServerId));
         output.write(reinterpret_cast<const char*>(&drop.CellId.ModId), sizeof(drop.CellId.ModId));
         output.write(reinterpret_cast<const char*>(&drop.CellId.BaseId), sizeof(drop.CellId.BaseId));
         output.write(reinterpret_cast<const char*>(&drop.WorldSpaceId.ModId), sizeof(drop.WorldSpaceId.ModId));
         output.write(reinterpret_cast<const char*>(&drop.WorldSpaceId.BaseId), sizeof(drop.WorldSpaceId.BaseId));
+        output.write(reinterpret_cast<const char*>(&drop.ReferenceId.ModId), sizeof(drop.ReferenceId.ModId));
+        output.write(reinterpret_cast<const char*>(&drop.ReferenceId.BaseId), sizeof(drop.ReferenceId.BaseId));
         output.write(reinterpret_cast<const char*>(&drop.Location), sizeof(drop.Location));
         output.write(reinterpret_cast<const char*>(&drop.RefFormId), sizeof(drop.RefFormId));
 

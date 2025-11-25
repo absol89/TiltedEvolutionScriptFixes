@@ -10,6 +10,7 @@ void NotifyDroppedItems::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) co
         Serialization::WriteVarInt(aWriter, entry.DropId);
         Serialization::WriteVarInt(aWriter, entry.ServerId);
         Serialization::WriteVarInt(aWriter, entry.ActorFormId);
+        Serialization::WriteVarInt(aWriter, entry.SpawnEpoch);
         entry.Item.Serialize(aWriter);
 
         Serialization::WriteBool(aWriter, entry.HasLocation);
@@ -22,6 +23,7 @@ void NotifyDroppedItems::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) co
 
         entry.CellId.Serialize(aWriter);
         entry.WorldSpaceId.Serialize(aWriter);
+        entry.ReferenceId.Serialize(aWriter);
     }
 }
 
@@ -40,6 +42,7 @@ void NotifyDroppedItems::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) 
         entry.DropId = Serialization::ReadVarInt(aReader);
         entry.ServerId = Serialization::ReadVarInt(aReader);
         entry.ActorFormId = Serialization::ReadVarInt(aReader);
+        entry.SpawnEpoch = Serialization::ReadVarInt(aReader);
         entry.Item.Deserialize(aReader);
 
         entry.HasLocation = Serialization::ReadBool(aReader);
@@ -52,6 +55,7 @@ void NotifyDroppedItems::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) 
 
         entry.CellId.Deserialize(aReader);
         entry.WorldSpaceId.Deserialize(aReader);
+        entry.ReferenceId.Deserialize(aReader);
 
         Entries.push_back(std::move(entry));
     }

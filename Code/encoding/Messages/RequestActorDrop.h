@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Message.h"
+#include <Structs/GameId.h>
+#include <Structs/Guid.h>
 #include <Structs/Inventory.h>
 #include <Structs/Vector3_NetQuantize.h>
 
@@ -18,15 +20,20 @@ struct RequestActorDrop final : ClientMessage
 
     bool operator==(const RequestActorDrop& acRhs) const noexcept
     {
-        return GetOpcode() == acRhs.GetOpcode() && ServerId == acRhs.ServerId && Item == acRhs.Item && ClientDropId == acRhs.ClientDropId && HasLocation == acRhs.HasLocation &&
-               (!HasLocation || Location == acRhs.Location) && HasRotation == acRhs.HasRotation && (!HasRotation || Rotation == acRhs.Rotation);
+        return GetOpcode() == acRhs.GetOpcode() && ServerId == acRhs.ServerId && ActorFormId == acRhs.ActorFormId && Item == acRhs.Item && ClientDropId == acRhs.ClientDropId && HasLocation == acRhs.HasLocation &&
+               (!HasLocation || Location == acRhs.Location) && HasRotation == acRhs.HasRotation && (!HasRotation || Rotation == acRhs.Rotation) && CellId == acRhs.CellId && WorldSpaceId == acRhs.WorldSpaceId &&
+               ReferenceId == acRhs.ReferenceId;
     }
 
     uint32_t ServerId{};
+    uint32_t ActorFormId{};
     Inventory::Entry Item{};
-    uint32_t ClientDropId{};
+    Guid ClientDropId{};
     bool HasLocation = false;
     Vector3_NetQuantize Location{};
     bool HasRotation = false;
     Vector3_NetQuantize Rotation{};
+    GameId CellId{};
+    GameId WorldSpaceId{};
+    GameId ReferenceId{};
 };

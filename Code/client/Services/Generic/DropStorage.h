@@ -16,8 +16,10 @@ public:
     struct CachedDrop
     {
         uint64_t DropId{};
+        uint32_t ServerId{};
         GameId CellId{};
         GameId WorldSpaceId{};
+        GameId ReferenceId{};
         Inventory::Entry Item{};
         NiPoint3 Location{};
         uint32_t RefFormId{};

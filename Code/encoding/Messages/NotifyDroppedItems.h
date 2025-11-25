@@ -20,11 +20,13 @@ struct NotifyDroppedItems final : ServerMessage
         Vector3_NetQuantize Rotation{};
         GameId CellId{};
         GameId WorldSpaceId{};
+        GameId ReferenceId{};
+        uint64_t SpawnEpoch{};
 
         bool operator==(const Entry& acRhs) const noexcept
         {
             return DropId == acRhs.DropId && ServerId == acRhs.ServerId && ActorFormId == acRhs.ActorFormId && Item == acRhs.Item && HasLocation == acRhs.HasLocation && (!HasLocation || Location == acRhs.Location) && HasRotation == acRhs.HasRotation &&
-                   (!HasRotation || Rotation == acRhs.Rotation) && CellId == acRhs.CellId && WorldSpaceId == acRhs.WorldSpaceId;
+                   (!HasRotation || Rotation == acRhs.Rotation) && CellId == acRhs.CellId && WorldSpaceId == acRhs.WorldSpaceId && ReferenceId == acRhs.ReferenceId && SpawnEpoch == acRhs.SpawnEpoch;
         }
     };
 

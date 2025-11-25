@@ -46,17 +46,23 @@ private:
     bool ApplyDrop(const NotifyActorDrop& acMessage) noexcept;
     bool ApplyPickup(const NotifyDroppedItemPickedUp& acMessage) noexcept;
     bool EnsureStorageReady() noexcept;
-    void RequestFullDropSync() noexcept;
     uint32_t SendDropSyncRequest(bool aRequestAll, bool aHasCellFilter, const GameId& acCellId, bool aHasWorldFilter, const GameId& acWorldId) noexcept;
     void HandleDropSyncResponse(const NotifyDroppedItems& acMessage) noexcept;
     void ProcessDropEntry(const NotifyDroppedItems::Entry& acEntry, bool aForceMaterialize) noexcept;
     bool MaterializeDrop(uint64_t aDropId, const DropManager::ServerDropData& acData, bool aForce) noexcept;
     bool SpawnLocalDrop(const DropManager::ServerDropData& acData, uint64_t aDropId) const noexcept;
-    bool RemoveNearbyReference(uint64_t aDropId, const char* apReason) noexcept;
+    bool RemoveNearbyReference(uint64_t aDropId, const char* apReason, float aRadiusSq) noexcept;
+    bool RemoveReferenceById(const GameId& acReferenceId, const char* apReason) noexcept;
+    bool RemoveReferenceByLocation(const Inventory::Entry& acItem, const Vector3_NetQuantize& acLocation, const char* apReason, float aRadiusSq) noexcept;
+    bool TryBindExistingReference(uint64_t aDropId, const DropManager::ServerDropData& acData) noexcept;
+    TESObjectREFR* GetReferenceById(const GameId& acReferenceId) noexcept;
+    bool HandleUntrackedPickup(const NotifyDroppedItemPickedUp& acMessage) noexcept;
     void ReconcileCachedDrops(const GameId& acCellId, const GameId& acWorldId, const TiltedPhoques::Vector<uint64_t>& acAuthoritativeDropIds) noexcept;
     GameId GetPlayerCellId() noexcept;
     GameId GetPlayerWorldId() noexcept;
     void RequestCellSync() noexcept;
+    void ForgetLocalDrop(uint64_t aDropId) noexcept;
+    bool IsPickupRelevant(const NotifyDroppedItemPickedUp& acMessage) noexcept;
 
     enum class PendingType
     {
@@ -88,6 +94,8 @@ private:
     DropStorage m_dropStorage;
     std::string m_cachedUsername;
     uint32_t m_nextDropSyncRequestId{1};
+    TiltedPhoques::Set<uint64_t> m_materializingDrops;
+    TiltedPhoques::Set<uint64_t> m_localDrops;
 
     struct DropSyncContext
     {
@@ -97,4 +105,6 @@ private:
     };
 
     std::unordered_map<uint32_t, DropSyncContext> m_pendingDropSyncs;
+    // Tracks the latest spawn epoch processed per server drop to ignore stale notifications
+    TiltedPhoques::Map<uint64_t, uint64_t> m_knownSpawnEpochs;
 };

@@ -7,10 +7,9 @@ namespace DropManager
 {
 namespace
 {
-    TiltedPhoques::Map<uint32_t, LocalDropData> s_localDrops;
+    TiltedPhoques::Map<Guid, LocalDropData> s_localDrops;
     TiltedPhoques::Map<uint64_t, ServerDropData> s_serverDrops;
     TiltedPhoques::Map<uint32_t, uint64_t> s_handleBindings;
-    uint32_t s_nextClientDropId = 1;
     StorageListener* s_pStorageListener = nullptr;
 
     void UnbindHandle(uint32_t handleBits) noexcept
@@ -29,14 +28,18 @@ namespace
     }
 } // namespace
 
-uint32_t RegisterLocalDrop(LocalDropData data) noexcept
+Guid RegisterLocalDrop(LocalDropData data) noexcept
 {
-    const uint32_t clientDropId = s_nextClientDropId++;
+    Guid clientDropId = data.ClientDropId;
+    if (clientDropId.IsEmpty())
+        clientDropId = Guid::Random();
+
+    data.ClientDropId = clientDropId;
     s_localDrops[clientDropId] = std::move(data);
     return clientDropId;
 }
 
-std::optional<LocalDropData> ConsumeLocalDrop(uint32_t clientDropId) noexcept
+std::optional<LocalDropData> ConsumeLocalDrop(const Guid& clientDropId) noexcept
 {
     const auto it = s_localDrops.find(clientDropId);
     if (it == s_localDrops.end())
@@ -49,15 +52,36 @@ std::optional<LocalDropData> ConsumeLocalDrop(uint32_t clientDropId) noexcept
 
 void TrackServerDrop(uint64_t dropId, const ServerDropData& data) noexcept
 {
-    s_serverDrops[dropId] = data;
-    if (data.HandleBits)
-        BindHandle(data.HandleBits, dropId);
+    ServerDropData merged = data;
+
+    const bool existed = s_serverDrops.find(dropId) != std::end(s_serverDrops);
+    if (existed)
+    {
+        auto& current = s_serverDrops[dropId];
+        if (!merged.ServerId)
+            merged.ServerId = current.ServerId;
+        if (!merged.HandleBits)
+            merged.HandleBits = current.HandleBits;
+        if (!merged.ActorFormId && current.ActorFormId)
+            merged.ActorFormId = current.ActorFormId;
+        if (!merged.ReferenceId && current.ReferenceId)
+            merged.ReferenceId = current.ReferenceId;
+        if (!merged.CellId && current.CellId)
+            merged.CellId = current.CellId;
+        if (!merged.WorldSpaceId && current.WorldSpaceId)
+            merged.WorldSpaceId = current.WorldSpaceId;
+    }
+
+    s_serverDrops[dropId] = merged;
+    if (merged.HandleBits)
+        BindHandle(merged.HandleBits, dropId);
 
     if (s_pStorageListener)
-        s_pStorageListener->OnServerDropTracked(dropId, data);
+        s_pStorageListener->OnServerDropTracked(dropId, merged);
 
-    spdlog::info("DropManager: tracked drop {} actor {:X} item {:X}:{:X} loc ({:.2f}, {:.2f}, {:.2f}) handle {:X}", dropId, data.ActorFormId, data.Item.BaseId.ModId, data.Item.BaseId.BaseId,
-                 data.Location.x, data.Location.y, data.Location.z, data.HandleBits);
+    auto logLevel = existed ? spdlog::level::debug : spdlog::level::info;
+    spdlog::log(logLevel, "DropManager: tracked drop {} server {:X} actor {:X} item {:X}:{:X} loc ({:.2f}, {:.2f}, {:.2f}) handle {:X}", dropId, merged.ServerId, merged.ActorFormId, merged.Item.BaseId.ModId,
+                merged.Item.BaseId.BaseId, merged.Location.x, merged.Location.y, merged.Location.z, merged.HandleBits);
 }
 
 bool BindHandleToServerDrop(uint64_t dropId, uint32_t actorFormId, uint32_t handleBits) noexcept
@@ -72,11 +96,26 @@ bool BindHandleToServerDrop(uint64_t dropId, uint32_t actorFormId, uint32_t hand
     BindHandle(handleBits, dropId);
     if (s_pStorageListener)
         s_pStorageListener->OnDropHandleBound(dropId, handleBits);
-    if (s_pStorageListener)
-        s_pStorageListener->OnDropHandleBound(dropId, handleBits);
 
     spdlog::info("DropManager: bound handle {:X} to drop {} actor {:X}", handleBits, dropId, actorFormId);
     return true;
+}
+
+void SetReferenceForDrop(uint64_t dropId, const GameId& referenceId) noexcept
+{
+    if (!referenceId)
+        return;
+
+    if (s_serverDrops.find(dropId) == s_serverDrops.end())
+        return;
+
+    auto& drop = s_serverDrops[dropId];
+    if (drop.ReferenceId == referenceId)
+        return;
+
+    drop.ReferenceId = referenceId;
+    if (s_pStorageListener)
+        s_pStorageListener->OnServerDropTracked(dropId, drop);
 }
 
 std::optional<uint64_t> GetDropIdForHandle(uint32_t handleBits) noexcept

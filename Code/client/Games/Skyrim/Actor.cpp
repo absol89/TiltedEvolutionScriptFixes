@@ -42,6 +42,7 @@
 
 #include <optional>
 #include <chrono>
+#include <utility>
 
 #include <ExtraData/ExtraDataList.h>
 #include <ExtraData/ExtraCharge.h>
@@ -126,6 +127,70 @@ TESObjectREFR* FindDroppedReferenceNear(const TESBoundObject* apObject, const Ni
         evaluateCell(pTes->interiorCell, pClosest, closestDistanceSq);
 
     return pClosest;
+}
+
+GameId ResolveReferenceId(TESObjectREFR* apReference) noexcept
+{
+    GameId reference{};
+    if (!apReference)
+        return reference;
+
+    World::Get().GetModSystem().GetServerModId(apReference->formID, reference);
+    return reference;
+}
+
+std::pair<GameId, GameId> ResolveReferenceCellMetadata(TESObjectREFR* apReference) noexcept
+{
+    GameId cell{};
+    GameId world{};
+
+    if (!apReference)
+        return {cell, world};
+
+    TESObjectCELL* pCell = apReference->parentCell ? apReference->parentCell : apReference->GetParentCell();
+    if (pCell)
+    {
+        auto& modSystem = World::Get().GetModSystem();
+        modSystem.GetServerModId(pCell->formID, cell);
+        if (pCell->worldspace)
+            modSystem.GetServerModId(pCell->worldspace->formID, world);
+    }
+
+    return {cell, world};
+}
+
+void PopulatePickupEventFromDrop(uint64_t aDropId, PickupDroppedItemEvent& aEvent) noexcept
+{
+    if (const auto dropOpt = DropManager::GetServerDrop(aDropId); dropOpt)
+    {
+        aEvent.HasItemData = true;
+        aEvent.Item = dropOpt->Item;
+        aEvent.HasLocation = true;
+        aEvent.Location = dropOpt->Location;
+        aEvent.HasRotation = true;
+        aEvent.Rotation = dropOpt->Rotation;
+        aEvent.CellId = dropOpt->CellId;
+        aEvent.WorldSpaceId = dropOpt->WorldSpaceId;
+        aEvent.ReferenceId = dropOpt->ReferenceId;
+    }
+}
+
+void PopulatePickupEventFromReference(TESObjectREFR* apReference, const Inventory::Entry& acItem, PickupDroppedItemEvent& aEvent) noexcept
+{
+    if (!apReference)
+        return;
+
+    aEvent.HasItemData = true;
+    aEvent.Item = acItem;
+    aEvent.HasLocation = true;
+    aEvent.Location = apReference->position;
+    aEvent.HasRotation = true;
+    aEvent.Rotation = apReference->rotation;
+
+    const auto cellMeta = ResolveReferenceCellMetadata(apReference);
+    aEvent.CellId = cellMeta.first;
+    aEvent.WorldSpaceId = cellMeta.second;
+    aEvent.ReferenceId = ResolveReferenceId(apReference);
 }
 } // namespace
 
@@ -635,6 +700,7 @@ Factions Actor::GetFactions() const noexcept
     Factions result;
 
     auto& modSystem = World::Get().GetModSystem();
+
 
     auto* pNpc = Cast<TESNPC>(baseForm);
     if (pNpc)
@@ -1186,34 +1252,45 @@ void* TP_MAKE_THISCALL(HookPickUpObject, Actor, TESObjectREFR* apObject, int32_t
         }
     }
 
+    Inventory::Entry fallbackItem{};
+    const bool hasReferenceObject = apObject != nullptr;
+    if (!dropId && apObject)
+    {
+        auto& modSystem = World::Get().GetModSystem();
+        modSystem.GetServerModId(apObject->baseForm->formID, fallbackItem.BaseId);
+        fallbackItem.Count = aCount;
+
+        if (apObject->GetExtraDataList())
+            apThis->GetItemFromExtraData(fallbackItem, apObject->GetExtraDataList());
+    }
+
     if (!isRemotePickup)
     {
+        std::optional<PickupDroppedItemEvent> pickupEvent{};
+
+        if (dropId)
+        {
+            pickupEvent.emplace(apThis->formID, *dropId);
+            PopulatePickupEventFromDrop(*dropId, *pickupEvent);
+        }
+        else if (hasReferenceObject)
+        {
+            pickupEvent.emplace(apThis->formID, 0);
+            PopulatePickupEventFromReference(apObject, fallbackItem, *pickupEvent);
+        }
+
+        if (pickupEvent)
+            World::Get().GetRunner().Trigger(*pickupEvent);
+
         if (dropId)
         {
             spdlog::info("Actor {:X} triggering pickup for drop {}", apThis->formID, *dropId);
-            World::Get().GetRunner().Trigger(PickupDroppedItemEvent(apThis->formID, *dropId));
             DropManager::RemoveServerDrop(*dropId);
         }
-        else
+        else if (hasReferenceObject)
         {
-            auto& modSystem = World::Get().GetModSystem();
-
-            Inventory::Entry item{};
-            modSystem.GetServerModId(apObject->baseForm->formID, item.BaseId);
-            item.Count = aCount;
-
-            if (apObject->GetExtraDataList())
-                apThis->GetItemFromExtraData(item, apObject->GetExtraDataList());
-
+            Inventory::Entry item = fallbackItem;
             bool shouldUpdateClients = apObject->IsTemporary() && !ScopedActivateOverride::IsOverriden();
-
-            std::optional<NiPoint3> pickupLocation{};
-            std::optional<NiPoint3> pickupRotation{};
-            if (apObject)
-            {
-                pickupLocation.emplace(apObject->position);
-                pickupRotation.emplace(apObject->rotation);
-            }
 
             spdlog::warn("Actor {:X} picking up object {:X}:{:X} without drop id, falling back to inventory change", apThis->formID, item.BaseId.ModId, item.BaseId.BaseId);
             World::Get().GetRunner().Trigger(InventoryChangeEvent(apThis->formID, std::move(item), shouldUpdateClients));
@@ -1279,7 +1356,16 @@ void* TP_MAKE_THISCALL(HookDropObject, Actor, void* apResult, TESBoundObject* ap
     if (isRemoteDrop)
     {
         if (handleBits)
+        {
             DropManager::BindHandleToServerDrop(DropExecution::GetCurrentDrop(), DropExecution::GetCurrentActor(), handleBits);
+            if (pDroppedRef)
+            {
+                auto& modSystem = World::Get().GetModSystem();
+                GameId referenceId{};
+                modSystem.GetServerModId(pDroppedRef->formID, referenceId);
+                DropManager::SetReferenceForDrop(DropExecution::GetCurrentDrop(), referenceId);
+            }
+        }
         return pReturn;
     }
 
@@ -1288,7 +1374,6 @@ void* TP_MAKE_THISCALL(HookDropObject, Actor, void* apResult, TESBoundObject* ap
         GameId cellId{};
         GameId worldId{};
 
-        auto& modSystem = World::Get().GetModSystem();
         if (pDroppedRef)
         {
             if (auto* pCell = pDroppedRef->GetParentCellEx())
@@ -1312,9 +1397,15 @@ void* TP_MAKE_THISCALL(HookDropObject, Actor, void* apResult, TESBoundObject* ap
         dropData.Rotation = dropRotation;
         dropData.CellId = cellId;
         dropData.WorldSpaceId = worldId;
+        if (pDroppedRef)
+        {
+            GameId referenceId{};
+            modSystem.GetServerModId(pDroppedRef->formID, referenceId);
+            dropData.ReferenceId = referenceId;
+        }
 
-        const uint32_t clientDropId = DropManager::RegisterLocalDrop(dropData);
-        World::Get().GetRunner().Trigger(DropItemEvent(apThis->formID, item, clientDropId, dropLocation, dropRotation, handleBits));
+        const Guid clientDropId = DropManager::RegisterLocalDrop(dropData);
+        World::Get().GetRunner().Trigger(DropItemEvent(apThis->formID, item, clientDropId, dropLocation, dropRotation, handleBits, cellId, worldId, dropData.ReferenceId));
     }
 
     return pReturn;
