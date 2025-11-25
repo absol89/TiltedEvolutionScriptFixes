@@ -22,6 +22,7 @@ struct HealingProximityRequest final : ClientMessage
                CasterY == acRhs.CasterY && 
                CasterZ == acRhs.CasterZ && 
                SpellFormId == acRhs.SpellFormId && 
+               CasterRestorationLevel == acRhs.CasterRestorationLevel &&
                GetOpcode() == acRhs.GetOpcode(); 
     }
 
@@ -30,4 +31,5 @@ struct HealingProximityRequest final : ClientMessage
     float CasterY;
     float CasterZ;
     GameId SpellFormId{};
+    uint16_t CasterRestorationLevel = 0;
 };

@@ -1,6 +1,7 @@
 <ng-container *ngIf="inGame$ | async">
   <app-party-pins></app-party-pins>
   <app-death-screen></app-death-screen>
+  <app-revive-progress></app-revive-progress>
   <ng-container *ngIf="!(menuOpen$ | async)">
     <app-debug></app-debug>
 

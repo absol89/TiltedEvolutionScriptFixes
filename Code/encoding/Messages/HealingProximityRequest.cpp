@@ -8,6 +8,7 @@ void HealingProximityRequest::SerializeRaw(TiltedPhoques::Buffer::Writer& aWrite
     Serialization::WriteFloat(aWriter, CasterZ);
     Serialization::WriteVarInt(aWriter, SpellFormId.ModId);
     Serialization::WriteVarInt(aWriter, SpellFormId.BaseId);
+    Serialization::WriteVarInt(aWriter, CasterRestorationLevel);
 }
 
 void HealingProximityRequest::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) noexcept
@@ -20,4 +21,5 @@ void HealingProximityRequest::DeserializeRaw(TiltedPhoques::Buffer::Reader& aRea
     CasterZ = Serialization::ReadFloat(aReader);
     SpellFormId.ModId = Serialization::ReadVarInt(aReader) & 0xFF;
     SpellFormId.BaseId = Serialization::ReadVarInt(aReader) & 0xFFFFFF;
+    CasterRestorationLevel = Serialization::ReadVarInt(aReader) & 0xFFFF;
 }

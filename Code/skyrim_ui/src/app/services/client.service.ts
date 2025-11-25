@@ -50,6 +50,12 @@ export interface TradeCancellationPayload {
   wasInitiator: boolean;
 }
 
+export interface ReviveProgressPayload {
+  elapsedSeconds: number;
+  totalSeconds: number;
+  label?: string;
+}
+
 /** Client game service. */
 @Injectable({
   providedIn: 'root',
@@ -183,6 +189,16 @@ export class ClientService implements OnDestroy {
   /** Death screen hidden. */
   public deathScreenHiddenChange = new Subject<void>();
 
+  /** Revive progress updates for the downed player. */
+  public reviveVictimProgressChange = new BehaviorSubject<
+    ReviveProgressPayload | undefined
+  >(undefined);
+
+  /** Revive progress updates for the healer. */
+  public reviveHealerProgressChange = new BehaviorSubject<
+    ReviveProgressPayload | undefined
+  >(undefined);
+
   public localPlayerId = undefined;
   public localPlayerIdChange = new BehaviorSubject<number | undefined>(
     undefined,
@@ -270,6 +286,22 @@ export class ClientService implements OnDestroy {
       this.onEnableRespawnButton.bind(this),
     );
     skyrimtogether.on('hideDeathScreen', this.onHideDeathScreen.bind(this));
+    skyrimtogether.on(
+      'updateReviveVictimProgress',
+      this.onUpdateReviveVictimProgress.bind(this),
+    );
+    skyrimtogether.on(
+      'stopReviveVictimProgress',
+      this.onStopReviveVictimProgress.bind(this),
+    );
+    skyrimtogether.on(
+      'updateReviveHealerProgress',
+      this.onUpdateReviveHealerProgress.bind(this),
+    );
+    skyrimtogether.on(
+      'stopReviveHealerProgress',
+      this.onStopReviveHealerProgress.bind(this),
+    );
   }
 
   /**
@@ -1198,6 +1230,72 @@ export class ClientService implements OnDestroy {
     }
     this.zone.run(() => {
       this.deathScreenHiddenChange.next();
+    });
+  }
+
+  private onUpdateReviveVictimProgress(
+    elapsedSeconds: number,
+    totalSeconds: number,
+    healerName: string,
+  ): void {
+    if (environment.game) {
+      console.log(
+        `%conUpdateReviveVictimProgress`,
+        'background: #9c27b0; color: #fff; padding: 3px; font-size: 9px;',
+        elapsedSeconds,
+        totalSeconds,
+      );
+    }
+    this.zone.run(() => {
+      this.reviveVictimProgressChange.next({
+        elapsedSeconds,
+        totalSeconds,
+        label: healerName,
+      });
+    });
+  }
+
+  private onStopReviveVictimProgress(): void {
+    if (environment.game) {
+      console.log(
+        `%conStopReviveVictimProgress`,
+        'background: #9c27b0; color: #fff; padding: 3px; font-size: 9px;',
+      );
+    }
+    this.zone.run(() => {
+      this.reviveVictimProgressChange.next(undefined);
+    });
+  }
+
+  private onUpdateReviveHealerProgress(
+    elapsedSeconds: number,
+    totalSeconds: number,
+  ): void {
+    if (environment.game) {
+      console.log(
+        `%conUpdateReviveHealerProgress`,
+        'background: #00acc1; color: #fff; padding: 3px; font-size: 9px;',
+        elapsedSeconds,
+        totalSeconds,
+      );
+    }
+    this.zone.run(() => {
+      this.reviveHealerProgressChange.next({
+        elapsedSeconds,
+        totalSeconds,
+      });
+    });
+  }
+
+  private onStopReviveHealerProgress(): void {
+    if (environment.game) {
+      console.log(
+        `%conStopReviveHealerProgress`,
+        'background: #00acc1; color: #fff; padding: 3px; font-size: 9px;',
+      );
+    }
+    this.zone.run(() => {
+      this.reviveHealerProgressChange.next(undefined);
     });
   }
 

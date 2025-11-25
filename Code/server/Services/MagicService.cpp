@@ -123,6 +123,7 @@ void MagicService::OnHealingProximityRequest(const PacketEvent<HealingProximityR
     notify.CasterY = message.CasterY;
     notify.CasterZ = message.CasterZ;
     notify.SpellFormId = message.SpellFormId;
+    notify.CasterRestorationLevel = message.CasterRestorationLevel;
 
     const auto entity = m_world.TryResolveEntity(message.CasterId);
     if (!entity)
@@ -133,4 +134,7 @@ void MagicService::OnHealingProximityRequest(const PacketEvent<HealingProximityR
 
     if (!GameServer::Get()->SendToPlayersInRange(notify, *entity, acMessage.GetSender()))
         spdlog::error("{}: SendToPlayersInRange failed for healing proximity", __FUNCTION__);
+
+    if (auto* pCaster = acMessage.GetSender())
+        pCaster->Send(notify);
 }

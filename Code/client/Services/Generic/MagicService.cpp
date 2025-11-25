@@ -36,10 +36,22 @@
 #include <Games/TES.h>
 #include <OverlayApp.hpp>
 #include <ChatMessageTypes.h>
-#include <unordered_set>
+#include <Components.h>
+#include <Games/Skyrim/Forms/ActorValueInfo.h>
+#include <Games/Skyrim/Misc/ActorValueOwner.h>
+#include <algorithm>
+#include <cmath>
+#include <unordered_map>
 #include <client/Utils.h>
 
-
+namespace
+{
+constexpr uint32_t cHealingHandsBaseId = 0x4D3F2;
+constexpr float cHealingHandsRange = 300.0f;
+constexpr auto cReviveChannelTimeout = std::chrono::milliseconds(2000);
+constexpr uint32_t cFormIdMask = 0x00FFFFFF;
+constexpr double cHealingHandsPingInterval = 0.35;
+}
 
 MagicService::MagicService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
     : m_world(aWorld)
@@ -70,9 +82,12 @@ void MagicService::OnUpdate(const UpdateEvent& acEvent) noexcept
 
     UpdateRevealOtherPlayersEffect();
     UpdateRevealDownedPlayersEffect();
+    UpdateReviveChannels(acEvent.Delta);
+    UpdateHealerChannel(acEvent.Delta);
+    UpdateHealingHandsBroadcast(acEvent.Delta);
 }
 
-void MagicService::OnSpellCastEvent(const SpellCastEvent& acEvent) const noexcept
+void MagicService::OnSpellCastEvent(const SpellCastEvent& acEvent) noexcept
 {
     if (!m_transport.IsConnected())
         return;
@@ -83,39 +98,25 @@ void MagicService::OnSpellCastEvent(const SpellCastEvent& acEvent) const noexcep
         return;
     }
 
-    // Check if this is a healing spell and broadcast healing proximity to server
-    if (SpellItem* pSpell = Cast<SpellItem>(TESForm::GetById(acEvent.SpellId)))
+    SpellItem* pSpell = Cast<SpellItem>(TESForm::GetById(acEvent.SpellId));
+
+    if (pSpell && pSpell->IsHealingSpell() && IsHealingHandsSpell(acEvent.SpellId, pSpell))
     {
-        if (pSpell->IsHealingSpell())
+        if (SendHealingProximityPing(acEvent.SpellId))
         {
-            Actor* pCaster = acEvent.pCaster->pCasterActor;
-            auto view = m_world.view<FormIdComponent, LocalComponent>();
-            const auto casterIt = std::find_if(std::begin(view), std::end(view),
-                [formId = pCaster->formID, view](entt::entity entity) {
-                    return view.get<FormIdComponent>(entity).Id == formId;
-                });
-
-            if (casterIt != std::end(view))
+            const auto source = static_cast<MagicSystem::CastingSource>(acEvent.pCaster->GetCastingSource());
+            if (source >= 0 && source < MagicSystem::CastingSource::CASTING_SOURCE_COUNT)
             {
-                auto& localComponent = view.get<LocalComponent>(*casterIt);
-                HealingProximityRequest healRequest{};
-                healRequest.CasterId = localComponent.Id;
-                healRequest.CasterX = pCaster->position.x;
-                healRequest.CasterY = pCaster->position.y;
-                healRequest.CasterZ = pCaster->position.z;
-
-                if (m_world.GetModSystem().GetServerModId(acEvent.SpellId, healRequest.SpellFormId))
-                {
-                    spdlog::info("OnSpellCastEvent: Broadcasting healing proximity for spell {:X} at ({:.1f}, {:.1f}, {:.1f})",
-                                 acEvent.SpellId, healRequest.CasterX, healRequest.CasterY, healRequest.CasterZ);
-                    m_transport.Send(healRequest);
-                }
+                m_localHealingHandsSources[source] = true;
+                m_isLocalHealingHandsActive = true;
+                m_activeHealingHandsSpellId = acEvent.SpellId;
+                m_healingHandsPingAccumulator = cHealingHandsPingInterval;
             }
         }
     }
 
     // only sync concentration spells through spell cast sync, the rest through projectile sync for accuracy
-    if (SpellItem* pSpell = Cast<SpellItem>(TESForm::GetById(acEvent.SpellId)))
+    if (pSpell)
     {
         if ((pSpell->eCastingType != MagicSystem::CastingType::CONCENTRATION || pSpell->IsHealingSpell()) && !pSpell->IsWardSpell() && !pSpell->IsInvisibilitySpell())
         {
@@ -261,7 +262,7 @@ void MagicService::OnNotifySpellCast(const NotifySpellCast& acMessage) const noe
     spdlog::debug("Successfully casted remote spell");
 }
 
-void MagicService::OnInterruptCastEvent(const InterruptCastEvent& acEvent) const noexcept
+void MagicService::OnInterruptCastEvent(const InterruptCastEvent& acEvent) noexcept
 {
     if (!m_transport.IsConnected())
         return;
@@ -278,6 +279,8 @@ void MagicService::OnInterruptCastEvent(const InterruptCastEvent& acEvent) const
     }
 
     auto& localComponent = view.get<LocalComponent>(*casterEntityIt);
+
+    HandleHealingHandsInterrupt(static_cast<MagicSystem::CastingSource>(acEvent.CastingSource));
 
     InterruptCastRequest request;
     request.CasterId = localComponent.Id;
@@ -738,9 +741,18 @@ void MagicService::OnNotifyPartyMemberDowned(const NotifyPartyMemberDowned& acMe
     if (acMessage.ServerId != 0)
     {
         if (acMessage.IsDowned)
-            m_downedPartyMembers.insert(acMessage.ServerId);
+        {
+            DownedMemberInfo info{};
+            info.PlayerId = acMessage.PlayerId;
+            info.PositionX = acMessage.PositionX;
+            info.PositionY = acMessage.PositionY;
+            info.PositionZ = acMessage.PositionZ;
+            m_downedPartyMembers[acMessage.ServerId] = info;
+        }
         else
+        {
             m_downedPartyMembers.erase(acMessage.ServerId);
+        }
     }
 
     // Resolve a nicer display name for the player if we know it, otherwise fall back to the ID.
@@ -825,35 +837,375 @@ void MagicService::UpdateRevealDownedPlayersEffect() noexcept
     }
 }
 
-void MagicService::OnNotifyHealingProximity(const NotifyHealingProximity& acMessage) noexcept
+void MagicService::UpdateReviveChannels(double aDeltaSeconds) noexcept
 {
+    if (!m_victimReviveState)
+        return;
+
     PlayerCharacter* pLocalPlayer = PlayerCharacter::Get();
     if (!pLocalPlayer || !pLocalPlayer->actorState.IsBleedingOut())
     {
-        spdlog::debug("OnNotifyHealingProximity: Local player not downed or not available");
+        StopVictimReviveUi();
         return;
     }
 
-    constexpr float cHealingHandsRange = 300.0f;
-
-    // Calculate distance from local player to healer's position
-    float distance = std::sqrt(
-        std::pow(pLocalPlayer->position.x - acMessage.CasterX, 2.0f) +
-        std::pow(pLocalPlayer->position.y - acMessage.CasterY, 2.0f) +
-        std::pow(pLocalPlayer->position.z - acMessage.CasterZ, 2.0f)
-    );
-
-    spdlog::info("OnNotifyHealingProximity: Local player downed at distance {:.1f} from healer (range: {:.1f})",
-                 distance, cHealingHandsRange);
-
-    if (distance <= cHealingHandsRange)
+    const auto now = std::chrono::steady_clock::now();
+    if (now - m_victimReviveState->LastPingAt > cReviveChannelTimeout)
     {
-        spdlog::info("OnNotifyHealingProximity: Local player in healing range! Triggering PlayerService heal revive...");
-        World::Get().ctx().at<PlayerService>().OnHealRevive();
+        StopVictimReviveUi();
+        return;
     }
-    else
+
+    auto& state = *m_victimReviveState;
+    state.AccumulatedSeconds = std::min(state.RequiredSeconds, state.AccumulatedSeconds + static_cast<float>(aDeltaSeconds));
+
+    UpdateVictimReviveUi(state);
+
+    if (state.AccumulatedSeconds >= state.RequiredSeconds)
     {
-        spdlog::info("OnNotifyHealingProximity: Local player too far away ({:.1f} > {:.1f})",
-                     distance, cHealingHandsRange);
+        World::Get().ctx().at<PlayerService>().OnHealRevive();
+        StopVictimReviveUi();
+    }
+}
+
+void MagicService::UpdateHealerChannel(double aDeltaSeconds) noexcept
+{
+    if (!m_healerChannelState.Active)
+        return;
+
+    const auto now = std::chrono::steady_clock::now();
+
+    if (!HasDownedPartyMemberInRange(cHealingHandsRange) || now - m_healerChannelState.LastUpdate > cReviveChannelTimeout)
+    {
+        StopHealerUi();
+        return;
+    }
+
+    m_healerChannelState.AccumulatedSeconds = std::min(
+        m_healerChannelState.RequiredSeconds,
+        m_healerChannelState.AccumulatedSeconds + static_cast<float>(aDeltaSeconds));
+
+    UpdateHealerUi();
+
+    if (m_healerChannelState.AccumulatedSeconds >= m_healerChannelState.RequiredSeconds)
+        StopHealerUi();
+}
+
+float MagicService::GetRequiredReviveDuration(float aRestorationLevel) const noexcept
+{
+    constexpr float cMinLevel = 20.f;
+    constexpr float cMaxLevel = 100.f;
+    constexpr float cMinSeconds = 5.f;
+    constexpr float cMaxSeconds = 15.f;
+
+    if (aRestorationLevel <= cMinLevel)
+        return cMaxSeconds;
+    if (aRestorationLevel >= cMaxLevel)
+        return cMinSeconds;
+
+    const float normalized = (aRestorationLevel - cMinLevel) / (cMaxLevel - cMinLevel);
+    return cMaxSeconds - normalized * (cMaxSeconds - cMinSeconds);
+}
+
+void MagicService::UpdateVictimReviveUi(const ReviveChannelState& aState) const noexcept
+{
+    if (auto* pOverlay = m_world.GetOverlayService().GetOverlayApp())
+    {
+        auto pArgs = CefListValue::Create();
+        pArgs->SetDouble(0, aState.AccumulatedSeconds);
+        pArgs->SetDouble(1, aState.RequiredSeconds);
+        pArgs->SetString(2, aState.HealerName);
+        pOverlay->ExecuteAsync("updateReviveVictimProgress", pArgs);
+    }
+}
+
+void MagicService::StopVictimReviveUi() noexcept
+{
+    if (!m_victimReviveState)
+        return;
+
+    if (auto* pOverlay = m_world.GetOverlayService().GetOverlayApp())
+    {
+        auto pArgs = CefListValue::Create();
+        pOverlay->ExecuteAsync("stopReviveVictimProgress", pArgs);
+    }
+
+    m_victimReviveState.reset();
+}
+
+void MagicService::UpdateHealerUi() const noexcept
+{
+    if (!m_healerChannelState.Active)
+        return;
+
+    if (auto* pOverlay = m_world.GetOverlayService().GetOverlayApp())
+    {
+        auto pArgs = CefListValue::Create();
+        pArgs->SetDouble(0, m_healerChannelState.AccumulatedSeconds);
+        pArgs->SetDouble(1, m_healerChannelState.RequiredSeconds);
+        pOverlay->ExecuteAsync("updateReviveHealerProgress", pArgs);
+    }
+}
+
+void MagicService::StopHealerUi() noexcept
+{
+    if (!m_healerChannelState.Active)
+        return;
+
+    if (auto* pOverlay = m_world.GetOverlayService().GetOverlayApp())
+    {
+        auto pArgs = CefListValue::Create();
+        pOverlay->ExecuteAsync("stopReviveHealerProgress", pArgs);
+    }
+
+    m_healerChannelState.Active = false;
+    m_healerChannelState.AccumulatedSeconds = 0.f;
+    m_healerChannelState.RequiredSeconds = 0.f;
+    m_healerChannelState.LastUpdate = {};
+}
+
+bool MagicService::HasDownedPartyMemberInRange(float aRange) const noexcept
+{
+    if (m_downedPartyMembers.empty())
+        return false;
+
+    PlayerCharacter* pLocalPlayer = PlayerCharacter::Get();
+    if (!pLocalPlayer)
+        return false;
+
+    const float rangeSquared = aRange * aRange;
+
+    for (const auto& [_, info] : m_downedPartyMembers)
+    {
+        const float dx = pLocalPlayer->position.x - info.PositionX;
+        const float dy = pLocalPlayer->position.y - info.PositionY;
+        const float dz = pLocalPlayer->position.z - info.PositionZ;
+        const float distanceSquared = dx * dx + dy * dy + dz * dz;
+
+        if (distanceSquared <= rangeSquared)
+            return true;
+    }
+
+    return false;
+}
+
+std::string MagicService::ResolvePlayerName(uint32_t aServerId) const
+{
+    const auto resolveByPlayerId = [&](uint32_t playerId) -> std::string
+    {
+        const auto& players = m_world.GetPartyService().GetPlayers();
+        if (auto it = players.find(playerId); it != players.end())
+            return it->second.Name.c_str();
+        return {};
+    };
+
+    auto localView = m_world.view<PlayerComponent, LocalComponent>();
+    for (auto entity : localView)
+    {
+        const auto& localComponent = localView.get<LocalComponent>(entity);
+        if (localComponent.Id == aServerId)
+            return resolveByPlayerId(localView.get<PlayerComponent>(entity).Id);
+    }
+
+    auto remoteView = m_world.view<PlayerComponent, RemoteComponent>();
+    for (auto entity : remoteView)
+    {
+        const auto& remoteComponent = remoteView.get<RemoteComponent>(entity);
+        if (remoteComponent.Id == aServerId)
+            return resolveByPlayerId(remoteView.get<PlayerComponent>(entity).Id);
+    }
+
+    return {};
+}
+
+std::optional<uint32_t> MagicService::GetLocalServerId() const noexcept
+{
+    auto view = m_world.view<LocalComponent>();
+    for (auto entity : view)
+        return view.get<LocalComponent>(entity).Id;
+
+    return std::nullopt;
+}
+
+void MagicService::UpdateHealingHandsBroadcast(double aDeltaSeconds) noexcept
+{
+    if (!m_isLocalHealingHandsActive || m_activeHealingHandsSpellId == 0)
+        return;
+
+    m_healingHandsPingAccumulator -= aDeltaSeconds;
+    if (m_healingHandsPingAccumulator > 0.0)
+        return;
+
+    if (!SendHealingProximityPing(m_activeHealingHandsSpellId))
+    {
+        spdlog::warn("UpdateHealingHandsBroadcast: failed to send healing ping, aborting local channel");
+        ResetLocalHealingHandsState();
+        return;
+    }
+
+    m_healingHandsPingAccumulator = cHealingHandsPingInterval;
+}
+
+bool MagicService::SendHealingProximityPing(uint32_t aSpellFormId) noexcept
+{
+    PlayerCharacter* pCaster = PlayerCharacter::Get();
+    if (!pCaster)
+        return false;
+
+    auto view = m_world.view<FormIdComponent, LocalComponent>();
+    const auto casterIt = std::find_if(std::begin(view), std::end(view),
+        [formId = pCaster->formID, view](entt::entity entity) {
+            return view.get<FormIdComponent>(entity).Id == formId;
+        });
+
+    if (casterIt == std::end(view))
+        return false;
+
+    auto& localComponent = view.get<LocalComponent>(*casterIt);
+
+    HealingProximityRequest healRequest{};
+    healRequest.CasterId = localComponent.Id;
+    healRequest.CasterX = pCaster->position.x;
+    healRequest.CasterY = pCaster->position.y;
+    healRequest.CasterZ = pCaster->position.z;
+
+    const float restorationLevel = pCaster->GetActorValue(ActorValueInfo::kRestoration);
+    healRequest.CasterRestorationLevel = static_cast<uint16_t>(std::clamp(restorationLevel, 0.f, 1000.f));
+
+    if (!m_world.GetModSystem().GetServerModId(aSpellFormId, healRequest.SpellFormId))
+    {
+        spdlog::error("SendHealingProximityPing: server spell id not found for spell {:X}", aSpellFormId);
+        return false;
+    }
+
+    spdlog::debug("SendHealingProximityPing: spell {:X} at ({:.1f}, {:.1f}, {:.1f})",
+                  aSpellFormId, healRequest.CasterX, healRequest.CasterY, healRequest.CasterZ);
+    m_transport.Send(healRequest);
+    return true;
+}
+
+void MagicService::ResetLocalHealingHandsState() noexcept
+{
+    StopHealerUi();
+    m_isLocalHealingHandsActive = false;
+    m_activeHealingHandsSpellId = 0;
+    m_healingHandsPingAccumulator = 0.0;
+    m_localHealingHandsSources.fill(false);
+}
+
+void MagicService::HandleHealingHandsInterrupt(MagicSystem::CastingSource aSource) noexcept
+{
+    if (aSource < 0 || aSource >= MagicSystem::CastingSource::CASTING_SOURCE_COUNT)
+        return;
+
+    if (!m_localHealingHandsSources[aSource])
+        return;
+
+    m_localHealingHandsSources[aSource] = false;
+
+    const bool anyActive = std::any_of(
+        m_localHealingHandsSources.begin(),
+        m_localHealingHandsSources.end(),
+        [](bool active) { return active; });
+
+    if (!anyActive)
+        ResetLocalHealingHandsState();
+}
+
+bool MagicService::IsHealingHandsSpell(uint32_t aSpellFormId, const SpellItem* apSpell) const noexcept
+{
+    if ((aSpellFormId & cFormIdMask) == cHealingHandsBaseId)
+        return true;
+
+    if (!apSpell)
+        return false;
+
+    if (!apSpell->IsHealingSpell())
+        return false;
+
+    if (apSpell->eCastingType != MagicSystem::CastingType::CONCENTRATION)
+        return false;
+
+    if (apSpell->eDelivery == MagicSystem::Delivery::SELF)
+        return false;
+
+    for (EffectItem* pEffect : apSpell->listOfEffects)
+    {
+        if (!pEffect || !pEffect->pEffectSetting)
+            continue;
+
+        const auto delivery = static_cast<MagicSystem::Delivery>(pEffect->pEffectSetting->deliveryType);
+        if (delivery == MagicSystem::Delivery::AIMED || delivery == MagicSystem::Delivery::TARGET_ACTOR || delivery == MagicSystem::Delivery::TOUCH)
+            return true;
+    }
+
+    return false;
+}
+
+void MagicService::OnNotifyHealingProximity(const NotifyHealingProximity& acMessage) noexcept
+{
+    PlayerCharacter* pLocalPlayer = PlayerCharacter::Get();
+    if (!pLocalPlayer)
+        return;
+
+    if (!IsHealingHandsSpell(acMessage.SpellFormId.BaseId))
+        return;
+
+    const auto now = std::chrono::steady_clock::now();
+    const auto localServerId = GetLocalServerId();
+    const bool isCaster = localServerId.has_value() && acMessage.CasterId == localServerId.value();
+
+    if (pLocalPlayer->actorState.IsBleedingOut())
+    {
+        const float distance = std::sqrt(
+            std::pow(pLocalPlayer->position.x - acMessage.CasterX, 2.0f) +
+            std::pow(pLocalPlayer->position.y - acMessage.CasterY, 2.0f) +
+            std::pow(pLocalPlayer->position.z - acMessage.CasterZ, 2.0f));
+
+        if (distance <= cHealingHandsRange)
+        {
+            const float requiredSeconds = GetRequiredReviveDuration(static_cast<float>(acMessage.CasterRestorationLevel));
+
+            if (!m_victimReviveState || m_victimReviveState->CasterServerId != acMessage.CasterId)
+            {
+                m_victimReviveState = ReviveChannelState{};
+                m_victimReviveState->CasterServerId = acMessage.CasterId;
+                m_victimReviveState->AccumulatedSeconds = 0.f;
+                m_victimReviveState->HealerName = ResolvePlayerName(acMessage.CasterId);
+            }
+
+            auto& state = *m_victimReviveState;
+            state.RequiredSeconds = requiredSeconds;
+            state.LastPingAt = now;
+
+            if (state.HealerName.empty())
+                state.HealerName = ResolvePlayerName(acMessage.CasterId);
+
+            UpdateVictimReviveUi(state);
+        }
+        else
+        {
+            StopVictimReviveUi();
+        }
+    }
+
+    if (isCaster)
+    {
+        if (HasDownedPartyMemberInRange(cHealingHandsRange))
+        {
+            if (!m_healerChannelState.Active)
+            {
+                m_healerChannelState.AccumulatedSeconds = 0.f;
+                m_healerChannelState.Active = true;
+            }
+
+            m_healerChannelState.RequiredSeconds = GetRequiredReviveDuration(static_cast<float>(acMessage.CasterRestorationLevel));
+            m_healerChannelState.LastUpdate = now;
+            UpdateHealerUi();
+        }
+        else
+        {
+            StopHealerUi();
+        }
     }
 }

@@ -113,6 +113,25 @@ declare namespace SkyrimTogetherTypes {
   /** Death screen hidden */
   type HideDeathScreenCallback = () => void;
 
+  /** Revive progress for the downed player */
+  type UpdateReviveVictimProgressCallback = (
+    elapsedSeconds: number,
+    totalSeconds: number,
+    healerName: string,
+  ) => void;
+
+  /** Downed revive progress stopped/reset */
+  type StopReviveVictimProgressCallback = () => void;
+
+  /** Revive progress for the healer channeling */
+  type UpdateReviveHealerProgressCallback = (
+    elapsedSeconds: number,
+    totalSeconds: number,
+  ) => void;
+
+  /** Healer revive overlay hidden */
+  type StopReviveHealerProgressCallback = () => void;
+
   /** Teleport request received */
   type TeleportRequestCallback = (
     requesterId: number,
@@ -350,6 +369,26 @@ interface SkyrimTogether {
     callback: SkyrimTogetherTypes.HideDeathScreenCallback,
   ): void;
 
+  on(
+    event: 'updateReviveVictimProgress',
+    callback: SkyrimTogetherTypes.UpdateReviveVictimProgressCallback,
+  ): void;
+
+  on(
+    event: 'stopReviveVictimProgress',
+    callback: SkyrimTogetherTypes.StopReviveVictimProgressCallback,
+  ): void;
+
+  on(
+    event: 'updateReviveHealerProgress',
+    callback: SkyrimTogetherTypes.UpdateReviveHealerProgressCallback,
+  ): void;
+
+  on(
+    event: 'stopReviveHealerProgress',
+    callback: SkyrimTogetherTypes.StopReviveHealerProgressCallback,
+  ): void;
+
   /** Remove listener from when the application is first initialized. */
   off(event: 'init', callback?: SkyrimTogetherTypes.InitCallback): void;
 
@@ -537,6 +576,26 @@ interface SkyrimTogether {
   off(
     event: 'hideDeathScreen',
     callback?: SkyrimTogetherTypes.HideDeathScreenCallback,
+  ): void;
+
+  off(
+    event: 'updateReviveVictimProgress',
+    callback?: SkyrimTogetherTypes.UpdateReviveVictimProgressCallback,
+  ): void;
+
+  off(
+    event: 'stopReviveVictimProgress',
+    callback?: SkyrimTogetherTypes.StopReviveVictimProgressCallback,
+  ): void;
+
+  off(
+    event: 'updateReviveHealerProgress',
+    callback?: SkyrimTogetherTypes.UpdateReviveHealerProgressCallback,
+  ): void;
+
+  off(
+    event: 'stopReviveHealerProgress',
+    callback?: SkyrimTogetherTypes.StopReviveHealerProgressCallback,
   ): void;
 
   /**
