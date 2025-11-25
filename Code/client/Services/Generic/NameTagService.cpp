@@ -6,6 +6,8 @@
 #include <Services/PartyService.h>
 #include <Services/OverlayService.h>
 
+#include <Systems/RenderSystemD3D11.h>
+
 #include <Components.h>
 #include <World.h>
 
@@ -13,19 +15,117 @@
 #include <Actor.h>
 #include <Games/ActorExtension.h>
 #include <Games/Skyrim/Interface/Menus/HUDMenuUtils.h>
+#include <Games/Skyrim/Interface/UI.h>
 
 #include <fmt/format.h>
 #include <algorithm>
 #include <cmath>
+#include <cctype>
+#include <cfloat>
 #include <limits>
+#include <array>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 #include <glm/glm.hpp>
+#include <dxgi.h>
+#include <wincodec.h>
+#include <mutex>
 #include <spdlog/spdlog.h>
+
+#ifdef _MSC_VER
+#pragma comment(lib, "windowscodecs.lib")
+#endif
 
 namespace
 {
 float Clamp01(float aValue) noexcept
 {
     return std::clamp(aValue, 0.f, 1.f);
+}
+
+float SmoothStep(float aEdge0, float aEdge1, float aValue) noexcept
+{
+    if (aEdge0 == aEdge1)
+        return aValue >= aEdge1 ? 1.f : 0.f;
+
+    const float t = Clamp01((aValue - aEdge0) / (aEdge1 - aEdge0));
+    return t * t * (3.f - 2.f * t);
+}
+
+constexpr std::array<int8_t, 256> BuildBase64Table() noexcept
+{
+    std::array<int8_t, 256> table{};
+    table.fill(-1);
+
+    for (int i = 0; i < 26; ++i)
+    {
+        table['A' + i] = static_cast<int8_t>(i);
+        table['a' + i] = static_cast<int8_t>(i + 26);
+    }
+
+    for (int i = 0; i < 10; ++i)
+        table['0' + i] = static_cast<int8_t>(52 + i);
+
+    table[static_cast<size_t>('+')] = 62;
+    table[static_cast<size_t>('/')] = 63;
+
+    return table;
+}
+
+constexpr std::array<int8_t, 256> kBase64Table = BuildBase64Table();
+
+bool DecodeBase64(std::string_view aInput, std::vector<uint8_t>& aOutput) noexcept
+{
+    int value = 0;
+    int bits = -8;
+    aOutput.clear();
+    aOutput.reserve((aInput.size() * 3) / 4);
+
+    for (unsigned char c : aInput)
+    {
+        if (c == '=')
+            break;
+
+        if (std::isspace(static_cast<int>(c)))
+            continue;
+
+        const int8_t decoded = kBase64Table[c];
+        if (decoded < 0)
+            continue;
+
+        value = (value << 6) + decoded;
+        bits += 6;
+
+        if (bits >= 0)
+        {
+            aOutput.push_back(static_cast<uint8_t>((value >> bits) & 0xFF));
+            bits -= 8;
+        }
+    }
+
+    return !aOutput.empty();
+}
+
+IWICImagingFactory* GetWicFactory() noexcept
+{
+    static Microsoft::WRL::ComPtr<IWICImagingFactory> s_factory;
+    static std::once_flag s_factoryOnce;
+    static HRESULT s_factoryResult = E_FAIL;
+
+    std::call_once(s_factoryOnce, []() {
+        HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&s_factory));
+        if (hr == CO_E_NOTINITIALIZED)
+        {
+            hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            if (SUCCEEDED(hr) || hr == RPC_E_CHANGED_MODE)
+                hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&s_factory));
+        }
+        s_factoryResult = hr;
+    });
+
+    return SUCCEEDED(s_factoryResult) ? s_factory.Get() : nullptr;
 }
 } // namespace
 
@@ -35,6 +135,9 @@ NameTagService::NameTagService(World& aWorld, entt::dispatcher& aDispatcher) noe
     auto& imgui = m_world.ctx().at<ImguiService>();
     m_drawConnection = imgui.OnDraw.connect<&NameTagService::OnDraw>(this);
     m_updateConnection = aDispatcher.sink<UpdateEvent>().connect<&NameTagService::OnUpdate>(this);
+
+    if (m_world.ctx().contains<RenderSystemD3D11>())
+        m_renderSystem = &m_world.ctx().at<RenderSystemD3D11>();
 }
 
 void NameTagService::OnDraw() noexcept
@@ -42,6 +145,23 @@ void NameTagService::OnDraw() noexcept
     auto* pLocalPlayer = PlayerCharacter::Get();
     if (!pLocalPlayer)
         return;
+
+    if (auto* pUI = UI::Get())
+    {
+        auto menuOpen = [pUI](const char* acName) {
+            return acName && pUI->GetMenuOpen(BSFixedString(acName));
+        };
+
+        if (menuOpen("Dialogue Menu") || menuOpen("DialogueMenu") || menuOpen("InventoryMenu") || menuOpen("StatsMenu") ||
+            menuOpen("SkillsMenu") || menuOpen("MagicMenu") || menuOpen("MapMenu") || menuOpen("TweenMenu") ||
+            menuOpen("FavoritesMenu"))
+        {
+            return;
+        }
+    }
+
+    const uint64_t nowTick = m_world.GetTick();
+    GarbageCollectAvatarCache(nowTick);
 
     auto view = m_world.view<PlayerComponent, RemoteComponent, FormIdComponent>();
     if (view.begin() == view.end())
@@ -61,7 +181,15 @@ void NameTagService::OnDraw() noexcept
 
     const ImVec2 viewport = ImGui::GetIO().DisplaySize;
     const glm::vec3 localPos = {pLocalPlayer->position.x, pLocalPlayer->position.y, pLocalPlayer->position.z};
-    const float baseFontSize = pFont ? pFont->FontSize : ImGui::GetFontSize();
+    ImFont* font = pFont ? pFont : ImGui::GetFont();
+    if (!font)
+    {
+        if (pFont)
+            ImGui::PopFont();
+        return;
+    }
+
+    const float baseFontSize = font->FontSize;
 
     for (auto entity : view)
     {
@@ -90,6 +218,10 @@ void NameTagService::OnDraw() noexcept
             displayName = fallbackName;
         }
 
+        std::string_view avatarData;
+        if (nameIt != playerDirectory.end() && !nameIt->second.Avatar.empty())
+            avatarData = std::string_view(nameIt->second.Avatar.c_str(), nameIt->second.Avatar.size());
+
         const NiPoint3 anchor = BuildAnchorPoint(pActor);
 
         ImVec2 screenPos;
@@ -102,22 +234,54 @@ void NameTagService::OnDraw() noexcept
         if (distance > m_style.MaxDistance)
             continue;
 
-        const float distanceRatio = distance / std::max(m_style.MaxDistance, 1.f);
-        const float scale = std::lerp(m_style.MaxScale, m_style.MinScale, Clamp01(distanceRatio));
+        const float reference = std::max(m_style.ScaleReferenceDistance, 1.f);
+        const float normalizedDistance = reference / (reference + std::max(distance, 0.1f));
+        const float falloffPower = std::max(m_style.ScaleFalloff, 0.05f);
+        float scale = m_style.MinScale + (m_style.MaxScale - m_style.MinScale) * std::pow(normalizedDistance, falloffPower);
+        scale = std::clamp(scale, m_style.MinScale, m_style.MaxScale);
+
+        if (m_style.DepthFar > m_style.DepthNear)
+        {
+            const float depthFactor = 1.f - Clamp01((depth - m_style.DepthNear) / (m_style.DepthFar - m_style.DepthNear));
+            scale = std::clamp(scale * (1.f + depthFactor * m_style.DepthPerspectiveBoost), m_style.MinScale, m_style.MaxScale);
+        }
 
         float alpha = 1.f;
         if (distance > m_style.FadeDistance)
         {
             const float fadeSpan = std::max(m_style.MaxDistance - m_style.FadeDistance, 1.f);
-            alpha = 1.f - Clamp01((distance - m_style.FadeDistance) / fadeSpan);
+            const float fadeT = Clamp01((distance - m_style.FadeDistance) / fadeSpan);
+            alpha = 1.f - SmoothStep(0.f, 1.f, fadeT);
         }
 
-        const ImVec2 textSize = ImGui::CalcTextSize(displayName.data(), displayName.data() + displayName.size());
-        const ImVec2 labelSize = ImVec2(textSize.x * scale, textSize.y * scale);
-        const ImVec2 halfSize = ImVec2(labelSize.x * 0.5f, labelSize.y * 0.5f);
-        const ImVec2 padding = ImVec2(m_style.PaddingX, m_style.PaddingY);
-        ImVec2 topLeft = ImVec2(screenPos.x - (halfSize.x + padding.x), screenPos.y - (halfSize.y + padding.y));
-        ImVec2 bottomRight = ImVec2(screenPos.x + (halfSize.x + padding.x), screenPos.y + (halfSize.y + padding.y));
+        alpha *= Clamp01(1.f - std::max(depth - 0.95f, 0.f) * 4.f);
+        if (alpha <= 0.01f)
+            continue;
+
+        const uint16_t level = pActor->GetLevel();
+        const std::string levelText = level > 0 ? fmt::format("Lv. {}", level) : std::string("Lv. --");
+
+        const float nameFontSize = baseFontSize * scale;
+        const float levelFontSize = nameFontSize * m_style.LevelFontScale;
+        const ImVec2 nameTextSize = font->CalcTextSizeA(nameFontSize, FLT_MAX, 0.f, displayName.data(), displayName.data() + displayName.size());
+        const ImVec2 levelTextSize = font->CalcTextSizeA(levelFontSize, FLT_MAX, 0.f, levelText.c_str(), levelText.c_str() + levelText.size());
+
+        const float paddingX = m_style.PaddingX * scale;
+        const float paddingY = m_style.PaddingY * scale;
+        const float avatarSize = m_style.AvatarSize * scale;
+        const float avatarSpacing = m_style.AvatarSpacing * scale;
+        const float textSpacing = m_style.NameLevelSpacing * scale;
+        const float accentHeight = m_style.AccentThickness * scale;
+
+        const float textColumnWidth = std::max(nameTextSize.x, levelTextSize.x);
+        const float textColumnHeight = nameTextSize.y + textSpacing + levelTextSize.y;
+        const float contentHeight = std::max(textColumnHeight, avatarSize);
+        const float contentWidth = avatarSize + avatarSpacing + textColumnWidth;
+        const float totalWidth = contentWidth + paddingX * 2.f;
+        const float totalHeight = contentHeight + paddingY * 2.f + accentHeight;
+
+        ImVec2 topLeft(screenPos.x - totalWidth * 0.5f, screenPos.y - totalHeight * 0.5f);
+        ImVec2 bottomRight(screenPos.x + totalWidth * 0.5f, screenPos.y + totalHeight * 0.5f);
 
         // Light 3D cue: slight horizontal offset based on how much the actor looks at the camera.
         const glm::vec3 actorForward = {std::sin(pActor->rotation.z), std::cos(pActor->rotation.z), 0.f};
@@ -127,7 +291,7 @@ void NameTagService::OnDraw() noexcept
         const glm::vec3 toCamera = glm::normalize(toCameraVec);
         const glm::vec3 forwardNorm = glm::normalize(actorForward);
         const float facing = Clamp01((glm::dot(forwardNorm, toCamera) + 1.f) * 0.5f);
-        const float skew = (1.f - facing) * (padding.x * 0.35f);
+        const float skew = (1.f - facing) * (paddingX * 0.35f);
         topLeft.x -= skew;
         bottomRight.x -= skew;
         screenPos.x -= skew;
@@ -138,9 +302,49 @@ void NameTagService::OnDraw() noexcept
         const ImU32 borderColor = ColorWithAlpha(m_style.BorderColor, alpha);
         drawList->AddRect(topLeft, bottomRight, borderColor, m_style.CornerRounding);
 
-        const ImVec2 textStart = ImVec2(screenPos.x - halfSize.x, screenPos.y - halfSize.y);
+        const ImVec2 avatarMin = ImVec2(topLeft.x + paddingX, topLeft.y + paddingY + (contentHeight - avatarSize) * 0.5f);
+        const ImVec2 avatarMax = ImVec2(avatarMin.x + avatarSize, avatarMin.y + avatarSize);
+        const ImVec2 avatarCenter = ImVec2((avatarMin.x + avatarMax.x) * 0.5f, (avatarMin.y + avatarMax.y) * 0.5f);
+
+        const ImVec2 textTopLeft = ImVec2(avatarMax.x + avatarSpacing, topLeft.y + paddingY + (contentHeight - textColumnHeight) * 0.5f);
+        const ImVec2 levelPos = ImVec2(textTopLeft.x, textTopLeft.y + nameTextSize.y + textSpacing);
+
+        const ImVec2 accentMin(topLeft.x + paddingX, bottomRight.y - paddingY - accentHeight);
+        const ImVec2 accentMax(bottomRight.x - paddingX, accentMin.y + accentHeight);
+        const ImU32 accentColor = ColorWithAlpha(m_style.AccentColor, alpha);
+        drawList->AddRectFilled(accentMin, accentMax, accentColor, m_style.CornerRounding);
+
+        const AvatarTexture* avatarTexture = ResolveAvatarTexture(playerComponent.Id, avatarData, nowTick);
+        ID3D11ShaderResourceView* avatarView = avatarTexture ? avatarTexture->Texture.Get() : nullptr;
+        const ImU32 ringColor = ColorWithAlpha(m_style.AvatarRingColor, alpha);
+
+        if (avatarView)
+        {
+            drawList->AddImage(avatarView, avatarMin, avatarMax);
+        }
+        else
+        {
+            const ImU32 placeholderColor = ColorWithAlpha(m_style.PlaceholderAvatarColor, alpha);
+            drawList->AddCircleFilled(avatarCenter, avatarSize * 0.5f, placeholderColor, 48);
+
+            if (!displayName.empty())
+            {
+                const unsigned char rawChar = static_cast<unsigned char>(displayName.front());
+                const char initial = static_cast<char>(std::toupper(rawChar));
+                char buffer[2] = {initial, '\0'};
+                const ImVec2 initialSize = font->CalcTextSizeA(levelFontSize, FLT_MAX, 0.f, buffer, buffer + 1);
+                const ImVec2 initialPos = ImVec2(avatarCenter.x - initialSize.x * 0.5f, avatarCenter.y - initialSize.y * 0.5f);
+                drawList->AddText(font, levelFontSize, initialPos, ColorWithAlpha(m_style.TextColor, alpha), buffer);
+            }
+        }
+
+        drawList->AddCircle(avatarCenter, (avatarSize * 0.5f) + 1.f, ringColor, 48, 2.f);
+
         const ImU32 textColor = ColorWithAlpha(m_style.TextColor, alpha);
-        drawList->AddText(pFont ? pFont : ImGui::GetFont(), baseFontSize * scale, textStart, textColor, displayName.data(), displayName.data() + displayName.size());
+        drawList->AddText(font, nameFontSize, textTopLeft, textColor, displayName.data(), displayName.data() + displayName.size());
+
+        const ImU32 levelColor = ColorWithAlpha(m_style.LevelTextColor, alpha);
+        drawList->AddText(font, levelFontSize, levelPos, levelColor, levelText.c_str(), levelText.c_str() + levelText.size());
     }
 
     if (pFont)
@@ -200,7 +404,7 @@ void NameTagService::OnUpdate(const UpdateEvent&) noexcept
     static uint64_t s_lastLogTick = 0;
     if (tick - s_lastLogTick > 1000)
     {
-        spdlog::info("[NameTagService] update candidates={} resolved={} visible={}", total, resolved, visibleCount);
+        spdlog::debug("[NameTagService] update candidates={} resolved={} visible={}", total, resolved, visibleCount);
         s_lastLogTick = tick;
     }
 }
@@ -269,4 +473,210 @@ ImU32 NameTagService::ColorWithAlpha(const ImVec4& aColor, float aAlpha) noexcep
     ImVec4 adjusted = aColor;
     adjusted.w *= Clamp01(aAlpha);
     return ImGui::ColorConvertFloat4ToU32(adjusted);
+}
+
+void NameTagService::GarbageCollectAvatarCache(uint64_t aNowTick) noexcept
+{
+    constexpr uint64_t kTtlMs = 30'000;
+
+    for (auto it = m_avatarCache.begin(); it != m_avatarCache.end();)
+    {
+        if (it->second.LastSeenTick != 0 && aNowTick - it->second.LastSeenTick > kTtlMs)
+            it = m_avatarCache.erase(it);
+        else
+            ++it;
+    }
+}
+
+const NameTagService::AvatarTexture* NameTagService::ResolveAvatarTexture(uint32_t aPlayerId, std::string_view aAvatarData, uint64_t aNowTick)
+{
+    if (aAvatarData.empty())
+    {
+        m_avatarCache.erase(aPlayerId);
+        return nullptr;
+    }
+
+    AvatarTexture& entry = m_avatarCache[aPlayerId];
+    entry.LastSeenTick = aNowTick;
+
+    if (entry.Texture && entry.Signature == aAvatarData)
+        return &entry;
+
+    if (entry.Signature == aAvatarData && entry.Failed)
+    {
+        const uint64_t retryDelay = static_cast<uint64_t>(m_style.AvatarRetryDelayMs);
+        if (aNowTick - entry.LastAttemptTick < retryDelay)
+            return entry.Texture ? &entry : nullptr;
+    }
+
+    entry.Signature.assign(aAvatarData.begin(), aAvatarData.end());
+    entry.LastAttemptTick = aNowTick;
+
+    std::vector<uint8_t> decoded;
+    if (!DecodeAvatarData(aAvatarData, decoded))
+    {
+        entry.Texture.Reset();
+        entry.Size = ImVec2{};
+        entry.Failed = true;
+        return nullptr;
+    }
+
+    if (!CreateAvatarTexture(decoded, entry))
+    {
+        entry.Texture.Reset();
+        entry.Size = ImVec2{};
+        entry.Failed = true;
+        return nullptr;
+    }
+
+    entry.Failed = false;
+    return &entry;
+}
+
+bool NameTagService::DecodeAvatarData(std::string_view aAvatarData, std::vector<uint8_t>& aDecodedData) const
+{
+    if (aAvatarData.rfind("data:", 0) != 0)
+        return false;
+
+    const size_t maxBytes = static_cast<size_t>(m_style.AvatarMaxBytes);
+    if (aAvatarData.size() > maxBytes * 3ull)
+        return false;
+
+    const size_t comma = aAvatarData.find(',');
+    if (comma == std::string_view::npos)
+        return false;
+
+    const std::string_view header = aAvatarData.substr(0, comma);
+    if (header.find(";base64") == std::string_view::npos)
+        return false;
+
+    const std::string_view payload = aAvatarData.substr(comma + 1);
+    if (!DecodeBase64(payload, aDecodedData))
+        return false;
+
+    if (aDecodedData.empty() || aDecodedData.size() > maxBytes)
+        return false;
+
+    return true;
+}
+
+bool NameTagService::CreateAvatarTexture(const std::vector<uint8_t>& aDecodedData, AvatarTexture& aEntry) noexcept
+{
+    if (aDecodedData.empty())
+        return false;
+
+    ID3D11Device* pDevice = AcquireD3DDevice();
+    if (!pDevice)
+        return false;
+
+    IWICImagingFactory* pFactory = GetWicFactory();
+    if (!pFactory)
+        return false;
+
+    Microsoft::WRL::ComPtr<IWICStream> stream;
+    HRESULT hr = pFactory->CreateStream(stream.GetAddressOf());
+    if (FAILED(hr))
+        return false;
+
+    hr = stream->InitializeFromMemory(const_cast<BYTE*>(reinterpret_cast<const BYTE*>(aDecodedData.data())), static_cast<DWORD>(aDecodedData.size()));
+    if (FAILED(hr))
+        return false;
+
+    Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
+    hr = pFactory->CreateDecoderFromStream(stream.Get(), nullptr, WICDecodeMetadataCacheOnLoad, decoder.GetAddressOf());
+    if (FAILED(hr))
+        return false;
+
+    Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
+    hr = decoder->GetFrame(0, frame.GetAddressOf());
+    if (FAILED(hr))
+        return false;
+
+    UINT width = 0;
+    UINT height = 0;
+    hr = frame->GetSize(&width, &height);
+    if (FAILED(hr) || width == 0 || height == 0)
+        return false;
+
+    constexpr UINT kMaxDimension = 1024;
+    if (width > kMaxDimension || height > kMaxDimension)
+        return false;
+
+    Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
+    hr = pFactory->CreateFormatConverter(converter.GetAddressOf());
+    if (FAILED(hr))
+        return false;
+
+    hr = converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr, 0.f, WICBitmapPaletteTypeCustom);
+    if (FAILED(hr))
+        return false;
+
+    const UINT stride = width * 4;
+    std::vector<uint8_t> pixels(static_cast<size_t>(stride) * height);
+    hr = converter->CopyPixels(nullptr, stride, static_cast<UINT>(pixels.size()), pixels.data());
+    if (FAILED(hr))
+        return false;
+
+    D3D11_TEXTURE2D_DESC desc{};
+    desc.Width = width;
+    desc.Height = height;
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+    D3D11_SUBRESOURCE_DATA initData{};
+    initData.pSysMem = pixels.data();
+    initData.SysMemPitch = stride;
+
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
+    hr = pDevice->CreateTexture2D(&desc, &initData, texture.GetAddressOf());
+    if (FAILED(hr))
+    {
+        if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET)
+            m_cachedDevice.Reset();
+        return false;
+    }
+
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+    srvDesc.Format = desc.Format;
+    srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MipLevels = desc.MipLevels;
+
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> view;
+    hr = pDevice->CreateShaderResourceView(texture.Get(), &srvDesc, view.GetAddressOf());
+    if (FAILED(hr))
+        return false;
+
+    aEntry.Texture = std::move(view);
+    aEntry.Size = ImVec2(static_cast<float>(width), static_cast<float>(height));
+    return true;
+}
+
+ID3D11Device* NameTagService::AcquireD3DDevice() noexcept
+{
+    if (m_cachedDevice)
+        return m_cachedDevice.Get();
+
+    if (!m_renderSystem && m_world.ctx().contains<RenderSystemD3D11>())
+        m_renderSystem = &m_world.ctx().at<RenderSystemD3D11>();
+
+    if (!m_renderSystem)
+        return nullptr;
+
+    IDXGISwapChain* pSwapChain = m_renderSystem->GetSwapChain();
+    if (!pSwapChain)
+    {
+        m_cachedDevice.Reset();
+        return nullptr;
+    }
+
+    Microsoft::WRL::ComPtr<ID3D11Device> device;
+    if (FAILED(pSwapChain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(device.GetAddressOf()))))
+        return nullptr;
+
+    m_cachedDevice = std::move(device);
+    return m_cachedDevice.Get();
 }
