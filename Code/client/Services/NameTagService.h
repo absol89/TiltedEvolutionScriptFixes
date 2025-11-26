@@ -27,6 +27,14 @@ struct RenderSystemD3D11;
  */
 struct NameTagService
 {
+    enum class Mode : uint8_t
+    {
+        Detailed = 0,
+        Basic = 1,
+        Hidden = 2,
+        Normal = 3
+    };
+
     struct Style
     {
         ImVec4 BackgroundColor{0.f, 0.f, 0.f, 0.65f};
@@ -53,6 +61,7 @@ struct NameTagService
         float LevelFontScale = 0.75f;
         float NameLevelSpacing = 4.f;
         float AvatarSize = 38.f;
+        float CompactAvatarScale = 0.84f;
         float AvatarSpacing = 10.f;
         float AccentThickness = 2.5f;
         float VisibilityEpsilon = 1e-3f;
@@ -68,6 +77,8 @@ struct NameTagService
 
     [[nodiscard]] Style& GetStyle() noexcept { return m_style; }
     void SetStyle(const Style& aStyle) noexcept { m_style = aStyle; }
+    [[nodiscard]] Mode GetMode() const noexcept { return m_mode; }
+    void SetMode(Mode aMode) noexcept;
 
 private:
     struct VisibilityInfo
@@ -102,6 +113,7 @@ private:
 
     World& m_world;
     Style m_style{};
+    Mode m_mode = Mode::Normal;
     RenderSystemD3D11* m_renderSystem = nullptr;
 
     std::unordered_map<uint32_t, VisibilityInfo> m_visibility;

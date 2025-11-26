@@ -26,6 +26,7 @@ void ProcessHandler::OnContextCreated(CefRefPtr<CefBrowser> browser, CefRefPtr<C
     m_pCoreObject->SetValue("kickPartyMember", CefV8Value::CreateFunction("kickPartyMember", m_pOverlayHandler), V8_PROPERTY_ATTRIBUTE_NONE);
     m_pCoreObject->SetValue("changePartyLeader", CefV8Value::CreateFunction("changePartyLeader", m_pOverlayHandler), V8_PROPERTY_ATTRIBUTE_NONE);
     m_pCoreObject->SetValue("setProfilePicture", CefV8Value::CreateFunction("setProfilePicture", m_pOverlayHandler), V8_PROPERTY_ATTRIBUTE_NONE);
+    m_pCoreObject->SetValue("setNameTagMode", CefV8Value::CreateFunction("setNameTagMode", m_pOverlayHandler), V8_PROPERTY_ATTRIBUTE_NONE);
     m_pCoreObject->SetValue("teleportToPlayer", CefV8Value::CreateFunction("teleportToPlayer", m_pOverlayHandler), V8_PROPERTY_ATTRIBUTE_NONE);
     m_pCoreObject->SetValue("respondTeleportRequest", CefV8Value::CreateFunction("respondTeleportRequest", m_pOverlayHandler), V8_PROPERTY_ATTRIBUTE_NONE);
     m_pCoreObject->SetValue("sendTradeInvite", CefV8Value::CreateFunction("sendTradeInvite", m_pOverlayHandler), V8_PROPERTY_ATTRIBUTE_NONE);

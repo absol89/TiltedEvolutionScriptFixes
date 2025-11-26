@@ -7,6 +7,7 @@
 #include <Services/TransportService.h>
 #include <Services/PlayerService.h>
 #include <Services/TradeService.h>
+#include <Services/NameTagService.h>
 
 #include <Structs/Inventory.h>
 
@@ -81,6 +82,8 @@ bool OverlayClient::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefR
         }
         else if (eventName == "setProfilePicture")
             ProcessSetProfilePicture(eventArgs);
+        else if (eventName == "setNameTagMode")
+            ProcessSetNameTagMode(eventArgs);
         else if (eventName == "teleportToPlayer" || eventName == "requestTeleport")
             ProcessTeleportRequestMessage(eventArgs);
         else if (eventName == "respondTeleportRequest")
@@ -250,6 +253,39 @@ void OverlayClient::ProcessSetProfilePicture(CefRefPtr<CefListValue> aEventArgs)
     PlayerProfileImageUpdateRequest request{};
     request.ImageData = payload;
     m_transport.Send(request);
+}
+
+void OverlayClient::ProcessSetNameTagMode(CefRefPtr<CefListValue> aEventArgs)
+{
+    if (!aEventArgs || aEventArgs->GetSize() < 1)
+        return;
+
+    const int rawMode = aEventArgs->GetInt(0);
+    NameTagService::Mode mode = NameTagService::Mode::Normal;
+    switch (rawMode)
+    {
+    case static_cast<int>(NameTagService::Mode::Detailed):
+        mode = NameTagService::Mode::Detailed;
+        break;
+    case static_cast<int>(NameTagService::Mode::Basic):
+        mode = NameTagService::Mode::Basic;
+        break;
+    case static_cast<int>(NameTagService::Mode::Hidden):
+        mode = NameTagService::Mode::Hidden;
+        break;
+    case static_cast<int>(NameTagService::Mode::Normal):
+        mode = NameTagService::Mode::Normal;
+        break;
+    default:
+        break;
+    }
+
+    World::Get().GetRunner().Queue([mode]() {
+        auto& world = World::Get();
+        if (!world.ctx().contains<NameTagService>())
+            return;
+        world.ctx().at<NameTagService>().SetMode(mode);
+    });
 }
 
 void OverlayClient::ProcessToggleDebugUI()

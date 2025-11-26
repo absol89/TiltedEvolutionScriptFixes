@@ -30,6 +30,7 @@ private:
     void ProcessTeleportRequestMessage(CefRefPtr<CefListValue> aEventArgs);
     void ProcessTeleportResponseMessage(CefRefPtr<CefListValue> aEventArgs);
     void ProcessSetProfilePicture(CefRefPtr<CefListValue> aEventArgs);
+    void ProcessSetNameTagMode(CefRefPtr<CefListValue> aEventArgs);
     void ProcessToggleDebugUI();
     void SetUIVisible(bool aVisible) noexcept;
 

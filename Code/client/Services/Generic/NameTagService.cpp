@@ -191,6 +191,13 @@ void NameTagService::OnDraw() noexcept
 
     const float baseFontSize = font->FontSize;
 
+    if (m_mode == Mode::Hidden)
+    {
+        if (pFont)
+            ImGui::PopFont();
+        return;
+    }
+
     for (auto entity : view)
     {
         const auto& playerComponent = view.get<PlayerComponent>(entity);
@@ -218,8 +225,12 @@ void NameTagService::OnDraw() noexcept
             displayName = fallbackName;
         }
 
+        const bool useCompactLayout = m_mode == Mode::Detailed;
+        const bool showAvatar = (m_mode == Mode::Detailed || m_mode == Mode::Normal);
+        const bool showLevel = (m_mode == Mode::Detailed || m_mode == Mode::Normal);
+
         std::string_view avatarData;
-        if (nameIt != playerDirectory.end() && !nameIt->second.Avatar.empty())
+        if (showAvatar && nameIt != playerDirectory.end() && !nameIt->second.Avatar.empty())
             avatarData = std::string_view(nameIt->second.Avatar.c_str(), nameIt->second.Avatar.size());
 
         const NiPoint3 anchor = BuildAnchorPoint(pActor);
@@ -268,15 +279,31 @@ void NameTagService::OnDraw() noexcept
 
         const float paddingX = m_style.PaddingX * scale;
         const float paddingY = m_style.PaddingY * scale;
-        const float avatarSize = m_style.AvatarSize * scale;
+        const float baseAvatarSize = m_style.AvatarSize * scale;
+        const float avatarSize = showAvatar ? baseAvatarSize * (useCompactLayout ? m_style.CompactAvatarScale : 1.f) : 0.f;
         const float avatarSpacing = m_style.AvatarSpacing * scale;
-        const float textSpacing = m_style.NameLevelSpacing * scale;
+        const float nameLevelSpacing = m_style.NameLevelSpacing * scale;
         const float accentHeight = m_style.AccentThickness * scale;
 
-        const float textColumnWidth = std::max(nameTextSize.x, levelTextSize.x);
-        const float textColumnHeight = nameTextSize.y + textSpacing + levelTextSize.y;
-        const float contentHeight = std::max(textColumnHeight, avatarSize);
-        const float contentWidth = avatarSize + avatarSpacing + textColumnWidth;
+        float textColumnWidth = nameTextSize.x;
+        float textColumnHeight = nameTextSize.y;
+        if (showLevel)
+        {
+            if (useCompactLayout)
+            {
+                textColumnWidth += nameLevelSpacing + levelTextSize.x;
+                textColumnHeight = std::max(nameTextSize.y, levelTextSize.y);
+            }
+            else
+            {
+                textColumnWidth = std::max(nameTextSize.x, levelTextSize.x);
+                textColumnHeight = nameTextSize.y + nameLevelSpacing + levelTextSize.y;
+            }
+        }
+
+        const float avatarContribution = showAvatar ? (avatarSize + avatarSpacing) : 0.f;
+        const float contentHeight = showAvatar ? std::max(textColumnHeight, avatarSize) : textColumnHeight;
+        const float contentWidth = avatarContribution + textColumnWidth;
         const float totalWidth = contentWidth + paddingX * 2.f;
         const float totalHeight = contentHeight + paddingY * 2.f + accentHeight;
 
@@ -302,51 +329,81 @@ void NameTagService::OnDraw() noexcept
         const ImU32 borderColor = ColorWithAlpha(m_style.BorderColor, alpha);
         drawList->AddRect(topLeft, bottomRight, borderColor, m_style.CornerRounding);
 
-        const ImVec2 avatarMin = ImVec2(topLeft.x + paddingX, topLeft.y + paddingY + (contentHeight - avatarSize) * 0.5f);
-        const ImVec2 avatarMax = ImVec2(avatarMin.x + avatarSize, avatarMin.y + avatarSize);
-        const ImVec2 avatarCenter = ImVec2((avatarMin.x + avatarMax.x) * 0.5f, (avatarMin.y + avatarMax.y) * 0.5f);
+        ImVec2 avatarMin{};
+        ImVec2 avatarMax{};
+        ImVec2 avatarCenter{};
+        if (showAvatar)
+        {
+            avatarMin = ImVec2(topLeft.x + paddingX, topLeft.y + paddingY + (contentHeight - avatarSize) * 0.5f);
+            avatarMax = ImVec2(avatarMin.x + avatarSize, avatarMin.y + avatarSize);
+            avatarCenter = ImVec2((avatarMin.x + avatarMax.x) * 0.5f, (avatarMin.y + avatarMax.y) * 0.5f);
+        }
 
-        const ImVec2 textTopLeft = ImVec2(avatarMax.x + avatarSpacing, topLeft.y + paddingY + (contentHeight - textColumnHeight) * 0.5f);
-        const ImVec2 levelPos = ImVec2(textTopLeft.x, textTopLeft.y + nameTextSize.y + textSpacing);
+        const ImVec2 textTopLeft =
+            ImVec2(topLeft.x + paddingX + avatarContribution, topLeft.y + paddingY + (contentHeight - textColumnHeight) * 0.5f);
+        ImVec2 namePos = ImVec2(textTopLeft.x, textTopLeft.y);
+        if (useCompactLayout)
+            namePos.y += (textColumnHeight - nameTextSize.y) * 0.5f;
+
+        ImVec2 levelPos = namePos;
+        if (showLevel)
+        {
+            if (useCompactLayout)
+            {
+                levelPos.x = textTopLeft.x + nameTextSize.x + nameLevelSpacing;
+                levelPos.y = textTopLeft.y + (textColumnHeight - levelTextSize.y) * 0.5f;
+            }
+            else
+            {
+                levelPos.x = textTopLeft.x;
+                levelPos.y = textTopLeft.y + nameTextSize.y + nameLevelSpacing;
+            }
+        }
 
         const ImVec2 accentMin(topLeft.x + paddingX, bottomRight.y - paddingY - accentHeight);
         const ImVec2 accentMax(bottomRight.x - paddingX, accentMin.y + accentHeight);
         const ImU32 accentColor = ColorWithAlpha(m_style.AccentColor, alpha);
         drawList->AddRectFilled(accentMin, accentMax, accentColor, m_style.CornerRounding);
 
-        const AvatarTexture* avatarTexture = ResolveAvatarTexture(playerComponent.Id, avatarData, nowTick);
-        ID3D11ShaderResourceView* avatarView = avatarTexture ? avatarTexture->Texture.Get() : nullptr;
-        const ImU32 ringColor = ColorWithAlpha(m_style.AvatarRingColor, alpha);
-
-        const float avatarRounding = avatarSize * 0.5f;
-        if (avatarView)
+        if (showAvatar)
         {
-            drawList->AddImageRounded(avatarView, avatarMin, avatarMax, ImVec2(0.f, 0.f), ImVec2(1.f, 1.f), IM_COL32_WHITE, avatarRounding,
-                                      ImDrawFlags_RoundCornersAll);
-        }
-        else
-        {
-            const ImU32 placeholderColor = ColorWithAlpha(m_style.PlaceholderAvatarColor, alpha);
-            drawList->AddCircleFilled(avatarCenter, avatarSize * 0.5f, placeholderColor, 48);
+            const AvatarTexture* avatarTexture = ResolveAvatarTexture(playerComponent.Id, avatarData, nowTick);
+            ID3D11ShaderResourceView* avatarView = avatarTexture ? avatarTexture->Texture.Get() : nullptr;
+            const ImU32 ringColor = ColorWithAlpha(m_style.AvatarRingColor, alpha);
 
-            if (!displayName.empty())
+            const float avatarRounding = avatarSize * 0.5f;
+            if (avatarView)
             {
-                const unsigned char rawChar = static_cast<unsigned char>(displayName.front());
-                const char initial = static_cast<char>(std::toupper(rawChar));
-                char buffer[2] = {initial, '\0'};
-                const ImVec2 initialSize = font->CalcTextSizeA(levelFontSize, FLT_MAX, 0.f, buffer, buffer + 1);
-                const ImVec2 initialPos = ImVec2(avatarCenter.x - initialSize.x * 0.5f, avatarCenter.y - initialSize.y * 0.5f);
-                drawList->AddText(font, levelFontSize, initialPos, ColorWithAlpha(m_style.TextColor, alpha), buffer);
+                drawList->AddImageRounded(avatarView, avatarMin, avatarMax, ImVec2(0.f, 0.f), ImVec2(1.f, 1.f), IM_COL32_WHITE, avatarRounding,
+                                          ImDrawFlags_RoundCornersAll);
             }
-        }
+            else
+            {
+                const ImU32 placeholderColor = ColorWithAlpha(m_style.PlaceholderAvatarColor, alpha);
+                drawList->AddCircleFilled(avatarCenter, avatarSize * 0.5f, placeholderColor, 48);
 
-        drawList->AddCircle(avatarCenter, (avatarSize * 0.5f) + 1.f, ringColor, 48, 2.f);
+                if (!displayName.empty())
+                {
+                    const unsigned char rawChar = static_cast<unsigned char>(displayName.front());
+                    const char initial = static_cast<char>(std::toupper(rawChar));
+                    char buffer[2] = {initial, '\0'};
+                    const ImVec2 initialSize = font->CalcTextSizeA(levelFontSize, FLT_MAX, 0.f, buffer, buffer + 1);
+                    const ImVec2 initialPos = ImVec2(avatarCenter.x - initialSize.x * 0.5f, avatarCenter.y - initialSize.y * 0.5f);
+                    drawList->AddText(font, levelFontSize, initialPos, ColorWithAlpha(m_style.TextColor, alpha), buffer);
+                }
+            }
+
+            drawList->AddCircle(avatarCenter, (avatarSize * 0.5f) + 1.f, ringColor, 48, 2.f);
+        }
 
         const ImU32 textColor = ColorWithAlpha(m_style.TextColor, alpha);
-        drawList->AddText(font, nameFontSize, textTopLeft, textColor, displayName.data(), displayName.data() + displayName.size());
+        drawList->AddText(font, nameFontSize, namePos, textColor, displayName.data(), displayName.data() + displayName.size());
 
-        const ImU32 levelColor = ColorWithAlpha(m_style.LevelTextColor, alpha);
-        drawList->AddText(font, levelFontSize, levelPos, levelColor, levelText.c_str(), levelText.c_str() + levelText.size());
+        if (showLevel)
+        {
+            const ImU32 levelColor = ColorWithAlpha(m_style.LevelTextColor, alpha);
+            drawList->AddText(font, levelFontSize, levelPos, levelColor, levelText.c_str(), levelText.c_str() + levelText.size());
+        }
     }
 
     if (pFont)
@@ -681,4 +738,25 @@ ID3D11Device* NameTagService::AcquireD3DDevice() noexcept
 
     m_cachedDevice = std::move(device);
     return m_cachedDevice.Get();
+}
+
+void NameTagService::SetMode(Mode aMode) noexcept
+{
+    switch (aMode)
+    {
+    case Mode::Detailed:
+    case Mode::Basic:
+    case Mode::Hidden:
+    case Mode::Normal:
+        break;
+    default:
+        aMode = Mode::Normal;
+        break;
+    }
+
+    if (m_mode == aMode)
+        return;
+
+    spdlog::debug("[NameTagService] switching mode {}", static_cast<int>(aMode));
+    m_mode = aMode;
 }

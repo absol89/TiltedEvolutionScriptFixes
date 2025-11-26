@@ -139,6 +139,13 @@
         "L": "Grande",
         "XL": "Très grande"
       },
+      "NAMETAG_MODE": "Mode des étiquettes",
+      "NAMETAG_MODES": {
+        "NORMAL": "Classique (avatar + niveau empilé)",
+        "DETAILED": "Compact (avatar + niveau)",
+        "BASIC": "Nom uniquement",
+        "HIDDEN": "Masqué"
+      },
       "BACK": "Retour"
     }
   },

@@ -28,6 +28,7 @@ export class SkyrimtogetherMock extends EventEmitter implements SkyrimTogether {
   private playerName = 'Local Player';
   private showEvents = true;
   private localPlayerId: number;
+  private nametagMode = 0;
   public readonly players$ = playerStore.pipe(selectAllEntities());
   private pendingTeleportRequests = new Set<number>();
 
@@ -303,6 +304,13 @@ export class SkyrimtogetherMock extends EventEmitter implements SkyrimTogether {
     }
     if (this.showEvents) {
       console.log('[mock] updateTradeOffer', entries);
+    }
+  }
+
+  setNameTagMode(mode: number): void {
+    this.nametagMode = mode;
+    if (this.showEvents) {
+      console.log('[mock] setNameTagMode', mode);
     }
   }
 

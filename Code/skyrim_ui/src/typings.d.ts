@@ -740,6 +740,13 @@ interface SkyrimTogether {
   setProfilePicture(imageData: string): void;
 
   /**
+   * Select how player name tags are rendered in the world.
+   *
+   * @param mode Numeric representation of the desired nametag display mode.
+   */
+  setNameTagMode(mode: number): void;
+
+  /**
    * Called when the player clicks the respawn button on the death screen.
    */
   respawnButtonClicked(): void;
