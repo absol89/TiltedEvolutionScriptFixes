@@ -318,9 +318,11 @@ void NameTagService::OnDraw() noexcept
         ID3D11ShaderResourceView* avatarView = avatarTexture ? avatarTexture->Texture.Get() : nullptr;
         const ImU32 ringColor = ColorWithAlpha(m_style.AvatarRingColor, alpha);
 
+        const float avatarRounding = avatarSize * 0.5f;
         if (avatarView)
         {
-            drawList->AddImage(avatarView, avatarMin, avatarMax);
+            drawList->AddImageRounded(avatarView, avatarMin, avatarMax, ImVec2(0.f, 0.f), ImVec2(1.f, 1.f), IM_COL32_WHITE, avatarRounding,
+                                      ImDrawFlags_RoundCornersAll);
         }
         else
         {
