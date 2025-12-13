@@ -8,8 +8,21 @@
 #include <Services/PlayerService.h>
 #include <Services/TradeService.h>
 #include <Services/NameTagService.h>
+#include <Services/OverlayService.h>
 
+#include <OverlayApp.hpp>
 #include <Structs/Inventory.h>
+
+#include <DefaultObjectManager.h>
+#include <Games/TES.h>
+#include <Games/ActorExtension.h>
+#include <Games/Animation/ActorMediator.h>
+#include <Games/Animation/TESActionData.h>
+#include <Games/References.h>
+#include <Games/Skyrim/Forms/BGSAction.h>
+#include <Games/Skyrim/Forms/TESIdleForm.h>
+#include <Games/Skyrim/TESObjectREFR.h>
+#include <PlayerCharacter.h>
 
 #include <Messages/SendChatMessageRequest.h>
 #include <Messages/TeleportRequest.h>
@@ -19,6 +32,98 @@
 #include <Events/SetTimeCommandEvent.h>
 
 #include <World.h>
+#include <include/cef_values.h>
+
+extern thread_local bool g_forceAnimation;
+std::atomic<bool> g_emoteWheelActive{false};
+std::string g_emoteEventName{};
+std::chrono::steady_clock::time_point g_emoteLastPlayed{};
+NiPoint3 g_emoteStartPos{};
+NiPoint3 g_emoteStartRot{};
+std::atomic<bool> g_emoteStartValid{false};
+
+namespace
+{
+uint32_t ResolveFallbackActionId(Actor* apActor) noexcept
+{
+    if (!apActor)
+        return 0;
+
+    const auto& latest = apActor->GetExtension()->LatestAnimation;
+    if (latest.ActionId)
+        return latest.ActionId;
+
+    if (auto* pFallbackAction = DefaultObjectManager::Get().someAction)
+        return pFallbackAction->formID;
+
+    return 0;
+}
+
+void PlayEmoteInternal(const std::string& acEventName)
+{
+    World::Get().GetRunner().Queue([eventName = acEventName]()
+    {
+        Actor* pPlayer = PlayerCharacter::Get();
+        if (!pPlayer)
+            return;
+
+        // Ensure hands/weapons are lowered before playing an emote; raised fists can block graph events.
+        pPlayer->SetWeaponDrawnEx(false);
+
+        // Capture the starting transform so any keep-alive replay snaps back to the original pose.
+        g_emoteStartPos = pPlayer->position;
+        g_emoteStartRot = pPlayer->rotation;
+        g_emoteStartValid.store(true);
+
+        if (g_emoteWheelActive.load())
+        {
+            BSFixedString stopEvent("IdleForceDefaultState");
+            pPlayer->SendAnimationEvent(&stopEvent);
+        }
+
+        const auto actionId = ResolveFallbackActionId(pPlayer);
+        auto* pAction = Cast<BGSAction>(TESForm::GetById(actionId));
+        if (!pAction)
+        {
+            spdlog::warn("Unable to play emote '{}': no usable action found", eventName);
+            return;
+        }
+
+        const auto& latest = pPlayer->GetExtension()->LatestAnimation;
+        TESIdleForm* pIdle = latest.IdleId ? Cast<TESIdleForm>(TESForm::GetById(latest.IdleId)) : nullptr;
+
+        // Use the same parameter bits the game already produced; fall back to the common idle param (2)
+        const uint32_t typeBits = latest.Type ? (latest.Type & 0x3) : 2;
+        const bool instantFlag = (latest.Type & 0x4) != 0;
+
+        TESActionData actionData(typeBits, pPlayer, pAction, nullptr);
+        actionData.eventName = BSFixedString(eventName.c_str());
+        actionData.idleForm = pIdle;
+        actionData.someFlag = instantFlag ? 1u : 0u;
+
+        g_forceAnimation = true;
+        ActorMediator::Get()->PerformAction(&actionData);
+        g_forceAnimation = false;
+        g_emoteWheelActive.store(true);
+        g_emoteEventName = eventName;
+        g_emoteLastPlayed = std::chrono::steady_clock::now();
+
+        // If the user chose a stop/clear emote, don't keep a stale transform around.
+        if (g_emoteEventName == "IdleForceDefaultState" || g_emoteEventName == "IdleStopInstant")
+            g_emoteStartValid.store(false);
+        else
+        {
+            if (auto* pOverlayApp = World::Get().GetOverlayService().GetOverlayApp())
+            {
+                auto pArgs = CefListValue::Create();
+                pArgs->SetString(0, "Press . to cancel emote");
+                pArgs->SetInt(1, 0); // Persist until explicitly cleared
+                pOverlayApp->ExecuteAsync("showBanner", pArgs);
+            }
+        }
+    });
+}
+}
 
 OverlayClient::OverlayClient(TransportService& aTransport, TiltedPhoques::OverlayRenderHandler* apHandler)
     : TiltedPhoques::OverlayClient(apHandler)
@@ -112,6 +217,8 @@ bool OverlayClient::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefR
             bool ready = eventArgs->GetBool(0);
             World::Get().GetTradeService().SetReady(ready);
         }
+        else if (eventName == "playEmote")
+            ProcessPlayEmote(eventArgs);
         else if (eventName == "updateTradeOffer")
         {
             TiltedPhoques::Vector<TradeService::OfferSelection> selections;
@@ -291,6 +398,18 @@ void OverlayClient::ProcessSetNameTagMode(CefRefPtr<CefListValue> aEventArgs)
 void OverlayClient::ProcessToggleDebugUI()
 {
     World::Get().GetDebugService().m_showDebugStuff = !World::Get().GetDebugService().m_showDebugStuff;
+}
+
+void OverlayClient::ProcessPlayEmote(CefRefPtr<CefListValue> aEventArgs)
+{
+    if (!aEventArgs || aEventArgs->GetSize() < 1)
+        return;
+
+    const std::string eventName = aEventArgs->GetString(0).ToString();
+    if (eventName.empty() || eventName.size() > 64)
+        return;
+
+    PlayEmoteInternal(eventName);
 }
 
 void OverlayClient::SetUIVisible(bool aVisible) noexcept

@@ -28,7 +28,9 @@
 #include <Messages/RequestPlayerHealthUpdate.h>
 #include <Messages/NotifyPlayerHealthUpdate.h>
 
+#include <DefaultObjectManager.h>
 #include <Structs/GridCellCoords.h>
+#include <EquipManager.h>
 
 #include <Events/ConnectedEvent.h>
 #include <Events/DisconnectedEvent.h>
@@ -41,6 +43,11 @@
 #include <Forms/TESWorldSpace.h>
 #include <Forms/TESObjectCELL.h>
 #include <Games/ActorExtension.h>
+#include <AI/Movement/PlayerControls.h>
+#include <Services/OverlayClient.h>
+#include <Misc/BSFixedString.h>
+#include <string>
+#include <chrono>
 
 using TiltedPhoques::OverlayRenderHandler;
 using TiltedPhoques::OverlayRenderHandlerD3D11;
@@ -302,6 +309,93 @@ void OverlayService::OnUpdate(const UpdateEvent&) noexcept
 {
     RunDebugDataUpdates();
     RunPlayerHealthUpdates();
+
+    // Allow cancelling emotes from the keyboard even when the menu is closed.
+    const bool cancelRequested = (GetAsyncKeyState(VK_OEM_PERIOD) & 0x8001) != 0;
+    if (cancelRequested)
+    {
+        if (auto* pPlayer = PlayerCharacter::Get())
+        {
+            if (auto* pExt = pPlayer->GetExtension())
+            {
+                pExt->LatestAnimation = {};
+            }
+
+            BSFixedString stopEvent("IdleForceDefaultState");
+            BSFixedString stopInstant("IdleStopInstant");
+            pPlayer->SendAnimationEvent(&stopInstant);
+            pPlayer->SendAnimationEvent(&stopEvent);
+            g_emoteWheelActive.store(false);
+            g_emoteEventName.clear();
+            g_emoteStartValid.store(false);
+
+            // Re-equip current weapons/spells to refresh combat state (prevents stuck hands).
+            if (auto* pEquipManager = EquipManager::Get())
+            {
+                auto& defaults = DefaultObjectManager::Get();
+
+                TESForm* pLeftSpell = pPlayer->magicItems[0];
+                TESForm* pRightSpell = pPlayer->magicItems[1];
+
+                TESForm* pLeftWeapon = pLeftSpell ? nullptr : pPlayer->GetEquippedWeapon(0);
+                TESForm* pRightWeapon = pRightSpell ? nullptr : pPlayer->GetEquippedWeapon(1);
+                TESForm* pTwoHand = (pLeftWeapon && pRightWeapon && pLeftWeapon == pRightWeapon) ? pLeftWeapon : nullptr;
+
+                if (pLeftSpell)
+                    pEquipManager->EquipSpell(pPlayer, pLeftSpell, 0);
+                else if (pLeftWeapon && !pTwoHand)
+                    pEquipManager->Equip(pPlayer, pLeftWeapon, nullptr, 1, defaults.leftEquipSlot, false, true, false, false);
+
+                if (pRightSpell)
+                    pEquipManager->EquipSpell(pPlayer, pRightSpell, 1);
+                else if (pTwoHand)
+                    pEquipManager->Equip(pPlayer, pTwoHand, nullptr, 1, defaults.eitherEquipSlot, false, true, false, false);
+                else if (pRightWeapon)
+                    pEquipManager->Equip(pPlayer, pRightWeapon, nullptr, 1, defaults.rightEquipSlot, false, true, false, false);
+
+                if (auto* pAmmo = pPlayer->GetEquippedAmmo())
+                    pEquipManager->Equip(pPlayer, pAmmo, nullptr, 1, defaults.rightEquipSlot, false, true, false, false);
+
+                if (auto* pShout = pPlayer->equippedShout)
+                    pEquipManager->EquipShout(pPlayer, pShout);
+            }
+
+            if (m_pOverlay)
+            {
+                auto pArgs = CefListValue::Create();
+                pArgs->SetString(0, "Emote cancelled");
+                pArgs->SetInt(1, 2000);
+                m_pOverlay->ExecuteAsync("showBanner", pArgs);
+            }
+        }
+    }
+
+    // Keep looping emotes that have a timeout
+    if (g_emoteWheelActive.load())
+    {
+        // Keep looping emotes that have a timeout
+        if (!g_emoteEventName.empty() && g_emoteEventName != "IdleForceDefaultState" && g_emoteEventName != "IdleStopInstant")
+        {
+            static constexpr auto kKeepAlive = std::chrono::seconds(2);
+            const auto now = std::chrono::steady_clock::now();
+            if (now - g_emoteLastPlayed > kKeepAlive)
+            {
+                if (auto* pPlayer = PlayerCharacter::Get())
+                {
+                    if (g_emoteStartValid.load())
+                    {
+                        // Snap back to the same transform we started from so looping emotes don't drift.
+                        pPlayer->position = g_emoteStartPos;
+                        pPlayer->SetRotation(g_emoteStartRot.x, g_emoteStartRot.y, g_emoteStartRot.z);
+                    }
+
+                    BSFixedString keepAlive(g_emoteEventName.c_str());
+                    pPlayer->SendAnimationEvent(&keepAlive);
+                    g_emoteLastPlayed = now;
+                }
+            }
+        }
+    }
 }
 
 void OverlayService::OnConnectedEvent(const ConnectedEvent& acEvent) noexcept

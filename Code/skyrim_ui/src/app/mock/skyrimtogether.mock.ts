@@ -121,6 +121,13 @@ export class SkyrimtogetherMock extends EventEmitter implements SkyrimTogether {
     this.sendMessage(MessageTypes.SYSTEM_MESSAGE, 'Revealing players...');
   }
 
+  playEmote(eventName: string): void {
+    this.sendMessage(
+      MessageTypes.SYSTEM_MESSAGE,
+      `Playing emote "${eventName}"`,
+    );
+  }
+
   setTime(hours: number, minutes: number): void {
     this.sendMessage(
       MessageTypes.SYSTEM_MESSAGE,
@@ -209,6 +216,18 @@ export class SkyrimtogetherMock extends EventEmitter implements SkyrimTogether {
     if (this.connected) {
       this.emit('partyCreated');
     }
+  }
+
+  showBanner(message: string, durationMs?: number): void {
+    this.emit('showBanner', message, durationMs);
+  }
+
+  openEmoteMenu(openedFromInactive?: boolean): void {
+    this.emit('openEmoteMenu', openedFromInactive);
+  }
+
+  toggleEmoteMenu(): void {
+    this.emit('toggleEmoteMenu');
   }
 
   createPartyInvite(playerId: number): void {

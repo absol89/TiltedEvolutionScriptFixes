@@ -147,6 +147,14 @@ declare namespace SkyrimTogetherTypes {
     reason: string,
   ) => void;
 
+  /** Banner notification payload */
+  type BannerCallback = (message: string, durationMs?: number) => void;
+
+  /** Emote menu open request */
+  type OpenEmoteMenuCallback = (openedFromInactive?: boolean) => void;
+  /** Emote menu toggle request */
+  type ToggleEmoteMenuCallback = () => void;
+
   type TradeInviteCallback = (inviterId: number, expiryTick: number) => void;
   type TradeInviteExpiredCallback = (inviterId: number) => void;
 
@@ -344,6 +352,20 @@ interface SkyrimTogether {
     event: 'teleportCountdown',
     callback: SkyrimTogetherTypes.TeleportCountdownCallback,
   ): void;
+
+  /** Add listener to open the emote menu from native input. */
+  on(
+    event: 'openEmoteMenu',
+    callback: SkyrimTogetherTypes.OpenEmoteMenuCallback,
+  ): void;
+  /** Add listener to toggle the emote menu from native input. */
+  on(
+    event: 'toggleEmoteMenu',
+    callback: SkyrimTogetherTypes.ToggleEmoteMenuCallback,
+  ): void;
+
+  /** Add listener to transient overlay banners. */
+  on(event: 'showBanner', callback: SkyrimTogetherTypes.BannerCallback): void;
 
   /** Add listener to when the death screen is shown. */
   on(
@@ -554,6 +576,20 @@ interface SkyrimTogether {
     callback?: SkyrimTogetherTypes.TeleportCountdownCallback,
   ): void;
 
+  /** Remove listener from emote menu open requests. */
+  off(
+    event: 'openEmoteMenu',
+    callback?: SkyrimTogetherTypes.OpenEmoteMenuCallback,
+  ): void;
+  /** Remove listener from emote menu toggle requests. */
+  off(
+    event: 'toggleEmoteMenu',
+    callback?: SkyrimTogetherTypes.ToggleEmoteMenuCallback,
+  ): void;
+
+  /** Remove listener from overlay banners. */
+  off(event: 'showBanner', callback?: SkyrimTogetherTypes.BannerCallback): void;
+
   /** Remove listener from when the death screen is shown. */
   off(
     event: 'showDeathScreen',
@@ -624,6 +660,13 @@ interface SkyrimTogether {
    * Reveal other players in the immediate area.
    */
   revealPlayers(): void;
+
+  /**
+   * Trigger a pre-defined emote animation on the local player.
+   *
+   * @param eventName Animation graph event to fire.
+   */
+  playEmote(eventName: string): void;
 
   /**
    * Send message to server.

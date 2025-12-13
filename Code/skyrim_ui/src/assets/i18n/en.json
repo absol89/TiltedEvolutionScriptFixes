@@ -148,8 +148,114 @@
       "REVEAL_PLAYERS": "Reveal Players",
       "RECONNECT": "Reconnect",
       "PLAYER_MANAGER": "Player Manager",
+      "EMOTES": "Emotes",
       "SETTINGS": "Settings",
       "CONNECTION_IN_PROGRESS": "Connection in progress..."
+    },
+    "EMOTE_MENU": {
+      "TITLE": "Emote Wheel",
+      "EYEBROW": "Express yourself",
+      "SUBTITLE": "Pick a pose or flourish; the animation plays for everyone nearby.",
+      "HINT": "Tap B to reopen quickly",
+      "NO_RESULTS": "No emotes in this category",
+      "FILTERS": {
+        "GREETING": "Greetings",
+        "MUSIC": "Music",
+        "SOCIAL": "Social",
+        "RELAX": "Relax",
+        "MISC": "Utility"
+      },
+      "CLOSE": "Close menu",
+      "EMOTES": {
+        "WAVE": {
+          "TITLE": "Wave",
+          "DESC": "Friendly greeting with a quick arm sweep."
+        },
+        "PRAY": {
+          "TITLE": "Kneel & Pray",
+          "DESC": "Drop to one knee and offer a silent prayer."
+        },
+        "WARM_HANDS": {
+          "TITLE": "Warm Hands",
+          "DESC": "Rub your hands together like you are gathered around a fire."
+        },
+        "HANDS_BEHIND_BACK": {
+          "TITLE": "Hands Behind Back",
+          "DESC": "Stand at ease."
+        },
+        "SIT": {
+          "TITLE": "Sit",
+          "DESC": "Sit cross-legged and rest for a moment."
+        },
+        "LEAN": {
+          "TITLE": "Lean",
+          "DESC": "Lean against nearby cover and take a breather."
+        },
+        "DRINK": {
+          "TITLE": "Drink",
+          "DESC": "Take a hearty sip from your mug."
+        },
+        "EAT": {
+          "TITLE": "Snack",
+          "DESC": "Take a bite from your provisions."
+        },
+        "CLAP": {
+          "TITLE": "Clap",
+          "DESC": "Clap enthusiastically."
+        },
+        "CHEER": {
+          "TITLE": "Cheer",
+          "DESC": "Pump both arms in celebration."
+        },
+        "DANCE_CICERO_1": {
+          "TITLE": "Dance (Wild Jig)",
+          "DESC": "Spin and kick like a jester."
+        },
+        "DANCE_CICERO_2": {
+          "TITLE": "Dance (Clap & Step)",
+          "DESC": "Clap in rhythm and shuffle your feet."
+        },
+        "DANCE_CICERO_3": {
+          "TITLE": "Dance (Twirl)",
+          "DESC": "Twirl dramatically like Cicero."
+        },
+        "DRUM": {
+          "TITLE": "Drum Solo",
+          "DESC": "Bust out a deep, percussive rhythm."
+        },
+        "LAUGH": {
+          "TITLE": "Laugh",
+          "DESC": "Laugh out loud at the scene."
+        },
+        "WALL_LEAN": {
+          "TITLE": "Wall Lean",
+          "DESC": "Lean back and take a rest."
+        },
+        "COWER": {
+          "TITLE": "Cower",
+          "DESC": "Curl up defensively."
+        },
+        "BEGGAR": {
+          "TITLE": "Beg",
+          "DESC": "Sit and hold out your hands."
+        },
+        "SWEEP": {
+          "TITLE": "Sweep",
+          "DESC": "Grab a broom and tidy up the floor."
+        },
+        "FLUTE": {
+          "TITLE": "Flute",
+          "DESC": "Play a light tune to break the silence."
+        },
+        "LUTE": {
+          "TITLE": "Lute",
+          "DESC": "Strum a bardic chord progression."
+        },
+        "STOP": {
+          "TITLE": "Reset",
+          "DESC": "Cancel the current emote and return to idle."
+        }
+      }
     },
     "SERVER_LIST": {
       "SEARCH": "Search...",

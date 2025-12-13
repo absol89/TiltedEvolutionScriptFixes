@@ -9,6 +9,7 @@
 #include <WindowsHook.hpp>
 
 #include <include/internal/cef_types.h>
+#include <include/cef_values.h>
 #include <Services/ImguiService.h>
 #include <Services/DiscordService.h>
 #include <World.h>
@@ -92,10 +93,20 @@ bool IsToggleKey(int aKey) noexcept
     return aKey == VK_RCONTROL || aKey == VK_F2;
 }
 
+static constexpr uint16_t kScanCodeB = 0x30;
+static constexpr uint16_t kVirtualKeyB = 98;
+
+bool IsEmoteKey(uint16_t aVirtualKey, uint16_t aScanCode) noexcept
+{
+    return aVirtualKey == kVirtualKeyB || aScanCode == kScanCodeB;
+}
+
 bool IsDisableKey(int aKey) noexcept
 {
     return aKey == VK_ESCAPE;
 }
+
+static bool s_emoteOpenedFromInactive = false;
 
 void SetUIActive(OverlayService& aOverlay, auto apRenderer, bool aActive)
 {
@@ -200,6 +211,48 @@ void ProcessKeyboard(uint16_t aKey, uint16_t aScanCode, cef_key_event_type_t aTy
         else if (aType == KEYEVENT_KEYUP)
         {
             SetUIActive(overlay, pRenderer, !active);
+        }
+    }
+    else if (IsEmoteKey(aKey, aScanCode))
+    {
+        if (!overlay.GetInGame())
+        {
+            if (auto* pApp = overlay.GetOverlayApp())
+            {
+                pApp->InjectKey(aType, GetCefModifiers(aKey), aKey, aScanCode);
+            }
+            return;
+        }
+
+        if (aType == KEYEVENT_CHAR)
+        {
+            const bool wasActive = active;
+            if (!wasActive)
+                SetUIActive(overlay, pRenderer, true);
+
+            auto* pApp = overlay.GetOverlayApp();
+            // If we just activated the overlay, fetch again in case it was spun up.
+            if (!pApp && !wasActive)
+                pApp = overlay.GetOverlayApp();
+            if (pApp)
+            {
+                if (wasActive)
+                {
+                    pApp->ExecuteAsync("toggleEmoteMenu");
+                    if (s_emoteOpenedFromInactive)
+                    {
+                        s_emoteOpenedFromInactive = false;
+                        SetUIActive(overlay, pRenderer, false);
+                    }
+                }
+                else
+                {
+                    auto pArgs = CefListValue::Create();
+                    pArgs->SetBool(0, true); // opened from inactive overlay
+                    pApp->ExecuteAsync("openEmoteMenu", pArgs);
+                    s_emoteOpenedFromInactive = true;
+                }
+            }
         }
     }
     else if (active)

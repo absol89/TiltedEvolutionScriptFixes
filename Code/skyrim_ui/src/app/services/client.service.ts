@@ -302,6 +302,12 @@ export class ClientService implements OnDestroy {
       'stopReviveHealerProgress',
       this.onStopReviveHealerProgress.bind(this),
     );
+    skyrimtogether.on('showBanner', this.onShowBanner.bind(this));
+    skyrimtogether.on('openEmoteMenu', this.onOpenEmoteMenu.bind(this));
+    (skyrimtogether as any).on(
+      'toggleEmoteMenu',
+      this.onToggleEmoteMenu.bind(this),
+    );
   }
 
   /**
@@ -344,6 +350,17 @@ export class ClientService implements OnDestroy {
     skyrimtogether.off('tradeCancelled');
     skyrimtogether.off('tradeCompleted');
     (skyrimtogether as any).off('setPartyPins');
+    skyrimtogether.off('showBanner');
+    skyrimtogether.off('openEmoteMenu');
+    (skyrimtogether as any).off('toggleEmoteMenu');
+    skyrimtogether.off('showDeathScreen');
+    skyrimtogether.off('updateDeathTimer');
+    skyrimtogether.off('enableRespawnButton');
+    skyrimtogether.off('hideDeathScreen');
+    skyrimtogether.off('updateReviveVictimProgress');
+    skyrimtogether.off('stopReviveVictimProgress');
+    skyrimtogether.off('updateReviveHealerProgress');
+    skyrimtogether.off('stopReviveHealerProgress');
   }
 
   /**
@@ -388,6 +405,16 @@ export class ClientService implements OnDestroy {
    */
   public revealPlayers(): void {
     skyrimtogether.revealPlayers();
+  }
+
+  /**
+   * Trigger an emote animation locally (and sync it to other players).
+   */
+  public playEmote(eventName: string): void {
+    if (!eventName) {
+      return;
+    }
+    skyrimtogether.playEmote(eventName);
   }
 
   /**
@@ -836,6 +863,41 @@ export class ClientService implements OnDestroy {
         this.uiRepository.openView(View.CONNECT);
       }
       void this.errorService.setError(error);
+    });
+  }
+
+  private emoteOpenedFromInactive = false;
+
+  private onOpenEmoteMenu(openedFromInactive?: boolean) {
+    this.emoteOpenedFromInactive = !!openedFromInactive;
+    this.zone.run(() => {
+      this.activationStateChange.next(true);
+      this.uiRepository.openView(View.EMOTES);
+    });
+  }
+
+  private onToggleEmoteMenu() {
+    this.zone.run(() => {
+      const currentView = this.uiRepository.getView();
+      if (currentView === View.EMOTES) {
+        this.uiRepository.closeView();
+        if (this.emoteOpenedFromInactive) {
+          this.emoteOpenedFromInactive = false;
+          this.deactivate();
+        }
+      }
+    });
+  }
+
+  private onShowBanner(message: string, durationMs?: number) {
+    this.zone.run(() => {
+      this.overlayBannerService.show(
+        {
+          primary: message,
+          tone: 'info',
+        },
+        durationMs && durationMs > 0 ? durationMs : undefined,
+      );
     });
   }
 

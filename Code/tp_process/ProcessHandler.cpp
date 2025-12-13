@@ -34,8 +34,12 @@ void ProcessHandler::OnContextCreated(CefRefPtr<CefBrowser> browser, CefRefPtr<C
     m_pCoreObject->SetValue("cancelTrade", CefV8Value::CreateFunction("cancelTrade", m_pOverlayHandler), V8_PROPERTY_ATTRIBUTE_NONE);
     m_pCoreObject->SetValue("setTradeReady", CefV8Value::CreateFunction("setTradeReady", m_pOverlayHandler), V8_PROPERTY_ATTRIBUTE_NONE);
     m_pCoreObject->SetValue("updateTradeOffer", CefV8Value::CreateFunction("updateTradeOffer", m_pOverlayHandler), V8_PROPERTY_ATTRIBUTE_NONE);
+    m_pCoreObject->SetValue("playEmote", CefV8Value::CreateFunction("playEmote", m_pOverlayHandler), V8_PROPERTY_ATTRIBUTE_NONE);
+    m_pCoreObject->SetValue("openEmoteMenu", CefV8Value::CreateFunction("openEmoteMenu", m_pOverlayHandler), V8_PROPERTY_ATTRIBUTE_NONE);
     m_pCoreObject->SetValue("toggleDebugUI", CefV8Value::CreateFunction("toggleDebugUI", m_pOverlayHandler), V8_PROPERTY_ATTRIBUTE_NONE);
     m_pCoreObject->SetValue("respawnButtonClicked", CefV8Value::CreateFunction("respawnButtonClicked", m_pOverlayHandler), V8_PROPERTY_ATTRIBUTE_NONE);
+    m_pCoreObject->SetValue("showBanner", CefV8Value::CreateFunction("showBanner", m_pOverlayHandler), V8_PROPERTY_ATTRIBUTE_NONE);
+    m_pCoreObject->SetValue("toggleEmoteMenu", CefV8Value::CreateFunction("toggleEmoteMenu", m_pOverlayHandler), V8_PROPERTY_ATTRIBUTE_NONE);
 }
 
 void ProcessHandler::OnContextReleased(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefV8Context> context)

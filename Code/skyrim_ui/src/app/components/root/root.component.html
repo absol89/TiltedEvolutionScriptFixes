@@ -92,6 +92,14 @@
     </app-window>
     <app-window class="app-root-chat">
       <app-chat #chat></app-chat>
+      <button
+        class="emote-quick-button"
+        data-style-ornament="inverted"
+        (click)="openEmoteWheel()"
+      >
+        {{ 'COMPONENT.ROOT.EMOTES' | transloco }}
+        <span class="hotkey-tag">B</span>
+      </button>
     </app-window>
   </div>
   <div [@fadeInOutActive]="active$ | async" class="app-root-popups">
@@ -121,6 +129,9 @@
         data-popup="playerManager"
       >
         <app-player-manager (done)="closeView()"></app-player-manager>
+      </app-popup>
+      <app-popup *ngSwitchCase="RootView.EMOTES" data-popup="emotes">
+        <app-emote-menu (done)="closeView()"></app-emote-menu>
       </app-popup>
       <app-popup *ngSwitchCase="RootView.TRADE" data-popup="trade">
         <app-trade-popup></app-trade-popup>

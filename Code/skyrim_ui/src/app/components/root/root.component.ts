@@ -144,6 +144,10 @@ export class RootComponent implements OnInit {
     this.client.reconnect();
   }
 
+  public openEmoteWheel(): void {
+    this.setView(this.RootView.EMOTES);
+  }
+
   public revealPlayers(): void {
     if (this.revealingInProgress$) return;
 

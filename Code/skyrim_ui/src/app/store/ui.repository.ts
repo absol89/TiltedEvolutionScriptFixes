@@ -15,6 +15,7 @@ interface UiProps {
   hideVersionMismatchedServers: boolean;
   hideFullServers: boolean;
   hidePasswordProtectedServers: boolean;
+  emoteCategory: string;
 }
 
 const uiStore = createStore(
@@ -31,6 +32,7 @@ const uiStore = createStore(
     hideVersionMismatchedServers: true,
     hideFullServers: true,
     hidePasswordProtectedServers: true,
+    emoteCategory: 'greeting',
   }),
 );
 
@@ -117,6 +119,10 @@ export class UiRepository {
     return uiStore.getValue().hidePasswordProtectedServers;
   }
 
+  getEmoteCategory(): string {
+    return uiStore.getValue().emoteCategory ?? 'greeting';
+  }
+
   setHideVersionMismatchedServers(hideVersionMismatchedServers: boolean) {
     uiStore.update(state => ({
       ...state,
@@ -135,6 +141,13 @@ export class UiRepository {
     uiStore.update(state => ({
       ...state,
       hidePasswordProtectedServers,
+    }));
+  }
+
+  setEmoteCategory(category: string) {
+    uiStore.update(state => ({
+      ...state,
+      emoteCategory: category ?? 'greeting',
     }));
   }
 
