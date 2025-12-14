@@ -116,6 +116,40 @@ bool EnsureColumnExists(sqlite3* apDatabase, const char* acSql) noexcept
     return false;
 }
 
+TiltedPhoques::Vector<GameId> FetchCreationEnginePickupsForCell(sqlite3* apDatabase, const GameId& acCellId, bool aHasWorldFilter, const GameId& acWorldId) noexcept
+{
+    TiltedPhoques::Vector<GameId> result{};
+    if (!apDatabase || !acCellId)
+        return result;
+
+    const char* sql = aHasWorldFilter
+        ? "SELECT engine_mod_id, engine_base_id FROM creation_engine_pickups WHERE cell_mod_id = ?1 AND cell_base_id = ?2 AND world_mod_id = ?3 AND world_base_id = ?4;"
+        : "SELECT engine_mod_id, engine_base_id FROM creation_engine_pickups WHERE cell_mod_id = ?1 AND cell_base_id = ?2;";
+
+    StatementPtr statement = PrepareStatement(apDatabase, sql);
+    if (!statement)
+        return result;
+
+    sqlite3_bind_int(statement.get(), 1, static_cast<int>(acCellId.ModId));
+    sqlite3_bind_int(statement.get(), 2, static_cast<int>(acCellId.BaseId));
+    if (aHasWorldFilter)
+    {
+        sqlite3_bind_int(statement.get(), 3, static_cast<int>(acWorldId.ModId));
+        sqlite3_bind_int(statement.get(), 4, static_cast<int>(acWorldId.BaseId));
+    }
+
+    while (sqlite3_step(statement.get()) == SQLITE_ROW)
+    {
+        GameId ref{};
+        ref.ModId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 0));
+        ref.BaseId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 1));
+        if (ref)
+            result.push_back(ref);
+    }
+
+    return result;
+}
+
 std::string SerializeEntryBlob(const Inventory::Entry& acEntry) noexcept
 {
     TiltedPhoques::Buffer buffer(1 << 12);
@@ -774,8 +808,11 @@ void DropService::OnDroppedItemsRequest(const PacketEvent<RequestDroppedItems>& 
             appendEntry(drop);
     }
 
+    if (!request.RequestAll && request.HasCellFilter)
+        notify.CreationEnginePickedUpReferences = FetchCreationEnginePickupsForCell(m_pCreationEngineDatabase, request.CellId, request.HasWorldSpaceFilter, request.WorldSpaceId);
+
     acMessage.pPlayer->Send(notify);
-    spdlog::info("DropService: sent {} drops in response to request {}", notify.Entries.size(), request.RequestId);
+    spdlog::info("DropService: sent {} drops and {} creation-engine pickups in response to request {}", notify.Entries.size(), notify.CreationEnginePickedUpReferences.size(), request.RequestId);
 }
 
 void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept

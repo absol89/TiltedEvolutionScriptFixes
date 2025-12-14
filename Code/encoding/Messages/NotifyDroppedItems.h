@@ -44,9 +44,10 @@ struct NotifyDroppedItems final : ServerMessage
 
     bool operator==(const NotifyDroppedItems& acRhs) const noexcept
     {
-        return GetOpcode() == acRhs.GetOpcode() && RequestId == acRhs.RequestId && Entries == acRhs.Entries;
+        return GetOpcode() == acRhs.GetOpcode() && RequestId == acRhs.RequestId && Entries == acRhs.Entries && CreationEnginePickedUpReferences == acRhs.CreationEnginePickedUpReferences;
     }
 
     uint32_t RequestId{};
     TiltedPhoques::Vector<Entry> Entries{};
+    TiltedPhoques::Vector<GameId> CreationEnginePickedUpReferences{};
 };

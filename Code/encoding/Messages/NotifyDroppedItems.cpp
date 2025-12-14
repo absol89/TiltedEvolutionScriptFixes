@@ -25,6 +25,10 @@ void NotifyDroppedItems::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) co
         entry.WorldSpaceId.Serialize(aWriter);
         entry.ReferenceId.Serialize(aWriter);
     }
+
+    Serialization::WriteVarInt(aWriter, CreationEnginePickedUpReferences.size());
+    for (const auto& referenceId : CreationEnginePickedUpReferences)
+        referenceId.Serialize(aWriter);
 }
 
 void NotifyDroppedItems::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) noexcept
@@ -58,5 +62,15 @@ void NotifyDroppedItems::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) 
         entry.ReferenceId.Deserialize(aReader);
 
         Entries.push_back(std::move(entry));
+    }
+
+    const auto pickupCount = Serialization::ReadVarInt(aReader);
+    CreationEnginePickedUpReferences.clear();
+    CreationEnginePickedUpReferences.reserve(pickupCount);
+    for (size_t i = 0; i < pickupCount; ++i)
+    {
+        GameId referenceId{};
+        referenceId.Deserialize(aReader);
+        CreationEnginePickedUpReferences.push_back(std::move(referenceId));
     }
 }

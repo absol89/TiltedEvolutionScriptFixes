@@ -32,6 +32,8 @@ public:
     ~DropService();
 
 private:
+    struct DropSyncContext;
+
     void OnDropEvent(const DropItemEvent& acEvent) noexcept;
     void OnPickupEvent(const PickupDroppedItemEvent& acEvent) noexcept;
     void OnNotifyDrop(const NotifyActorDrop& acMessage) noexcept;
@@ -58,6 +60,8 @@ private:
     TESObjectREFR* GetReferenceById(const GameId& acReferenceId) noexcept;
     bool HandleUntrackedPickup(const NotifyDroppedItemPickedUp& acMessage) noexcept;
     void ReconcileCachedDrops(const GameId& acCellId, const GameId& acWorldId, const TiltedPhoques::Vector<uint64_t>& acAuthoritativeDropIds) noexcept;
+    void ApplyCreationEngineCellSync(const DropSyncContext& acContext, const TiltedPhoques::Vector<GameId>& acPickedUpRefs) noexcept;
+    void ProcessPendingCreationEngineRemovals() noexcept;
     GameId GetPlayerCellId() noexcept;
     GameId GetPlayerWorldId() noexcept;
     void RequestCellSync() noexcept;
@@ -107,4 +111,13 @@ private:
     std::unordered_map<uint32_t, DropSyncContext> m_pendingDropSyncs;
     // Tracks the latest spawn epoch processed per server drop to ignore stale notifications
     TiltedPhoques::Map<uint64_t, uint64_t> m_knownSpawnEpochs;
+
+    struct PendingCreationEngineRemoval
+    {
+        GameId CellId{};
+        GameId WorldSpaceId{};
+        uint32_t RemainingRetries{0};
+    };
+
+    std::unordered_map<GameId, PendingCreationEngineRemoval> m_pendingCreationEngineRemovals;
 };

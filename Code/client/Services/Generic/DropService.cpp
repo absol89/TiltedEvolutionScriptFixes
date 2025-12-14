@@ -578,18 +578,20 @@ bool DropService::IsPickupRelevant(const NotifyDroppedItemPickedUp& acMessage) n
 
 void DropService::OnNotifyDroppedItems(const NotifyDroppedItems& acMessage) noexcept
 {
-    spdlog::info("DropService: received {} drops from server (request {})", acMessage.Entries.size(), acMessage.RequestId);
+    spdlog::info("DropService: received {} drops and {} creation-engine pickups from server (request {})", acMessage.Entries.size(), acMessage.CreationEnginePickedUpReferences.size(), acMessage.RequestId);
     HandleDropSyncResponse(acMessage);
 }
 
 void DropService::OnConnected(const ConnectedEvent&) noexcept
 {
     EnsureStorageReady();
+    m_pendingCreationEngineRemovals.clear();
     RequestCellSync();
 }
 
 void DropService::OnCellChange(const CellChangeEvent& acEvent) noexcept
 {
+    m_pendingCreationEngineRemovals.clear();
     SendDropSyncRequest(false, true, acEvent.CellId, true, acEvent.WorldSpaceId);
 }
 
@@ -619,6 +621,8 @@ void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept
             g_materializeGrace.erase(id);
         }
     }
+
+    ProcessPendingCreationEngineRemovals();
 
     if (m_pendingActions.empty())
         return;
@@ -778,6 +782,7 @@ void DropService::HandleDropSyncResponse(const NotifyDroppedItems& acMessage) no
     if (context && !context->IsFullSync)
     {
         ReconcileCachedDrops(context->CellId, context->WorldSpaceId, serverDropIds);
+        ApplyCreationEngineCellSync(*context, acMessage.CreationEnginePickedUpReferences);
     }
     else if (context && context->IsFullSync)
     {
@@ -1177,6 +1182,78 @@ void DropService::ReconcileCachedDrops(const GameId& acCellId, const GameId& acW
 
         m_dropStorage.RemoveCachedDrop(cached.DropId);
     }
+}
+
+void DropService::ApplyCreationEngineCellSync(const DropSyncContext& acContext, const TiltedPhoques::Vector<GameId>& acPickedUpRefs) noexcept
+{
+    if (acPickedUpRefs.empty())
+        return;
+
+    const GameId playerCell = GetPlayerCellId();
+    const GameId playerWorld = GetPlayerWorldId();
+
+    if (acContext.CellId && playerCell && acContext.CellId != playerCell)
+        return;
+
+    if (acContext.WorldSpaceId && playerWorld && acContext.WorldSpaceId != playerWorld)
+        return;
+
+    for (const auto& refId : acPickedUpRefs)
+    {
+        if (!refId)
+            continue;
+
+        if (RemoveReferenceById(refId, "cell sync creation-engine pickup"))
+        {
+            m_pendingCreationEngineRemovals.erase(refId);
+            continue;
+        }
+
+        auto& pending = m_pendingCreationEngineRemovals[refId];
+        pending.CellId = acContext.CellId;
+        pending.WorldSpaceId = acContext.WorldSpaceId;
+        pending.RemainingRetries = 30;
+    }
+}
+
+void DropService::ProcessPendingCreationEngineRemovals() noexcept
+{
+    if (m_pendingCreationEngineRemovals.empty())
+        return;
+
+    const GameId playerCell = GetPlayerCellId();
+    const GameId playerWorld = GetPlayerWorldId();
+
+    TiltedPhoques::Vector<GameId> toErase;
+    toErase.reserve(m_pendingCreationEngineRemovals.size());
+
+    for (auto& [refId, pending] : m_pendingCreationEngineRemovals)
+    {
+        if (!refId || pending.RemainingRetries == 0)
+        {
+            toErase.push_back(refId);
+            continue;
+        }
+
+        if (pending.CellId && playerCell && pending.CellId != playerCell)
+            continue;
+
+        if (pending.WorldSpaceId && playerWorld && pending.WorldSpaceId != playerWorld)
+            continue;
+
+        if (RemoveReferenceById(refId, "cell sync deferred creation-engine pickup"))
+        {
+            toErase.push_back(refId);
+            continue;
+        }
+
+        --pending.RemainingRetries;
+        if (pending.RemainingRetries == 0)
+            toErase.push_back(refId);
+    }
+
+    for (const auto& refId : toErase)
+        m_pendingCreationEngineRemovals.erase(refId);
 }
 
 GameId DropService::GetPlayerCellId() noexcept
