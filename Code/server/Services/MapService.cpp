@@ -50,6 +50,9 @@ void MapService::OnRemoveWaypointRequest(const PacketEvent<RequestRemoveWaypoint
 
 void MapService::OnPartyFastTravelMarkersRequest(const PacketEvent<PartyFastTravelMarkersRequest>& acMessage) noexcept
 {
+    // Client-side gating via ServerSettings should prevent sending/receiving when disabled.
+    // Keep server-side behavior permissive to avoid breaking older clients and mixed versions.
+
     const auto& partyComponent = acMessage.pPlayer->GetParty();
     if (!partyComponent.JoinedPartyId.has_value())
         return;

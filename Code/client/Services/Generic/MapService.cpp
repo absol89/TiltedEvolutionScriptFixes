@@ -158,6 +158,9 @@ void MapService::OnUpdate(const UpdateEvent&) noexcept
     if (!m_world.Get().GetPartyService().IsInParty())
         return;
 
+    if (!m_world.GetServerSettings().SyncPartyFastTravelMarkers)
+        return;
+
     const auto now = m_transport.GetClock().GetCurrentTick();
     if (m_nextMarkerScanTick > now)
         return;
@@ -248,6 +251,9 @@ void MapService::OnNotifyRemoveWaypoint(const NotifyRemoveWaypoint& acMessage) n
 
 void MapService::OnNotifyPartyFastTravelMarkers(const NotifyPartyFastTravelMarkers& acMessage) noexcept
 {
+    if (!m_world.GetServerSettings().SyncPartyFastTravelMarkers)
+        return;
+
     // Queue for retry to handle missing mod resolution / unloaded references.
     for (const auto& marker : acMessage.Markers)
     {
@@ -267,6 +273,9 @@ void MapService::OnNotifyPartyInfo(const NotifyPartyInfo& acMessage) noexcept
         return;
 
     if (!m_world.Get().GetPartyService().IsInParty())
+        return;
+
+    if (!m_world.GetServerSettings().SyncPartyFastTravelMarkers)
         return;
 
     TiltedPhoques::Set<uint32_t> newMembers{};
@@ -303,6 +312,9 @@ void MapService::OnNotifyPartyInfo(const NotifyPartyInfo& acMessage) noexcept
 
 void MapService::OnPartyJoined(const PartyJoinedEvent&) noexcept
 {
+    if (!m_world.GetServerSettings().SyncPartyFastTravelMarkers)
+        return;
+
     // Full sync on join to ensure two-way union.
     const auto& partyService = m_world.Get().GetPartyService();
     m_lastPartyMembers.clear();
@@ -316,6 +328,9 @@ void MapService::OnPartyJoined(const PartyJoinedEvent&) noexcept
 
 void MapService::SyncFastTravelMarkers(bool aForceSendEvenIfEmpty) noexcept
 {
+    if (!m_world.GetServerSettings().SyncPartyFastTravelMarkers)
+        return;
+
     // Force a quick scan and also send a full marker list (or an empty request) to receive the party union.
     m_nextMarkerScanTick = 0;
 
@@ -338,6 +353,9 @@ void MapService::SendFastTravelMarkers(const TiltedPhoques::Vector<GameId>& aMar
     if (!m_world.Get().GetPartyService().IsInParty())
         return;
 
+    if (!m_world.GetServerSettings().SyncPartyFastTravelMarkers)
+        return;
+
     PartyFastTravelMarkersRequest request{};
     request.FullSync = aFullSync;
     request.Markers = aMarkers;
@@ -353,7 +371,7 @@ BSTEventResult MapService::OnEvent(const TESLoadGameEvent*, const EventDispatche
     m_pendingFastTravelMarkers.clear();
     m_nextMarkerScanTick = 0;
 
-    if (m_transport.IsConnected() && m_world.Get().GetPartyService().IsInParty())
+    if (m_world.GetServerSettings().SyncPartyFastTravelMarkers && m_transport.IsConnected() && m_world.Get().GetPartyService().IsInParty())
         SyncFastTravelMarkers(/*aForceSendEvenIfEmpty*/ true);
 
     return BSTEventResult::kOk;
@@ -404,6 +422,9 @@ TiltedPhoques::Vector<GameId> MapService::CollectLocalFastTravelMarkers() const 
 
 void MapService::ProcessPendingFastTravelMarkers() noexcept
 {
+    if (!m_world.GetServerSettings().SyncPartyFastTravelMarkers)
+        return;
+
     if (m_pendingFastTravelMarkers.empty())
         return;
 
