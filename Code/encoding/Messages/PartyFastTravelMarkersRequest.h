@@ -17,6 +17,7 @@ struct PartyFastTravelMarkersRequest final : ClientMessage
     void SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) const noexcept override;
     void DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) noexcept override;
 
+    // When true, Markers represents the sender's complete marker set and should replace the cached set server-side.
+    bool FullSync{false};
     TiltedPhoques::Vector<GameId> Markers{};
 };
-

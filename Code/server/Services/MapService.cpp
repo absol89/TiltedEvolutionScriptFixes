@@ -58,7 +58,43 @@ void MapService::OnPartyFastTravelMarkersRequest(const PacketEvent<PartyFastTrav
     const uint32_t senderPlayerId = acMessage.pPlayer->GetId();
 
     auto& state = m_partyFastTravelMarkers[partyId];
-    auto& senderSet = state.ByPlayer[senderPlayerId];
+    auto* pParty = m_world.GetPartyService().GetById(partyId);
+    if (!pParty)
+        return;
+
+    // Keep the cached state accurate for the current party membership (avoid leaking markers from players who left).
+    TiltedPhoques::Set<uint32_t> memberIds{};
+    memberIds.reserve(pParty->Members.size());
+    for (auto* pMember : pParty->Members)
+    {
+        if (pMember)
+            memberIds.insert(pMember->GetId());
+    }
+
+    auto& byPlayer = state.ByPlayer;
+    TiltedPhoques::Vector<uint32_t> toErase{};
+    toErase.reserve(byPlayer.size());
+
+    for (const auto& entry : byPlayer)
+    {
+        if (!memberIds.contains(entry.first))
+            toErase.push_back(entry.first);
+    }
+
+    for (const auto playerId : toErase)
+        byPlayer.erase(playerId);
+
+    // Rebuild union from per-player sets.
+    state.Union.clear();
+    for (const auto& entry : byPlayer)
+    {
+        for (const auto& marker : entry.second)
+            state.Union.insert(marker);
+    }
+
+    auto& senderSet = byPlayer[senderPlayerId];
+    if (acMessage.Packet.FullSync)
+        senderSet.clear();
 
     TiltedPhoques::Vector<GameId> newToParty{};
     newToParty.reserve(acMessage.Packet.Markers.size());
@@ -142,6 +178,16 @@ void MapService::OnUpdate(const UpdateEvent&) noexcept
 
         for (const auto playerId : toErase)
             byPlayer.erase(playerId);
+
+        // Rebuild union from current party members to avoid keeping markers contributed only by players who left.
+        TiltedPhoques::Set<GameId> newUnion{};
+        for (const auto& entry : byPlayer)
+        {
+            const auto& markers = entry.second;
+            for (const auto& marker : markers)
+                newUnion.insert(marker);
+        }
+        state.Union = std::move(newUnion);
 
         ++it;
     }

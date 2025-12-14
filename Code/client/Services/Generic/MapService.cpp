@@ -9,13 +9,17 @@
 #include <Messages/PartyFastTravelMarkersRequest.h>
 #include <Messages/NotifySetWaypoint.h>
 #include <Messages/NotifyRemoveWaypoint.h>
+#include <Messages/NotifyPartyInfo.h>
 #include <Messages/NotifyPartyFastTravelMarkers.h>
 #include <Messages/RequestSetWaypoint.h>
 #include <Messages/RequestRemoveWaypoint.h>
 
 #include <ExtraData/ExtraMapMarker.h>
+#include <Events/EventDispatcher.h>
 
 #include <PlayerCharacter.h>
+#include <Utils.h>
+#include <Forms/TESWorldSpace.h>
 
 MapService::MapService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
     : m_world(aWorld), m_dispatcher(aDispatcher), m_transport(aTransport)
@@ -31,16 +35,36 @@ MapService::MapService(World& aWorld, entt::dispatcher& aDispatcher, TransportSe
     m_playerRemoveWaypointConnection =
         m_dispatcher.sink<RemoveWaypointEvent>().connect<&MapService::OnRemoveWaypoint>(this);
 
+    m_partyInfoConnection =
+        m_dispatcher.sink<NotifyPartyInfo>().connect<&MapService::OnNotifyPartyInfo>(this);
     m_partyFastTravelMarkersConnection =
         m_dispatcher.sink<NotifyPartyFastTravelMarkers>().connect<&MapService::OnNotifyPartyFastTravelMarkers>(this);
     m_partyJoinedConnection =
         m_dispatcher.sink<PartyJoinedEvent>().connect<&MapService::OnPartyJoined>(this);
+
+    EventDispatcherManager::Get()->loadGameEvent.RegisterSink(this);
 }
 
 namespace
 {
 constexpr uint8_t kMapMarkerFlag_Visible = 1 << 0;
 constexpr uint8_t kMapMarkerFlag_CanTravelTo = 1 << 1;
+
+struct LocationDiscoveryEvent
+{
+    MapMarkerData* mapMarkerData;
+    const char* worldspaceID;
+};
+
+inline EventDispatcher<LocationDiscoveryEvent>* GetLocationDiscoveryEventDispatcher() noexcept
+{
+    using TGetEventSource = EventDispatcher<LocationDiscoveryEvent>*();
+
+    // CommonLibSSE: RE::LocationDiscovery::GetEventSource() -> RELOCATION_ID(40056, 41067)
+    POINTER_SKYRIMSE(TGetEventSource, s_getEventSource, 40056);
+
+    return s_getEventSource.Get()();
+}
 
 inline bool IsFastTravelMarker(TESObjectREFR* apRefr) noexcept
 {
@@ -72,6 +96,9 @@ inline bool DiscoverFastTravelMarker(TESObjectREFR* apMarkerRefr) noexcept
     if (!pExtraMapMarker || !pExtraMapMarker->mapData)
         return false;
 
+    const uint8_t oldFlags = pExtraMapMarker->mapData->flags;
+    const bool wasFastTravelMarker = (oldFlags & kMapMarkerFlag_Visible) && (oldFlags & kMapMarkerFlag_CanTravelTo);
+
     pExtraMapMarker->mapData->flags |= (kMapMarkerFlag_Visible | kMapMarkerFlag_CanTravelTo);
 
     auto* pPlayer = PlayerCharacter::Get();
@@ -96,6 +123,26 @@ inline bool DiscoverFastTravelMarker(TESObjectREFR* apMarkerRefr) noexcept
     const uint32_t oldLen = currentMarkers.length;
     currentMarkers.Resize(oldLen + 1);
     currentMarkers[oldLen] = handle;
+
+    // Fire the game's location discovery event so scripts/stat tracking/UI can react, but avoid refiring if already discovered.
+    if (!wasFastTravelMarker)
+    {
+        if (auto* pDispatcher = GetLocationDiscoveryEventDispatcher(); pDispatcher != nullptr)
+        {
+            const char* pWorldspaceName = "";
+            if (TESWorldSpace* pWorldSpace = apMarkerRefr->GetWorldSpace(); pWorldSpace != nullptr)
+            {
+                if (pWorldSpace->fullName.value.AsAscii() != nullptr)
+                    pWorldspaceName = pWorldSpace->fullName.value.AsAscii();
+            }
+
+            LocationDiscoveryEvent ev{};
+            ev.mapMarkerData = pExtraMapMarker->mapData;
+            ev.worldspaceID = pWorldspaceName;
+
+            pDispatcher->PushEvent(&ev);
+        }
+    }
 
     return true;
 }
@@ -154,7 +201,7 @@ void MapService::OnUpdate(const UpdateEvent&) noexcept
             newlyDiscovered.push_back(markerId);
     }
 
-    SendFastTravelMarkers(newlyDiscovered);
+    SendFastTravelMarkers(newlyDiscovered, /*aAllowEmpty*/ false, /*aFullSync*/ false);
 }
 
 void MapService::OnSetWaypoint(const SetWaypointEvent& acMessage) noexcept
@@ -214,24 +261,75 @@ void MapService::OnNotifyPartyFastTravelMarkers(const NotifyPartyFastTravelMarke
     ProcessPendingFastTravelMarkers();
 }
 
+void MapService::OnNotifyPartyInfo(const NotifyPartyInfo& acMessage) noexcept
+{
+    if (!m_transport.IsConnected())
+        return;
+
+    if (!m_world.Get().GetPartyService().IsInParty())
+        return;
+
+    TiltedPhoques::Set<uint32_t> newMembers{};
+    newMembers.reserve(acMessage.PlayerIds.size());
+    for (const auto playerId : acMessage.PlayerIds)
+        newMembers.insert(playerId);
+
+    bool membersChanged = (newMembers.size() != m_lastPartyMembers.size());
+    if (!membersChanged)
+    {
+        for (const auto playerId : newMembers)
+        {
+            if (!m_lastPartyMembers.contains(playerId))
+            {
+                membersChanged = true;
+                break;
+            }
+        }
+    }
+
+    const bool leaderChanged = (m_lastLeaderPlayerId != 0) && (m_lastLeaderPlayerId != acMessage.LeaderPlayerId);
+
+    // Update cached party snapshot.
+    m_lastPartyMembers = std::move(newMembers);
+    m_lastLeaderPlayerId = acMessage.LeaderPlayerId;
+
+    if (membersChanged || leaderChanged)
+    {
+        spdlog::debug("Party updated: triggering fast travel marker resync (membersChanged={}, leaderChanged={})", membersChanged,
+                      leaderChanged);
+        SyncFastTravelMarkers(/*aForceSendEvenIfEmpty*/ true);
+    }
+}
+
 void MapService::OnPartyJoined(const PartyJoinedEvent&) noexcept
 {
     // Full sync on join to ensure two-way union.
-    m_nextMarkerScanTick = 0;
+    const auto& partyService = m_world.Get().GetPartyService();
+    m_lastPartyMembers.clear();
+    for (const auto playerId : partyService.GetPartyMembers())
+        m_lastPartyMembers.insert(playerId);
+    m_lastLeaderPlayerId = partyService.GetLeaderPlayerId();
 
     spdlog::debug("Party joined: syncing fast travel markers");
+    SyncFastTravelMarkers(/*aForceSendEvenIfEmpty*/ true);
+}
+
+void MapService::SyncFastTravelMarkers(bool aForceSendEvenIfEmpty) noexcept
+{
+    // Force a quick scan and also send a full marker list (or an empty request) to receive the party union.
+    m_nextMarkerScanTick = 0;
 
     const auto markers = CollectLocalFastTravelMarkers();
     for (const auto& marker : markers)
         m_knownFastTravelMarkers.insert(marker);
 
-    spdlog::debug("Party joined: sending {} fast travel markers", markers.size());
-    SendFastTravelMarkers(markers);
+    spdlog::debug("Fast travel marker sync: sending {} markers (forceEmpty={})", markers.size(), aForceSendEvenIfEmpty);
+    SendFastTravelMarkers(markers, /*aAllowEmpty*/ aForceSendEvenIfEmpty, /*aFullSync*/ true);
 }
 
-void MapService::SendFastTravelMarkers(const TiltedPhoques::Vector<GameId>& aMarkers) noexcept
+void MapService::SendFastTravelMarkers(const TiltedPhoques::Vector<GameId>& aMarkers, bool aAllowEmpty, bool aFullSync) noexcept
 {
-    if (aMarkers.empty())
+    if (aMarkers.empty() && !aAllowEmpty)
         return;
 
     if (!m_transport.IsConnected())
@@ -241,8 +339,24 @@ void MapService::SendFastTravelMarkers(const TiltedPhoques::Vector<GameId>& aMar
         return;
 
     PartyFastTravelMarkersRequest request{};
+    request.FullSync = aFullSync;
     request.Markers = aMarkers;
     m_transport.Send(request);
+}
+
+BSTEventResult MapService::OnEvent(const TESLoadGameEvent*, const EventDispatcher<TESLoadGameEvent>*) 
+{
+    // Switching saves can change which markers are actually discovered; clear local caches so party sync can re-unlock correctly.
+    spdlog::info("Load game: resetting fast travel marker sync state");
+
+    m_knownFastTravelMarkers.clear();
+    m_pendingFastTravelMarkers.clear();
+    m_nextMarkerScanTick = 0;
+
+    if (m_transport.IsConnected() && m_world.Get().GetPartyService().IsInParty())
+        SyncFastTravelMarkers(/*aForceSendEvenIfEmpty*/ true);
+
+    return BSTEventResult::kOk;
 }
 
 TiltedPhoques::Vector<GameId> MapService::CollectLocalFastTravelMarkers() const noexcept
