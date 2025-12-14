@@ -9,6 +9,7 @@
 #include <Messages/RequestPickupDroppedItem.h>
 #include <Messages/RequestDroppedItems.h>
 #include <Events/CellChangeEvent.h>
+#include <Events/GridCellChangeEvent.h>
 #include <Events/ConnectedEvent.h>
 #include <Services/Generic/DropStorage.h>
 
@@ -16,6 +17,7 @@
 #include <string>
 #include <unordered_map>
 #include <TiltedCore/Stl.hpp>
+#include <deque>
 
 struct DropItemEvent;
 struct PickupDroppedItemEvent;
@@ -41,6 +43,7 @@ private:
     void OnNotifyDroppedItems(const NotifyDroppedItems& acMessage) noexcept;
     void OnConnected(const ConnectedEvent& acEvent) noexcept;
     void OnCellChange(const CellChangeEvent& acEvent) noexcept;
+    void OnGridCellChange(const GridCellChangeEvent& acEvent) noexcept;
     void OnUpdate(const UpdateEvent& acEvent) noexcept;
 
     std::optional<uint32_t> ResolveServerId(uint32_t aFormId) const noexcept;
@@ -49,6 +52,8 @@ private:
     bool ApplyPickup(const NotifyDroppedItemPickedUp& acMessage) noexcept;
     bool EnsureStorageReady() noexcept;
     uint32_t SendDropSyncRequest(bool aRequestAll, bool aHasCellFilter, const GameId& acCellId, bool aHasWorldFilter, const GameId& acWorldId) noexcept;
+    void QueueDropSync(const GameId& acCellId, const GameId& acWorldId) noexcept;
+    void QueueLoadedExteriorCells(const GameId& acWorldId) noexcept;
     void HandleDropSyncResponse(const NotifyDroppedItems& acMessage) noexcept;
     void ProcessDropEntry(const NotifyDroppedItems::Entry& acEntry, bool aForceMaterialize) noexcept;
     bool MaterializeDrop(uint64_t aDropId, const DropManager::ServerDropData& acData, bool aForce) noexcept;
@@ -67,6 +72,7 @@ private:
     void RequestCellSync() noexcept;
     void ForgetLocalDrop(uint64_t aDropId) noexcept;
     bool IsPickupRelevant(const NotifyDroppedItemPickedUp& acMessage) noexcept;
+    bool IsDropCellLoaded(const GameId& acCellId, const GameId& acWorldId) noexcept;
 
     enum class PendingType
     {
@@ -93,6 +99,7 @@ private:
     entt::scoped_connection m_notifyDroppedItemsConnection;
     entt::scoped_connection m_connectedEventConnection;
     entt::scoped_connection m_cellChangeConnection;
+    entt::scoped_connection m_gridCellChangeConnection;
     entt::scoped_connection m_updateConnection;
     TiltedPhoques::Vector<PendingAction> m_pendingActions;
     DropStorage m_dropStorage;
@@ -100,6 +107,17 @@ private:
     uint32_t m_nextDropSyncRequestId{1};
     TiltedPhoques::Set<uint64_t> m_materializingDrops;
     TiltedPhoques::Set<uint64_t> m_localDrops;
+    double m_periodicPlayerCellSyncAccumulator{0.0};
+
+    struct QueuedDropSync
+    {
+        GameId CellId{};
+        GameId WorldSpaceId{};
+    };
+
+    std::deque<QueuedDropSync> m_dropSyncQueue{};
+    TiltedPhoques::Set<GameId> m_dropSyncQueuedCells{};
+    double m_dropSyncQueueAccumulator{0.0};
 
     struct DropSyncContext
     {

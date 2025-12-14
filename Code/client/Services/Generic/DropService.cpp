@@ -9,6 +9,7 @@
 #include <Events/PickupDroppedItemEvent.h>
 #include <Events/ConnectedEvent.h>
 #include <Events/CellChangeEvent.h>
+#include <Events/GridCellChangeEvent.h>
 
 #include <Messages/NotifyDroppedItems.h>
 #include <Messages/RequestDroppedItems.h>
@@ -47,6 +48,10 @@ namespace
 constexpr float kDropSearchRadiusSquared = 400.f * 400.f;
 constexpr float kPickupRemovalRadiusSquared = 2500.f * 2500.f;
 constexpr float kMaterializeGraceSeconds = 0.06f;
+constexpr double kPeriodicPlayerCellSyncSeconds = 5.0;
+constexpr double kDropSyncQueueIntervalSeconds = 0.2;
+constexpr uint32_t kMaxPendingDropRetries = 600;
+constexpr uint32_t kMaxPendingPickupRetries = 120;
 TiltedPhoques::Map<uint64_t, float> g_materializeGrace;
 
 NiPoint3 ToPoint(const Vector3_NetQuantize& aVector)
@@ -221,6 +226,7 @@ DropService::DropService(World& aWorld, entt::dispatcher& aDispatcher, Transport
     m_notifyDroppedItemsConnection = m_dispatcher.sink<NotifyDroppedItems>().connect<&DropService::OnNotifyDroppedItems>(this);
     m_connectedEventConnection = m_dispatcher.sink<ConnectedEvent>().connect<&DropService::OnConnected>(this);
     m_cellChangeConnection = m_dispatcher.sink<CellChangeEvent>().connect<&DropService::OnCellChange>(this);
+    m_gridCellChangeConnection = m_dispatcher.sink<GridCellChangeEvent>().connect<&DropService::OnGridCellChange>(this);
     m_updateConnection = m_dispatcher.sink<UpdateEvent>().connect<&DropService::OnUpdate>(this);
 
     DropManager::SetStorageListener(&m_dropStorage);
@@ -425,10 +431,9 @@ bool DropService::ApplyDrop(const NotifyActorDrop& acMessage) noexcept
         return true;
     }
 
-    const GameId playerCell = GetPlayerCellId();
-    if (playerCell && serverData.CellId && playerCell != serverData.CellId)
+    if (!IsDropCellLoaded(serverData.CellId, serverData.WorldSpaceId))
     {
-        spdlog::debug("DropService: drop {} in other cell {:X}:{:X}, skipping spawn", acMessage.DropId, serverData.CellId.ModId, serverData.CellId.BaseId);
+        spdlog::debug("DropService: drop {} not in loaded cells (cell {:X}:{:X}), skipping spawn", acMessage.DropId, serverData.CellId.ModId, serverData.CellId.BaseId);
         return true;
     }
 
@@ -529,12 +534,11 @@ bool DropService::ApplyPickup(const NotifyDroppedItemPickedUp& acMessage) noexce
 
 bool DropService::HandleUntrackedPickup(const NotifyDroppedItemPickedUp& acMessage) noexcept
 {
-    const GameId playerCell = GetPlayerCellId();
     const GameId playerWorld = GetPlayerWorldId();
 
-    if (acMessage.CellId && playerCell && acMessage.CellId != playerCell)
+    if (acMessage.CellId && !IsDropCellLoaded(acMessage.CellId, acMessage.WorldSpaceId))
     {
-        spdlog::debug("DropService: ignoring pickup in cell {:X}:{:X}, player cell {:X}:{:X}", acMessage.CellId.ModId, acMessage.CellId.BaseId, playerCell.ModId, playerCell.BaseId);
+        spdlog::debug("DropService: ignoring untracked pickup in non-loaded cell {:X}:{:X}", acMessage.CellId.ModId, acMessage.CellId.BaseId);
         return true;
     }
 
@@ -564,11 +568,10 @@ bool DropService::HandleUntrackedPickup(const NotifyDroppedItemPickedUp& acMessa
 
 bool DropService::IsPickupRelevant(const NotifyDroppedItemPickedUp& acMessage) noexcept
 {
-    const GameId playerCell = GetPlayerCellId();
     const GameId playerWorld = GetPlayerWorldId();
 
-    if (acMessage.CellId && playerCell && acMessage.CellId != playerCell)
-        return false;
+    if (acMessage.CellId)
+        return IsDropCellLoaded(acMessage.CellId, acMessage.WorldSpaceId);
 
     if (acMessage.WorldSpaceId && playerWorld && acMessage.WorldSpaceId != playerWorld)
         return false;
@@ -586,13 +589,63 @@ void DropService::OnConnected(const ConnectedEvent&) noexcept
 {
     EnsureStorageReady();
     m_pendingCreationEngineRemovals.clear();
+    m_dropSyncQueue.clear();
+    m_dropSyncQueuedCells.clear();
+    m_dropSyncQueueAccumulator = 0.0;
+    m_periodicPlayerCellSyncAccumulator = 0.0;
     RequestCellSync();
+
+    const GameId worldId = GetPlayerWorldId();
+    if (worldId)
+        QueueLoadedExteriorCells(worldId);
 }
 
 void DropService::OnCellChange(const CellChangeEvent& acEvent) noexcept
 {
     m_pendingCreationEngineRemovals.clear();
-    SendDropSyncRequest(false, true, acEvent.CellId, true, acEvent.WorldSpaceId);
+    m_dropSyncQueue.clear();
+    m_dropSyncQueuedCells.clear();
+    m_dropSyncQueueAccumulator = 0.0;
+    m_periodicPlayerCellSyncAccumulator = 0.0;
+
+    QueueDropSync(acEvent.CellId, acEvent.WorldSpaceId);
+    if (acEvent.WorldSpaceId)
+        QueueLoadedExteriorCells(acEvent.WorldSpaceId);
+}
+
+void DropService::OnGridCellChange(const GridCellChangeEvent& acEvent) noexcept
+{
+    if (!m_transport.IsConnected())
+        return;
+
+    TESWorldSpace* pWorldSpace = nullptr;
+    if (acEvent.WorldSpaceId != 0)
+    {
+        if (TESForm* pForm = TESForm::GetById(acEvent.WorldSpaceId))
+            pWorldSpace = Cast<TESWorldSpace>(pForm);
+    }
+
+    if (!pWorldSpace)
+    {
+        if (auto* pPlayer = PlayerCharacter::Get())
+            pWorldSpace = pPlayer->GetWorldSpace();
+    }
+
+    if (!pWorldSpace)
+        return;
+
+    GameId worldId{};
+    m_world.GetModSystem().GetServerModId(pWorldSpace->formID, worldId);
+    if (!worldId)
+        return;
+
+    // Sync newly loaded cells so drops appear as soon as the cell is loaded, not only after walking into it.
+    for (const auto& cellId : acEvent.Cells)
+    {
+        if (!cellId)
+            continue;
+        QueueDropSync(cellId, worldId);
+    }
 }
 
 void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept
@@ -624,6 +677,27 @@ void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept
 
     ProcessPendingCreationEngineRemovals();
 
+    if (m_transport.IsConnected())
+    {
+        m_periodicPlayerCellSyncAccumulator += acEvent.Delta;
+
+        if (m_periodicPlayerCellSyncAccumulator >= kPeriodicPlayerCellSyncSeconds)
+        {
+            m_periodicPlayerCellSyncAccumulator = 0.0;
+            RequestCellSync();
+        }
+
+        m_dropSyncQueueAccumulator += acEvent.Delta;
+        while (m_dropSyncQueueAccumulator >= kDropSyncQueueIntervalSeconds && !m_dropSyncQueue.empty())
+        {
+            m_dropSyncQueueAccumulator -= kDropSyncQueueIntervalSeconds;
+            const auto next = m_dropSyncQueue.front();
+            m_dropSyncQueue.pop_front();
+            m_dropSyncQueuedCells.erase(next.CellId);
+            SendDropSyncRequest(false, true, next.CellId, static_cast<bool>(next.WorldSpaceId), next.WorldSpaceId);
+        }
+    }
+
     if (m_pendingActions.empty())
         return;
 
@@ -653,10 +727,11 @@ void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept
                 ++action.RetryCounter;
         }
 
-        if (!applied && action.RetryCounter < 10)
+        const uint32_t maxRetries = action.Type == PendingType::Drop ? kMaxPendingDropRetries : kMaxPendingPickupRetries;
+        if (!applied && action.RetryCounter < maxRetries)
             remaining.push_back(std::move(action));
         else if (!applied)
-            spdlog::warn("DropService: dropping pending {} after {} retries", action.Type == PendingType::Drop ? "drop" : "pickup", action.RetryCounter);
+            spdlog::warn("DropService: dropping pending {} after {} retries (limit {})", action.Type == PendingType::Drop ? "drop" : "pickup", action.RetryCounter, maxRetries);
     }
 
     m_pendingActions = std::move(remaining);
@@ -751,6 +826,50 @@ uint32_t DropService::SendDropSyncRequest(bool aRequestAll, bool aHasCellFilter,
 
     spdlog::info("DropService: requested drop sync {}, all={}, cell {:X}:{:X}", request.RequestId, aRequestAll, context.CellId.ModId, context.CellId.BaseId);
     return request.RequestId;
+}
+
+void DropService::QueueDropSync(const GameId& acCellId, const GameId& acWorldId) noexcept
+{
+    if (!acCellId)
+        return;
+
+    if (m_dropSyncQueuedCells.find(acCellId) != std::end(m_dropSyncQueuedCells))
+        return;
+
+    QueuedDropSync queued{};
+    queued.CellId = acCellId;
+    queued.WorldSpaceId = acWorldId;
+
+    m_dropSyncQueue.push_back(queued);
+    m_dropSyncQueuedCells.insert(acCellId);
+}
+
+void DropService::QueueLoadedExteriorCells(const GameId& acWorldId) noexcept
+{
+    if (!acWorldId)
+        return;
+
+    TES* pTes = TES::Get();
+    if (!pTes || !pTes->cells || !pTes->cells->arr)
+        return;
+
+    const int dimension = pTes->cells->dimension;
+    if (dimension <= 0)
+        return;
+
+    const int cellCount = dimension * dimension;
+    for (int i = 0; i < cellCount; ++i)
+    {
+        TESObjectCELL* pCell = pTes->cells->arr[i];
+        if (!pCell)
+            continue;
+
+        GameId cellId{};
+        if (!m_world.GetModSystem().GetServerModId(pCell->formID, cellId) || !cellId)
+            continue;
+
+        QueueDropSync(cellId, acWorldId);
+    }
 }
 
 void DropService::HandleDropSyncResponse(const NotifyDroppedItems& acMessage) noexcept
@@ -903,7 +1022,7 @@ bool DropService::MaterializeDrop(uint64_t aDropId, const DropManager::ServerDro
     if (!hasLocation)
         return false;
 
-    if (!(GetPlayerCellId() == acData.CellId))
+    if (!IsDropCellLoaded(acData.CellId, acData.WorldSpaceId))
         return false;
 
     if (!aForce)
@@ -964,11 +1083,68 @@ bool DropService::SpawnLocalDrop(const DropManager::ServerDropData& acData, uint
     if (!pObject)
         return false;
 
-    TESObjectCELL* pCell = pPlayer->parentCell ? pPlayer->parentCell : pPlayer->GetParentCell();
+    TESObjectCELL* pCell = nullptr;
+    if (acData.CellId)
+    {
+        const uint32_t cellFormId = m_world.GetModSystem().GetGameId(acData.CellId);
+        if (cellFormId)
+        {
+            TES* pTes = TES::Get();
+            if (pTes && pTes->cells && pTes->cells->arr)
+            {
+                const int dimension = pTes->cells->dimension;
+                if (dimension > 0)
+                {
+                    const int cellCount = dimension * dimension;
+                    for (int i = 0; i < cellCount; ++i)
+                    {
+                        TESObjectCELL* pCandidate = pTes->cells->arr[i];
+                        if (pCandidate && pCandidate->formID == cellFormId)
+                        {
+                            pCell = pCandidate;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!pCell)
+            {
+                TESObjectCELL* pInteriorCell = pTes ? pTes->interiorCell : nullptr;
+                if (pInteriorCell && pInteriorCell->formID == cellFormId)
+                    pCell = pInteriorCell;
+            }
+        }
+    }
+
+    if (!pCell)
+    {
+        TESObjectCELL* pPlayerCell = pPlayer->parentCell ? pPlayer->parentCell : pPlayer->GetParentCell();
+        if (pPlayerCell)
+        {
+            GameId playerCellId{};
+            m_world.GetModSystem().GetServerModId(pPlayerCell->formID, playerCellId);
+            if (playerCellId == acData.CellId)
+                pCell = pPlayerCell;
+        }
+    }
+
     if (!pCell)
         return false;
 
     TESWorldSpace* pWorldSpace = pPlayer->GetWorldSpace();
+    if (acData.WorldSpaceId)
+    {
+        const uint32_t worldFormId = m_world.GetModSystem().GetGameId(acData.WorldSpaceId);
+        if (worldFormId)
+        {
+            if (TESForm* pWorldForm = TESForm::GetById(worldFormId))
+            {
+                if (TESWorldSpace* pResolvedWorld = Cast<TESWorldSpace>(pWorldForm))
+                    pWorldSpace = pResolvedWorld;
+            }
+        }
+    }
     NiPoint3 dropLocation = acData.Location;
     NiPoint3 dropRotation = acData.Rotation;
 
@@ -1189,13 +1365,7 @@ void DropService::ApplyCreationEngineCellSync(const DropSyncContext& acContext, 
     if (acPickedUpRefs.empty())
         return;
 
-    const GameId playerCell = GetPlayerCellId();
-    const GameId playerWorld = GetPlayerWorldId();
-
-    if (acContext.CellId && playerCell && acContext.CellId != playerCell)
-        return;
-
-    if (acContext.WorldSpaceId && playerWorld && acContext.WorldSpaceId != playerWorld)
+    if (!IsDropCellLoaded(acContext.CellId, acContext.WorldSpaceId))
         return;
 
     for (const auto& refId : acPickedUpRefs)
@@ -1221,9 +1391,6 @@ void DropService::ProcessPendingCreationEngineRemovals() noexcept
     if (m_pendingCreationEngineRemovals.empty())
         return;
 
-    const GameId playerCell = GetPlayerCellId();
-    const GameId playerWorld = GetPlayerWorldId();
-
     TiltedPhoques::Vector<GameId> toErase;
     toErase.reserve(m_pendingCreationEngineRemovals.size());
 
@@ -1235,10 +1402,7 @@ void DropService::ProcessPendingCreationEngineRemovals() noexcept
             continue;
         }
 
-        if (pending.CellId && playerCell && pending.CellId != playerCell)
-            continue;
-
-        if (pending.WorldSpaceId && playerWorld && pending.WorldSpaceId != playerWorld)
+        if (pending.CellId && !IsDropCellLoaded(pending.CellId, pending.WorldSpaceId))
             continue;
 
         if (RemoveReferenceById(refId, "cell sync deferred creation-engine pickup"))
@@ -1282,6 +1446,47 @@ GameId DropService::GetPlayerWorldId() noexcept
     return world;
 }
 
+bool DropService::IsDropCellLoaded(const GameId& acCellId, const GameId& acWorldId) noexcept
+{
+    if (!acCellId)
+        return false;
+
+    const GameId playerCell = GetPlayerCellId();
+    if (playerCell && playerCell == acCellId)
+        return true;
+
+    const GameId playerWorld = GetPlayerWorldId();
+
+    // Interior: only the current cell is treated as loaded for drops.
+    if (!playerWorld)
+        return false;
+
+    if (acWorldId && acWorldId != playerWorld)
+        return false;
+
+    const uint32_t cellFormId = m_world.GetModSystem().GetGameId(acCellId);
+    if (!cellFormId)
+        return false;
+
+    TES* pTes = TES::Get();
+    if (!pTes || !pTes->cells || !pTes->cells->arr)
+        return false;
+
+    const int dimension = pTes->cells->dimension;
+    if (dimension <= 0)
+        return false;
+
+    const int cellCount = dimension * dimension;
+    for (int i = 0; i < cellCount; ++i)
+    {
+        TESObjectCELL* pCell = pTes->cells->arr[i];
+        if (pCell && pCell->formID == cellFormId)
+            return true;
+    }
+
+    return false;
+}
+
 void DropService::RequestCellSync() noexcept
 {
     const GameId cellId = GetPlayerCellId();
@@ -1289,7 +1494,7 @@ void DropService::RequestCellSync() noexcept
         return;
 
     const GameId worldId = GetPlayerWorldId();
-    SendDropSyncRequest(false, true, cellId, static_cast<bool>(worldId), worldId);
+    QueueDropSync(cellId, worldId);
 }
 
 void DropService::ForgetLocalDrop(uint64_t aDropId) noexcept
