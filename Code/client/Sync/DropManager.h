@@ -47,6 +47,7 @@ std::optional<LocalDropData> ConsumeLocalDrop(const Guid& clientDropId) noexcept
 
 void TrackServerDrop(uint64_t dropId, const ServerDropData& data) noexcept;
 bool BindHandleToServerDrop(uint64_t dropId, uint32_t actorFormId, uint32_t handleBits) noexcept;
+void ClearHandleBinding(uint64_t dropId) noexcept;
 void SetReferenceForDrop(uint64_t dropId, const GameId& referenceId) noexcept;
 
 std::optional<uint64_t> GetDropIdForHandle(uint32_t handleBits) noexcept;

@@ -18,7 +18,6 @@ struct NotifyDroppedItemPickedUp;
 struct sqlite3;
 
 struct World;
-struct InventoryComponent;
 struct OwnerComponent;
 struct Player;
 struct UpdateEvent;
@@ -65,8 +64,6 @@ private:
     bool InsertDrop(const ActiveDrop& acDrop, uint64_t& aOutDropId) noexcept;
     bool InsertDropHistory(uint64_t aDropId, std::string_view aAction, uint32_t aPerformedBy, const std::string& acDetails) noexcept;
     bool MarkDropInactive(uint64_t aDropId) noexcept;
-    bool UpdateInventoryForDelta(uint32_t aPlayerId, const Inventory::Entry& acEntry, int32_t aDelta, InventoryComponent& aInventoryComponent) noexcept;
-    bool EnsureStackForEntry(uint32_t aPlayerId, const Inventory::Entry& acEntry, const Inventory::Entry& acSignature, InventoryComponent& aInventoryComponent, std::string& aOutStackId, int32_t& aOutCount, bool aCreateIfMissing) noexcept;
     ActiveDrop* ResolveActiveDrop(uint64_t aDropId) noexcept;
     void TrackActiveDrop(const ActiveDrop& acDrop) noexcept;
     void RemoveActiveDrop(uint64_t aDropId) noexcept;
@@ -77,6 +74,11 @@ private:
     void BroadcastPickup(const NotifyDroppedItemPickedUp& acMessage) const noexcept;
     void MigrateLegacyDrops() noexcept;
     void CleanupExpiredDrops() noexcept;
+    bool InitializeCreationEngineDatabase() noexcept;
+    void ShutdownCreationEngineDatabase() noexcept;
+    bool IsCreationEnginePickupRecorded(const GameId& acEngineRefId) noexcept;
+    bool RecordCreationEnginePickup(const GameId& acEngineRefId, const GameId& acCellId, const GameId& acWorldId, uint32_t aPickedBy) noexcept;
+    void CleanupExpiredCreationEnginePickups() noexcept;
 
     World& m_world;
     entt::scoped_connection m_requestDropConnection;
@@ -88,5 +90,7 @@ private:
     TiltedPhoques::Map<GameId, TiltedPhoques::Vector<uint64_t>> m_cellDropIndex;
     sqlite3* m_pDatabase{nullptr};
     std::filesystem::path m_databasePath;
+    sqlite3* m_pCreationEngineDatabase{nullptr};
+    std::filesystem::path m_creationEngineDatabasePath;
     double m_cleanupAccumulator{0.0};
 };

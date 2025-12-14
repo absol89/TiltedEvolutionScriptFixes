@@ -98,6 +98,13 @@ void ExtraDataList::SetSoulData(SOUL_LEVEL aSoulLevel) noexcept
     TiltedPhoques::ThisCall(setSoulData, this, aSoulLevel);
 }
 
+void ExtraDataList::SetCount(uint16_t aCount) noexcept
+{
+    TP_THIS_FUNCTION(TSetCount, void, ExtraDataList, uint16_t aCount);
+    POINTER_SKYRIMSE(TSetCount, setCount, 11617);
+    TiltedPhoques::ThisCall(setCount, this, aCount);
+}
+
 void ExtraDataList::SetChargeData(float aCharge) noexcept
 {
     TP_THIS_FUNCTION(TSetChargeData, void, ExtraDataList, float aCharge);

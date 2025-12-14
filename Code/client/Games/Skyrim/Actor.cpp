@@ -180,6 +180,7 @@ void PopulatePickupEventFromReference(TESObjectREFR* apReference, const Inventor
     if (!apReference)
         return;
 
+    aEvent.ReferenceFormId = apReference->formID;
     aEvent.HasItemData = true;
     aEvent.Item = acItem;
     aEvent.HasLocation = true;
@@ -1245,6 +1246,8 @@ void TP_MAKE_THISCALL(HookAddInventoryItem, Actor, TESBoundObject* apItem, Extra
 void* TP_MAKE_THISCALL(HookPickUpObject, Actor, TESObjectREFR* apObject, int32_t aCount, bool aUnk1, float aUnk2)
 {
     const bool isRemotePickup = DropExecution::GetCurrentMode() == DropExecution::Mode::RemotePickup;
+    const bool isLocalPlayer = apThis->GetExtension() && apThis->GetExtension()->IsLocalPlayer();
+    const bool isConnected = World::Get().GetTransport().IsConnected();
     std::optional<uint64_t> dropId{};
 
     if (apObject)
@@ -1274,7 +1277,7 @@ void* TP_MAKE_THISCALL(HookPickUpObject, Actor, TESObjectREFR* apObject, int32_t
             apThis->GetItemFromExtraData(fallbackItem, apObject->GetExtraDataList());
     }
 
-    if (!isRemotePickup)
+    if (!isRemotePickup && isLocalPlayer && isConnected)
     {
         std::optional<PickupDroppedItemEvent> pickupEvent{};
 
@@ -1289,25 +1292,23 @@ void* TP_MAKE_THISCALL(HookPickUpObject, Actor, TESObjectREFR* apObject, int32_t
             PopulatePickupEventFromReference(apObject, fallbackItem, *pickupEvent);
         }
 
+        if (pickupEvent && apObject)
+            pickupEvent->ReferenceFormId = apObject->formID;
+
         if (pickupEvent)
             World::Get().GetRunner().Trigger(*pickupEvent);
-
-        if (dropId)
-        {
-            spdlog::info("Actor {:X} triggering pickup for drop {}", apThis->formID, *dropId);
-            DropManager::RemoveServerDrop(*dropId);
-        }
-        else if (hasReferenceObject)
-        {
-            Inventory::Entry item = fallbackItem;
-            bool shouldUpdateClients = apObject->IsTemporary() && !ScopedActivateOverride::IsOverriden();
-
-            spdlog::warn("Actor {:X} picking up object {:X}:{:X} without drop id, falling back to inventory change", apThis->formID, item.BaseId.ModId, item.BaseId.BaseId);
-            World::Get().GetRunner().Trigger(InventoryChangeEvent(apThis->formID, std::move(item), shouldUpdateClients));
-        }
     }
 
-    auto* pResult = TiltedPhoques::ThisCall(RealPickUpObject, apThis, apObject, aCount, aUnk1, aUnk2);
+    void* pResult = nullptr;
+    if (!isRemotePickup && isLocalPlayer && isConnected)
+    {
+        DropExecution::Scope scope(DropExecution::Mode::LocalPickup, apThis->formID, dropId.value_or(0));
+        pResult = TiltedPhoques::ThisCall(RealPickUpObject, apThis, apObject, aCount, aUnk1, aUnk2);
+    }
+    else
+    {
+        pResult = TiltedPhoques::ThisCall(RealPickUpObject, apThis, apObject, aCount, aUnk1, aUnk2);
+    }
 
     if (isRemotePickup)
     {
@@ -1334,6 +1335,8 @@ void* TP_MAKE_THISCALL(HookDropObject, Actor, void* apResult, TESBoundObject* ap
         apThis->GetItemFromExtraData(item, apExtraData);
 
     const bool shouldSend = !ScopedInventoryOverride::IsOverriden();
+    const bool isLocalPlayer = apThis->GetExtension() && apThis->GetExtension()->IsLocalPlayer();
+    const bool isConnected = World::Get().GetTransport().IsConnected();
     const bool isRemoteDrop = DropExecution::GetCurrentMode() == DropExecution::Mode::RemoteDrop;
     std::optional<DropExecution::Scope> localDropScope{};
     if (!isRemoteDrop)
@@ -1379,7 +1382,7 @@ void* TP_MAKE_THISCALL(HookDropObject, Actor, void* apResult, TESBoundObject* ap
         return pReturn;
     }
 
-    if (shouldSend)
+    if (shouldSend && isLocalPlayer && isConnected)
     {
         GameId cellId{};
         GameId worldId{};
@@ -1416,6 +1419,14 @@ void* TP_MAKE_THISCALL(HookDropObject, Actor, void* apResult, TESBoundObject* ap
 
         const Guid clientDropId = DropManager::RegisterLocalDrop(dropData);
         World::Get().GetRunner().Trigger(DropItemEvent(apThis->formID, item, clientDropId, dropLocation, dropRotation, handleBits, cellId, worldId, dropData.ReferenceId));
+
+        if (pDroppedRef)
+        {
+            if (pDroppedRef->IsTemporary())
+                pDroppedRef->Delete();
+            else
+                pDroppedRef->Disable();
+        }
     }
 
     return pReturn;

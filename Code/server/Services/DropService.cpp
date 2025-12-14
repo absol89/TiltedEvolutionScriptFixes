@@ -7,6 +7,7 @@
 #include <Messages/NotifyActorDrop.h>
 #include <Messages/NotifyDroppedItemPickedUp.h>
 #include <Messages/NotifyDroppedItems.h>
+#include <Messages/NotifyInventoryChanges.h>
 #include <Setting.h>
 #include <TiltedCore/Buffer.hpp>
 #include <TiltedCore/ViewBuffer.hpp>
@@ -43,7 +44,8 @@ Console::Setting bEnableItemDrops{"Gameplay:bEnableItemDrops", "(Experimental) S
 constexpr float kDropForwardOffset = 35.f;
 constexpr float kDropVerticalOffset = 5.f;
 constexpr double kCleanupIntervalSeconds = 60.0;
-constexpr int64_t kDropExpirySeconds = 6 * 60 * 60;
+constexpr int64_t kDropExpirySeconds = 7 * 24 * 60 * 60;
+constexpr int64_t kCreationEnginePickupExpirySeconds = 24 * 60 * 60;
 
 Vector3_NetQuantize ToNetVector(const glm::vec3& aVector) noexcept
 {
@@ -112,18 +114,6 @@ bool EnsureColumnExists(sqlite3* apDatabase, const char* acSql) noexcept
 
     spdlog::error("DropService: schema migration failed: {}", errorMessage.empty() ? "unknown error" : errorMessage);
     return false;
-}
-
-Inventory::Entry NormalizeEntrySignature(const Inventory::Entry& acEntry) noexcept
-{
-    Inventory::Entry signature = acEntry;
-    if (signature.Count < 0)
-        signature.Count = -signature.Count;
-    if (signature.Count == 0)
-        signature.Count = 1;
-    else
-        signature.Count = 1;
-    return signature;
 }
 
 std::string SerializeEntryBlob(const Inventory::Entry& acEntry) noexcept
@@ -217,6 +207,21 @@ constexpr const char* kCreateDropsTableSql = R"SQL(
     );
 )SQL";
 
+constexpr const char* kCreateCreationEngineTableSql = R"SQL(
+    CREATE TABLE IF NOT EXISTS creation_engine_pickups(
+        engine_mod_id INTEGER NOT NULL,
+        engine_base_id INTEGER NOT NULL,
+        cell_mod_id INTEGER NOT NULL,
+        cell_base_id INTEGER NOT NULL,
+        world_mod_id INTEGER NOT NULL DEFAULT 0,
+        world_base_id INTEGER NOT NULL DEFAULT 0,
+        picked_by INTEGER NOT NULL,
+        picked_at INTEGER DEFAULT (strftime('%s','now')),
+        PRIMARY KEY(engine_mod_id, engine_base_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_creation_engine_pickups_cell ON creation_engine_pickups(cell_mod_id, cell_base_id);
+)SQL";
+
 std::filesystem::path ResolveExecutableDirectory() noexcept
 {
     namespace fs = std::filesystem;
@@ -281,6 +286,17 @@ std::filesystem::path ResolveItemsDatabasePath() noexcept
 
     return fs::path("items.db");
 }
+
+std::filesystem::path ResolveCreationEngineDatabasePath() noexcept
+{
+    namespace fs = std::filesystem;
+
+    const fs::path itemsPath = ResolveItemsDatabasePath();
+    if (!itemsPath.empty())
+        return itemsPath.parent_path() / "items_creation_engine.db";
+
+    return fs::path("items_creation_engine.db");
+}
 }
 
 DropService::DropService(World& aWorld, entt::dispatcher& aDispatcher)
@@ -295,10 +311,14 @@ DropService::DropService(World& aWorld, entt::dispatcher& aDispatcher)
         spdlog::error("DropService: failed to initialize drop persistence database");
     else
         LoadPersistedDrops();
+
+    if (!InitializeCreationEngineDatabase())
+        spdlog::error("DropService: failed to initialize creation engine pickup database");
 }
 
 DropService::~DropService()
 {
+    ShutdownCreationEngineDatabase();
     ShutdownDatabase();
 }
 
@@ -316,11 +336,11 @@ void DropService::OnDropRequest(const PacketEvent<RequestActorDrop>& acMessage) 
         return;
     }
 
-    auto view = m_world.view<InventoryComponent, OwnerComponent>();
+    auto view = m_world.view<OwnerComponent>();
     const auto it = view.find(*entity);
     if (it == view.end())
     {
-        spdlog::warn("Drop requested for entity {:X} without InventoryComponent", message.ServerId);
+        spdlog::warn("Drop requested for entity {:X} without OwnerComponent", message.ServerId);
         return;
     }
 
@@ -337,8 +357,6 @@ void DropService::OnDropRequest(const PacketEvent<RequestActorDrop>& acMessage) 
         spdlog::warn("Drop denied for {:X}: missing owner player", message.ServerId);
         return;
     }
-
-    auto& inventoryComponent = view.get<InventoryComponent>(*it);
 
     const FormIdComponent* pFormIdComponent = m_world.try_get<FormIdComponent>(*entity);
     entt::entity notifyEntity = *entity;
@@ -486,9 +504,11 @@ void DropService::OnDropRequest(const PacketEvent<RequestActorDrop>& acMessage) 
                 pExisting->SpawnEpoch = pExisting->Version;
 
                 NotifyActorDrop notify = buildNotify(*pExisting);
-                notify.HasClientDropId = true;
-                notify.ClientDropId = drop.ClientDropId;
-                acMessage.pPlayer->Send(notify);
+                if (!GameServer::Get()->SendToPlayersInRange(notify, notifyEntity, nullptr))
+                {
+                    spdlog::error("{}: SendToPlayersInRange failed (duplicate drop)", __FUNCTION__);
+                    GameServer::Get()->SendToPlayers(notify, nullptr);
+                }
             }
             else
             {
@@ -501,13 +521,6 @@ void DropService::OnDropRequest(const PacketEvent<RequestActorDrop>& acMessage) 
     if (!BeginTransaction())
     {
         spdlog::error("DropService: failed to begin transaction for actor {:X}", message.ServerId);
-        return;
-    }
-
-    if (!UpdateInventoryForDelta(drop.OriginPlayerId, drop.PickupEntry, -dropCount, inventoryComponent))
-    {
-        spdlog::warn("DropService: not enough items to drop {:X}:{:X} for player {}", drop.DropEntry.BaseId.ModId, drop.DropEntry.BaseId.BaseId, drop.OriginPlayerId);
-        RollbackTransaction();
         return;
     }
 
@@ -544,23 +557,15 @@ void DropService::OnDropRequest(const PacketEvent<RequestActorDrop>& acMessage) 
         RollbackTransaction();
         return;
     }
-
-    inventoryComponent.Content.AddOrRemoveEntry(message.Item);
     TrackActiveDrop(drop);
 
     NotifyActorDrop notify = buildNotify(drop);
-    if (!drop.ClientDropId.IsEmpty())
+
+    if (!GameServer::Get()->SendToPlayersInRange(notify, notifyEntity, nullptr))
     {
-        NotifyActorDrop selfNotify = notify;
-        selfNotify.HasClientDropId = true;
-        selfNotify.ClientDropId = drop.ClientDropId;
-        acMessage.pPlayer->Send(selfNotify);
-    }
-
-    notify.ServerId = drop.ServerId;
-
-    if (!GameServer::Get()->SendToPlayersInRange(notify, *entity, acMessage.GetSender()))
         spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
+        GameServer::Get()->SendToPlayers(notify, nullptr);
+    }
 
     spdlog::info("DropService: drop {} tracked for actor {:X}, player {}, cell {:X}:{:X}, world {:X}:{:X}", drop.DropId, drop.ServerId, drop.OriginPlayerId, drop.CellId.ModId, drop.CellId.BaseId,
                  drop.WorldSpaceId.ModId, drop.WorldSpaceId.BaseId);
@@ -584,6 +589,18 @@ void DropService::OnPickupRequest(const PacketEvent<RequestPickupDroppedItem>& a
     if (!pDrop)
     {
         spdlog::warn("DropService: pickup requested for unknown drop {}", message.DropId);
+        if (message.Item.BaseId)
+        {
+            Inventory::Entry correctionEntry = message.Item;
+            const int32_t pickedCount = correctionEntry.Count == 0 ? 1 : std::abs(correctionEntry.Count);
+            correctionEntry.Count = -pickedCount;
+
+            NotifyInventoryChanges correction{};
+            correction.ServerId = message.ServerId;
+            correction.Item = correctionEntry;
+            correction.Silent = true;
+            acMessage.pPlayer->Send(correction);
+        }
         return;
     }
 
@@ -594,11 +611,11 @@ void DropService::OnPickupRequest(const PacketEvent<RequestPickupDroppedItem>& a
         return;
     }
 
-    auto view = m_world.view<InventoryComponent, OwnerComponent>();
+    auto view = m_world.view<OwnerComponent>();
     const auto it = view.find(*pickerEntity);
     if (it == view.end())
     {
-        spdlog::warn("DropService: pickup requested for entity {:X} without InventoryComponent", message.ServerId);
+        spdlog::warn("DropService: pickup requested for entity {:X} without OwnerComponent", message.ServerId);
         return;
     }
 
@@ -616,18 +633,21 @@ void DropService::OnPickupRequest(const PacketEvent<RequestPickupDroppedItem>& a
         return;
     }
 
-    auto& inventoryComponent = view.get<InventoryComponent>(*it);
-
     if (!BeginTransaction())
     {
         spdlog::error("DropService: failed to begin pickup transaction for drop {}", message.DropId);
-        return;
-    }
+        if (pDrop->PickupEntry.BaseId)
+        {
+            Inventory::Entry correctionEntry = pDrop->PickupEntry;
+            const int32_t pickedCount = correctionEntry.Count == 0 ? 1 : std::abs(correctionEntry.Count);
+            correctionEntry.Count = -pickedCount;
 
-    if (!UpdateInventoryForDelta(pPicker->GetId(), pDrop->PickupEntry, pDrop->PickupEntry.Count, inventoryComponent))
-    {
-        spdlog::warn("DropService: failed to grant drop {} to player {}", message.DropId, pPicker->GetId());
-        RollbackTransaction();
+            NotifyInventoryChanges correction{};
+            correction.ServerId = message.ServerId;
+            correction.Item = correctionEntry;
+            correction.Silent = true;
+            acMessage.pPlayer->Send(correction);
+        }
         return;
     }
 
@@ -636,6 +656,18 @@ void DropService::OnPickupRequest(const PacketEvent<RequestPickupDroppedItem>& a
     {
         spdlog::error("DropService: failed to insert pickup history for drop {}", pDrop->DropId);
         RollbackTransaction();
+        if (pDrop->PickupEntry.BaseId)
+        {
+            Inventory::Entry correctionEntry = pDrop->PickupEntry;
+            const int32_t pickedCount = correctionEntry.Count == 0 ? 1 : std::abs(correctionEntry.Count);
+            correctionEntry.Count = -pickedCount;
+
+            NotifyInventoryChanges correction{};
+            correction.ServerId = message.ServerId;
+            correction.Item = correctionEntry;
+            correction.Silent = true;
+            acMessage.pPlayer->Send(correction);
+        }
         return;
     }
 
@@ -643,6 +675,18 @@ void DropService::OnPickupRequest(const PacketEvent<RequestPickupDroppedItem>& a
     {
         spdlog::warn("DropService: drop {} already inactive during pickup", pDrop->DropId);
         RollbackTransaction();
+        if (pDrop->PickupEntry.BaseId)
+        {
+            Inventory::Entry correctionEntry = pDrop->PickupEntry;
+            const int32_t pickedCount = correctionEntry.Count == 0 ? 1 : std::abs(correctionEntry.Count);
+            correctionEntry.Count = -pickedCount;
+
+            NotifyInventoryChanges correction{};
+            correction.ServerId = message.ServerId;
+            correction.Item = correctionEntry;
+            correction.Silent = true;
+            acMessage.pPlayer->Send(correction);
+        }
         return;
     }
 
@@ -650,10 +694,20 @@ void DropService::OnPickupRequest(const PacketEvent<RequestPickupDroppedItem>& a
     {
         spdlog::error("DropService: pickup commit failed for drop {}", pDrop->DropId);
         RollbackTransaction();
+        if (pDrop->PickupEntry.BaseId)
+        {
+            Inventory::Entry correctionEntry = pDrop->PickupEntry;
+            const int32_t pickedCount = correctionEntry.Count == 0 ? 1 : std::abs(correctionEntry.Count);
+            correctionEntry.Count = -pickedCount;
+
+            NotifyInventoryChanges correction{};
+            correction.ServerId = message.ServerId;
+            correction.Item = correctionEntry;
+            correction.Silent = true;
+            acMessage.pPlayer->Send(correction);
+        }
         return;
     }
-
-    inventoryComponent.Content.AddOrRemoveEntry(pDrop->PickupEntry);
     ActiveDrop dropCopy = *pDrop;
     RemoveActiveDrop(pDrop->DropId);
 
@@ -732,6 +786,7 @@ void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept
 
     m_cleanupAccumulator = 0.0;
     CleanupExpiredDrops();
+    CleanupExpiredCreationEnginePickups();
 }
 
 bool DropService::InitializeDatabase() noexcept
@@ -789,6 +844,120 @@ void DropService::ShutdownDatabase() noexcept
         sqlite3_close(m_pDatabase);
         m_pDatabase = nullptr;
     }
+}
+
+bool DropService::InitializeCreationEngineDatabase() noexcept
+{
+    m_creationEngineDatabasePath = ResolveCreationEngineDatabasePath();
+    const auto dataDirectory = m_creationEngineDatabasePath.parent_path();
+
+    std::error_code ec;
+    if (!dataDirectory.empty() && !std::filesystem::exists(dataDirectory, ec))
+    {
+        std::filesystem::create_directories(dataDirectory, ec);
+        if (ec)
+        {
+            spdlog::error("DropService: failed to create data directory '{}': {}", dataDirectory.string(), ec.message());
+            return false;
+        }
+    }
+
+    spdlog::info("DropService: using creation engine pickup database at '{}'", m_creationEngineDatabasePath.string());
+    if (sqlite3_open(m_creationEngineDatabasePath.string().c_str(), &m_pCreationEngineDatabase) != SQLITE_OK)
+    {
+        spdlog::error("DropService: unable to open creation engine database at '{}': {}", m_creationEngineDatabasePath.string(), sqlite3_errmsg(m_pCreationEngineDatabase));
+        return false;
+    }
+
+    char* pError = nullptr;
+    const int execResult = sqlite3_exec(m_pCreationEngineDatabase, kCreateCreationEngineTableSql, nullptr, nullptr, &pError);
+    if (execResult != SQLITE_OK)
+    {
+        spdlog::error("DropService: failed to initialize creation engine schema: {}", pError ? pError : "unknown");
+        sqlite3_free(pError);
+        return false;
+    }
+
+    return true;
+}
+
+void DropService::ShutdownCreationEngineDatabase() noexcept
+{
+    if (m_pCreationEngineDatabase)
+    {
+        sqlite3_close(m_pCreationEngineDatabase);
+        m_pCreationEngineDatabase = nullptr;
+    }
+}
+
+bool DropService::IsCreationEnginePickupRecorded(const GameId& acEngineRefId) noexcept
+{
+    if (!m_pCreationEngineDatabase || !acEngineRefId)
+        return false;
+
+    constexpr const char* cSelectSql = "SELECT 1 FROM creation_engine_pickups WHERE engine_mod_id = ?1 AND engine_base_id = ?2 LIMIT 1;";
+    StatementPtr statement = PrepareStatement(m_pCreationEngineDatabase, cSelectSql);
+    if (!statement)
+        return false;
+
+    sqlite3_bind_int(statement.get(), 1, static_cast<int>(acEngineRefId.ModId));
+    sqlite3_bind_int(statement.get(), 2, static_cast<int>(acEngineRefId.BaseId));
+
+    return sqlite3_step(statement.get()) == SQLITE_ROW;
+}
+
+bool DropService::RecordCreationEnginePickup(const GameId& acEngineRefId, const GameId& acCellId, const GameId& acWorldId, uint32_t aPickedBy) noexcept
+{
+    if (!m_pCreationEngineDatabase || !acEngineRefId || !acCellId)
+        return false;
+
+    constexpr const char* cInsertSql =
+        "INSERT OR IGNORE INTO creation_engine_pickups(engine_mod_id, engine_base_id, cell_mod_id, cell_base_id, world_mod_id, world_base_id, picked_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7);";
+    StatementPtr statement = PrepareStatement(m_pCreationEngineDatabase, cInsertSql);
+    if (!statement)
+        return false;
+
+    sqlite3_bind_int(statement.get(), 1, static_cast<int>(acEngineRefId.ModId));
+    sqlite3_bind_int(statement.get(), 2, static_cast<int>(acEngineRefId.BaseId));
+    sqlite3_bind_int(statement.get(), 3, static_cast<int>(acCellId.ModId));
+    sqlite3_bind_int(statement.get(), 4, static_cast<int>(acCellId.BaseId));
+    sqlite3_bind_int(statement.get(), 5, static_cast<int>(acWorldId.ModId));
+    sqlite3_bind_int(statement.get(), 6, static_cast<int>(acWorldId.BaseId));
+    sqlite3_bind_int(statement.get(), 7, static_cast<int>(aPickedBy));
+
+    if (sqlite3_step(statement.get()) != SQLITE_DONE)
+    {
+        spdlog::error("DropService: failed to record creation engine pickup: {}", sqlite3_errmsg(m_pCreationEngineDatabase));
+        return false;
+    }
+
+    return sqlite3_changes(m_pCreationEngineDatabase) > 0;
+}
+
+void DropService::CleanupExpiredCreationEnginePickups() noexcept
+{
+    if (!m_pCreationEngineDatabase)
+        return;
+
+    constexpr const char* cDeleteSql = "DELETE FROM creation_engine_pickups WHERE picked_at < strftime('%s','now') - ?1;";
+    StatementPtr statement = PrepareStatement(m_pCreationEngineDatabase, cDeleteSql);
+    if (!statement)
+    {
+        spdlog::error("DropService: failed to prepare creation engine cleanup query: {}", sqlite3_errmsg(m_pCreationEngineDatabase));
+        return;
+    }
+
+    sqlite3_bind_int(statement.get(), 1, static_cast<int>(kCreationEnginePickupExpirySeconds));
+
+    if (sqlite3_step(statement.get()) != SQLITE_DONE)
+    {
+        spdlog::error("DropService: failed to cleanup creation engine pickups: {}", sqlite3_errmsg(m_pCreationEngineDatabase));
+        return;
+    }
+
+    const int changes = sqlite3_changes(m_pCreationEngineDatabase);
+    if (changes > 0)
+        spdlog::info("DropService: cleaned up {} expired creation engine pickups", changes);
 }
 
 void DropService::LoadPersistedDrops() noexcept
@@ -1116,6 +1285,7 @@ bool DropService::MarkDropInactive(uint64_t aDropId) noexcept
     return sqlite3_changes(m_pDatabase) > 0;
 }
 
+#if 0
 bool DropService::UpdateInventoryForDelta(uint32_t aPlayerId, const Inventory::Entry& acEntry, int32_t aDelta, InventoryComponent& aInventoryComponent) noexcept
 {
     if (!m_pDatabase)
@@ -1300,6 +1470,7 @@ bool DropService::EnsureStackForEntry(uint32_t aPlayerId, const Inventory::Entry
 
     return true;
 }
+#endif
 
 DropService::ActiveDrop* DropService::ResolveActiveDrop(uint64_t aDropId) noexcept
 {
@@ -1369,11 +1540,11 @@ void DropService::HandleUntrackedPickupRequest(const PacketEvent<RequestPickupDr
         return;
     }
 
-    auto view = m_world.view<InventoryComponent, OwnerComponent>();
+    auto view = m_world.view<OwnerComponent>();
     const auto it = view.find(*pickerEntity);
     if (it == view.end())
     {
-        spdlog::warn("DropService: untracked pickup requested for entity {:X} without InventoryComponent", message.ServerId);
+        spdlog::warn("DropService: untracked pickup requested for entity {:X} without OwnerComponent", message.ServerId);
         return;
     }
 
@@ -1403,29 +1574,75 @@ void DropService::HandleUntrackedPickupRequest(const PacketEvent<RequestPickupDr
     else if (pickupEntry.Count < 0)
         pickupEntry.Count = -pickupEntry.Count;
 
-    auto& inventoryComponent = view.get<InventoryComponent>(*it);
+    const bool hasEngineRef = message.ReferenceId != GameId{};
+    const bool hasCell = message.CellId != GameId{};
+    const bool shouldTrackPickup = hasEngineRef && hasCell && m_pCreationEngineDatabase;
 
-    if (!BeginTransaction())
+    if (shouldTrackPickup && IsCreationEnginePickupRecorded(message.ReferenceId))
     {
-        spdlog::error("DropService: failed to begin transaction for untracked pickup");
+        spdlog::info("DropService: rejecting duplicate creation engine pickup ref {:X}:{:X} in cell {:X}:{:X} for player {}", message.ReferenceId.ModId, message.ReferenceId.BaseId, message.CellId.ModId, message.CellId.BaseId, pPicker->GetId());
+
+        NotifyInventoryChanges correction{};
+        correction.ServerId = message.ServerId;
+        correction.Item = pickupEntry;
+        correction.Item.Count = -pickupEntry.Count;
+        correction.Silent = true;
+        acMessage.pPlayer->Send(correction);
+
+        NotifyDroppedItemPickedUp notify{};
+        notify.ServerId = message.ServerId;
+        notify.Item = pickupEntry;
+        notify.DropId = 0;
+        notify.HasLocation = message.HasLocation;
+        if (notify.HasLocation)
+            notify.Location = message.Location;
+        notify.HasRotation = message.HasRotation;
+        if (notify.HasRotation)
+            notify.Rotation = message.Rotation;
+        notify.CellId = message.CellId;
+        notify.WorldSpaceId = message.WorldSpaceId;
+        notify.ReferenceId = message.ReferenceId;
+
+        BroadcastPickup(notify);
         return;
     }
 
-    if (!UpdateInventoryForDelta(pPicker->GetId(), pickupEntry, pickupEntry.Count, inventoryComponent))
+    if (shouldTrackPickup)
     {
-        spdlog::warn("DropService: failed to grant untracked pickup to player {}", pPicker->GetId());
-        RollbackTransaction();
-        return;
-    }
+        if (!RecordCreationEnginePickup(message.ReferenceId, message.CellId, message.WorldSpaceId, pPicker->GetId()))
+        {
+            if (IsCreationEnginePickupRecorded(message.ReferenceId))
+            {
+                spdlog::info("DropService: rejecting creation engine pickup ref {:X}:{:X} (race/duplicate) for player {}", message.ReferenceId.ModId, message.ReferenceId.BaseId, pPicker->GetId());
 
-    if (!CommitTransaction())
-    {
-        spdlog::error("DropService: commit failed for untracked pickup");
-        RollbackTransaction();
-        return;
-    }
+                NotifyInventoryChanges correction{};
+                correction.ServerId = message.ServerId;
+                correction.Item = pickupEntry;
+                correction.Item.Count = -pickupEntry.Count;
+                correction.Silent = true;
+                acMessage.pPlayer->Send(correction);
 
-    inventoryComponent.Content.AddOrRemoveEntry(pickupEntry);
+                NotifyDroppedItemPickedUp notify{};
+                notify.ServerId = message.ServerId;
+                notify.Item = pickupEntry;
+                notify.DropId = 0;
+                notify.HasLocation = message.HasLocation;
+                if (notify.HasLocation)
+                    notify.Location = message.Location;
+                notify.HasRotation = message.HasRotation;
+                if (notify.HasRotation)
+                    notify.Rotation = message.Rotation;
+                notify.CellId = message.CellId;
+                notify.WorldSpaceId = message.WorldSpaceId;
+                notify.ReferenceId = message.ReferenceId;
+
+                BroadcastPickup(notify);
+                return;
+            }
+
+            spdlog::warn("DropService: failed to record creation engine pickup ref {:X}:{:X} for player {}, continuing without tracking", message.ReferenceId.ModId, message.ReferenceId.BaseId, pPicker->GetId());
+        }
+    }
 
     NotifyDroppedItemPickedUp notify{};
     notify.ServerId = message.ServerId;

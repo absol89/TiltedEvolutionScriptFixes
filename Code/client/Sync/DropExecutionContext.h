@@ -9,7 +9,8 @@ enum class Mode
     None,
     LocalDrop,
     RemoteDrop,
-    RemotePickup
+    RemotePickup,
+    LocalPickup
 };
 
 Mode GetCurrentMode() noexcept;

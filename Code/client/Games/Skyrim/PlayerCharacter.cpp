@@ -322,6 +322,7 @@ const GameArray<BSPointerHandle<TESObjectREFR>>* PlayerCharacter::GetCurrentMapM
 char TP_MAKE_THISCALL(HookPickUpObject, PlayerCharacter, TESObjectREFR* apObject, int32_t aCount, bool aUnk1, bool aUnk2)
 {
     const bool isRemotePickup = DropExecution::GetCurrentMode() == DropExecution::Mode::RemotePickup;
+    const bool isConnected = World::Get().GetTransport().IsConnected();
     std::optional<uint64_t> dropId{};
 
     if (apObject)
@@ -354,7 +355,7 @@ char TP_MAKE_THISCALL(HookPickUpObject, PlayerCharacter, TESObjectREFR* apObject
         }
     }
 
-    if (!isRemotePickup)
+    if (!isRemotePickup && isConnected)
     {
         std::optional<PickupDroppedItemEvent> pickupEvent{};
 
@@ -369,25 +370,20 @@ char TP_MAKE_THISCALL(HookPickUpObject, PlayerCharacter, TESObjectREFR* apObject
             PopulatePickupEventFromReference(apObject, fallbackItem, *pickupEvent);
         }
 
+        if (pickupEvent && apObject)
+            pickupEvent->ReferenceFormId = apObject->formID;
+
         if (pickupEvent)
             World::Get().GetRunner().Trigger(*pickupEvent);
-
-        if (dropId)
-        {
-            spdlog::info("PlayerCharacter {:X} triggering pickup for drop {}", apThis->formID, *dropId);
-            DropManager::RemoveServerDrop(*dropId);
-        }
-        else if (hasReferenceObject)
-        {
-            Inventory::Entry item = fallbackItem;
-
-            const bool shouldUpdateClients = apObject->IsTemporary() && !ScopedActivateOverride::IsOverriden();
-            spdlog::warn("PlayerCharacter {:X} picking up object {:X}:{:X} without drop id, falling back to inventory change", apThis->formID, item.BaseId.ModId, item.BaseId.BaseId);
-            World::Get().GetRunner().Trigger(InventoryChangeEvent(apThis->formID, std::move(item), shouldUpdateClients));
-        }
     }
 
     ScopedInventoryOverride _;
+
+    if (!isRemotePickup && isConnected)
+    {
+        DropExecution::Scope scope(DropExecution::Mode::LocalPickup, apThis->formID, dropId.value_or(0));
+        return TiltedPhoques::ThisCall(RealPickUpObject, apThis, apObject, aCount, aUnk1, aUnk2);
+    }
 
     return TiltedPhoques::ThisCall(RealPickUpObject, apThis, apObject, aCount, aUnk1, aUnk2);
 }

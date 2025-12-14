@@ -7,6 +7,7 @@
 #include <TiltedCore/Stl.hpp>
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -33,6 +34,8 @@ public:
     void Shutdown() noexcept;
     std::vector<CachedDrop> GetDropsForCell(const GameId& aCellId, const GameId& aWorldId) const noexcept;
     std::vector<CachedDrop> GetAllDrops() const noexcept;
+    std::optional<uint32_t> GetRefFormId(uint64_t aDropId) const noexcept;
+    std::optional<uint64_t> FindDropIdByRefFormId(uint32_t aRefFormId, const GameId& aCellId, const GameId& aWorldId) const noexcept;
     void RemoveCachedDrop(uint64_t aDropId) noexcept;
 
     void OnServerDropTracked(uint64_t aDropId, const DropManager::ServerDropData& acData) noexcept override;

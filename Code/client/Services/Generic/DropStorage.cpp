@@ -120,6 +120,41 @@ std::vector<DropStorage::CachedDrop> DropStorage::GetAllDrops() const noexcept
     return drops;
 }
 
+std::optional<uint32_t> DropStorage::GetRefFormId(uint64_t aDropId) const noexcept
+{
+    const auto it = m_cachedDrops.find(aDropId);
+    if (it == m_cachedDrops.end())
+        return std::nullopt;
+
+    const auto& drop = it.value();
+    if (drop.RefFormId == 0)
+        return std::nullopt;
+
+    return drop.RefFormId;
+}
+
+std::optional<uint64_t> DropStorage::FindDropIdByRefFormId(uint32_t aRefFormId, const GameId& aCellId, const GameId& aWorldId) const noexcept
+{
+    if (aRefFormId == 0)
+        return std::nullopt;
+
+    for (const auto& [dropId, drop] : m_cachedDrops)
+    {
+        if (drop.RefFormId != aRefFormId)
+            continue;
+
+        if (aCellId && drop.CellId && drop.CellId != aCellId)
+            continue;
+
+        if (aWorldId && drop.WorldSpaceId && drop.WorldSpaceId != aWorldId)
+            continue;
+
+        return dropId;
+    }
+
+    return std::nullopt;
+}
+
 void DropStorage::RemoveCachedDrop(uint64_t aDropId) noexcept
 {
     if (m_cachedDrops.erase(aDropId) > 0)
@@ -155,6 +190,9 @@ void DropStorage::OnDropHandleBound(uint64_t aDropId, uint32_t aHandleBits) noex
     if (!EnsureInitialized())
         return;
 
+    if (aHandleBits == 0)
+        return;
+
     auto it = m_cachedDrops.find(aDropId);
     if (it == m_cachedDrops.end())
         return;
@@ -166,8 +204,7 @@ void DropStorage::OnDropHandleBound(uint64_t aDropId, uint32_t aHandleBits) noex
 
 void DropStorage::OnServerDropRemoved(uint64_t aDropId) noexcept
 {
-    RemoveCachedDrop(aDropId);
-    spdlog::info("DropStorage: removed cached drop {}", aDropId);
+    spdlog::debug("DropStorage: server drop {} removed (retaining cache for later cleanup)", aDropId);
 }
 
 std::string DropStorage::SanitizeUser(const std::string& aUsername)

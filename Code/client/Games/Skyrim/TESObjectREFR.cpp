@@ -1039,7 +1039,10 @@ bool TP_MAKE_THISCALL(HookActivate, TESObjectREFR, TESObjectREFR* apActivator, u
 
 void TP_MAKE_THISCALL(HookAddInventoryItem, TESObjectREFR, TESBoundObject* apItem, ExtraDataList* apExtraData, int32_t aCount, TESObjectREFR* apOldOwner)
 {
-    if (!ScopedInventoryOverride::IsOverriden())
+    const auto dropMode = DropExecution::GetCurrentMode();
+    const bool isPickupContext = dropMode == DropExecution::Mode::RemotePickup || dropMode == DropExecution::Mode::LocalPickup;
+
+    if (!ScopedInventoryOverride::IsOverriden() && !isPickupContext)
     {
         auto& modSystem = World::Get().GetModSystem();
 
@@ -1062,9 +1065,10 @@ BSPointerHandle<TESObjectREFR>*
 TP_MAKE_THISCALL(HookRemoveInventoryItem, TESObjectREFR, BSPointerHandle<TESObjectREFR>* apResult, TESBoundObject* apItem, int32_t aCount, ITEM_REMOVE_REASON aReason, ExtraDataList* apExtraList, TESObjectREFR* apMoveToRef, const NiPoint3* apDropLoc, const NiPoint3* apRotate)
 {
     const auto dropMode = DropExecution::GetCurrentMode();
-    const bool isDropContext = dropMode == DropExecution::Mode::LocalDrop || dropMode == DropExecution::Mode::RemoteDrop;
+    const bool isSyncSuppressedContext =
+        dropMode == DropExecution::Mode::LocalDrop || dropMode == DropExecution::Mode::RemoteDrop || dropMode == DropExecution::Mode::RemotePickup || dropMode == DropExecution::Mode::LocalPickup;
 
-    if (!ScopedInventoryOverride::IsOverriden() && !isDropContext)
+    if (!ScopedInventoryOverride::IsOverriden() && !isSyncSuppressedContext)
     {
         auto& modSystem = World::Get().GetModSystem();
 

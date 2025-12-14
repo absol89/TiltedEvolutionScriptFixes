@@ -101,6 +101,26 @@ bool BindHandleToServerDrop(uint64_t dropId, uint32_t actorFormId, uint32_t hand
     return true;
 }
 
+void ClearHandleBinding(uint64_t dropId) noexcept
+{
+    auto dropIt = s_serverDrops.find(dropId);
+    if (dropIt == s_serverDrops.end())
+        return;
+
+    auto& drop = dropIt.value();
+    if (drop.HandleBits == 0)
+        return;
+
+    const uint32_t previousHandle = drop.HandleBits;
+    UnbindHandle(previousHandle);
+    drop.HandleBits = 0;
+
+    if (s_pStorageListener)
+        s_pStorageListener->OnDropHandleBound(dropId, 0);
+
+    spdlog::info("DropManager: cleared handle {:X} for drop {}", previousHandle, dropId);
+}
+
 void SetReferenceForDrop(uint64_t dropId, const GameId& referenceId) noexcept
 {
     if (!referenceId)

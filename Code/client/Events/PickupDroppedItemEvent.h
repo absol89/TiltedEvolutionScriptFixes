@@ -14,6 +14,7 @@ struct PickupDroppedItemEvent
 
     uint32_t ActorFormId{};
     uint64_t DropId{};
+    uint32_t ReferenceFormId{};
     bool HasItemData{false};
     Inventory::Entry Item{};
     bool HasLocation{false};
