@@ -26,6 +26,8 @@
 #include <ModCompat/BehaviorVar.h>
 #include <Sync/DropManager.h>
 #include <Sync/DropExecutionContext.h>
+#include <array>
+#include <atomic>
 #include <optional>
 #include <cmath>
 #include <utility>
@@ -111,6 +113,88 @@ void PopulatePickupEventFromReference(TESObjectREFR* apReference, const Inventor
     aEvent.CellId = cellMeta.first;
     aEvent.WorldSpaceId = cellMeta.second;
     aEvent.ReferenceId = ResolveReferenceId(apReference);
+}
+
+constexpr uint32_t kMaxCurrentMapMarkers = 4096;
+
+constexpr std::array<std::ptrdiff_t, 2> kCurrentMapMarkerOffsets = {
+    0x4F8,
+    0x500,
+};
+
+std::atomic<std::ptrdiff_t> s_currentMapMarkersOffset{0};
+
+const GameArray<BSPointerHandle<TESObjectREFR>>* GetCurrentMapMarkersAt(const PlayerCharacter* apPlayer, const std::ptrdiff_t aOffset) noexcept
+{
+    return reinterpret_cast<const GameArray<BSPointerHandle<TESObjectREFR>>*>(
+        reinterpret_cast<const uint8_t*>(apPlayer) + aOffset);
+}
+
+bool IsPlausibleCurrentMapMarkersArray(const GameArray<BSPointerHandle<TESObjectREFR>>& acMarkers) noexcept
+{
+    if (acMarkers.length > acMarkers.capacity)
+        return false;
+
+    if (acMarkers.capacity > kMaxCurrentMapMarkers)
+        return false;
+
+    if (acMarkers.length > kMaxCurrentMapMarkers)
+        return false;
+
+    if (acMarkers.length == 0)
+        return true;
+
+    if (!acMarkers.data)
+        return false;
+
+    const auto dataPtr = reinterpret_cast<uintptr_t>(acMarkers.data);
+    if (dataPtr < 0x10000)
+        return false;
+
+    if (dataPtr % alignof(BSPointerHandle<TESObjectREFR>) != 0)
+        return false;
+
+    return true;
+}
+
+const GameArray<BSPointerHandle<TESObjectREFR>>* ResolveCurrentMapMarkersArray(const PlayerCharacter* apPlayer) noexcept
+{
+    if (!apPlayer)
+        return nullptr;
+
+    if (const auto cached = s_currentMapMarkersOffset.load(std::memory_order_relaxed); cached != 0)
+    {
+        const auto* pMarkers = GetCurrentMapMarkersAt(apPlayer, cached);
+        if (IsPlausibleCurrentMapMarkersArray(*pMarkers))
+            return pMarkers;
+
+        s_currentMapMarkersOffset.store(0, std::memory_order_relaxed);
+    }
+
+    for (const auto offset : kCurrentMapMarkerOffsets)
+    {
+        const auto* pMarkers = GetCurrentMapMarkersAt(apPlayer, offset);
+        if (!IsPlausibleCurrentMapMarkersArray(*pMarkers))
+            continue;
+
+        const bool shouldCache = pMarkers->length != 0 || pMarkers->capacity != 0 || pMarkers->data != nullptr;
+        if (shouldCache)
+        {
+            s_currentMapMarkersOffset.store(offset, std::memory_order_relaxed);
+
+            static std::atomic_bool s_logged{false};
+            if (!s_logged.exchange(true))
+                spdlog::info("Using currentMapMarkers offset 0x{:X} (len={}, cap={})", offset, pMarkers->length, pMarkers->capacity);
+        }
+
+        return pMarkers;
+    }
+
+    static std::atomic_bool s_loggedFailure{false};
+    if (!s_loggedFailure.exchange(true))
+        spdlog::warn("Failed to resolve currentMapMarkers array (fast travel sync will be limited)");
+
+    return nullptr;
 }
 }
 
@@ -222,6 +306,17 @@ void PlayerCharacter::SetWaypoint(NiPoint3* apPosition, TESWorldSpace* apWorldSp
 void PlayerCharacter::RemoveWaypoint() noexcept
 {
     return TiltedPhoques::ThisCall(RealRemoveWaypoint, this);
+}
+
+GameArray<BSPointerHandle<TESObjectREFR>>* PlayerCharacter::GetCurrentMapMarkers() noexcept
+{
+    return const_cast<GameArray<BSPointerHandle<TESObjectREFR>>*>(
+        static_cast<const PlayerCharacter*>(this)->GetCurrentMapMarkers());
+}
+
+const GameArray<BSPointerHandle<TESObjectREFR>>* PlayerCharacter::GetCurrentMapMarkers() const noexcept
+{
+    return ResolveCurrentMapMarkersArray(this);
 }
 
 char TP_MAKE_THISCALL(HookPickUpObject, PlayerCharacter, TESObjectREFR* apObject, int32_t aCount, bool aUnk1, bool aUnk2)

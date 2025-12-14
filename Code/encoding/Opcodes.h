@@ -67,6 +67,7 @@ enum ClientOpcode : unsigned char
     kPlayerProfileImageUpdateRequest,
     kSetTimeCommandRequest,
     kRequestHealingProximity,
+    kPartyFastTravelMarkersRequest,
     kClientOpcodeMax
 };
 
@@ -142,5 +143,6 @@ enum ServerOpcode : unsigned char
     kNotifyHealingProximity,
     kNotifyPartyMemberDowned,
     kNotifyPlayerProfileImage,
+    kNotifyPartyFastTravelMarkers,
     kServerOpcodeMax
 };
