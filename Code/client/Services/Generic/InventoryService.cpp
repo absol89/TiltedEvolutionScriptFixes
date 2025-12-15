@@ -11,6 +11,7 @@
 #include <Messages/NotifyEquipmentChanges.h>
 #include <Messages/DrawWeaponRequest.h>
 #include <Messages/NotifyDrawWeapon.h>
+#include <Services/SyncModeService.h>
 
 #include <Events/UpdateEvent.h>
 #include <Events/InventoryChangeEvent.h>
@@ -60,6 +61,10 @@ void InventoryService::OnInventoryChangeEvent(const InventoryChangeEvent& acEven
     if (!m_transport.IsConnected())
         return;
 
+    // Ignore inventory sync while in ghost-only mode (quest isolation).
+    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
+        return;
+
     auto view = m_world.view<FormIdComponent>();
 
     const auto iter = std::find_if(std::begin(view), std::end(view), [view, formId = acEvent.FormId](auto entity) { return view.get<FormIdComponent>(entity).Id == formId; });
@@ -70,7 +75,7 @@ void InventoryService::OnInventoryChangeEvent(const InventoryChangeEvent& acEven
     std::optional<uint32_t> serverIdRes = Utils::GetServerId(*iter);
     if (!serverIdRes.has_value())
     {
-        spdlog::error(__FUNCTION__ ": failed to find server id, target form id: {:X}, item id: {:X}, count: {}", acEvent.FormId, acEvent.Item.BaseId.BaseId, acEvent.Item.Count);
+        spdlog::debug("{}: failed to find server id, target form id: {:X}, item id: {:X}, count: {}", __FUNCTION__, acEvent.FormId, acEvent.Item.BaseId.BaseId, acEvent.Item.Count);
         return;
     }
 
@@ -279,6 +284,10 @@ bool InventoryService::SendEquipmentChange(const EquipmentChangeEvent& acEvent) 
     if (!m_transport.IsConnected())
         return false;
 
+    // Ignore equipment sync while in ghost-only mode to avoid noisy retries/logs
+    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
+        return true;
+
     auto view = m_world.view<FormIdComponent>();
 
     const auto iter = std::find_if(std::begin(view), std::end(view), [view, formId = acEvent.ActorId](auto entity) { return view.get<FormIdComponent>(entity).Id == formId; });
@@ -291,10 +300,7 @@ bool InventoryService::SendEquipmentChange(const EquipmentChangeEvent& acEvent) 
 
     std::optional<uint32_t> serverIdRes = Utils::GetServerId(*iter);
     if (!serverIdRes.has_value())
-    {
-        spdlog::error("{}: failed to find server id, actor id: {:X}, item id: {:X}, isAmmo: {}, unequip: {}, slot: {:X}", __FUNCTION__, acEvent.ActorId, acEvent.ItemId, acEvent.IsAmmo, acEvent.Unequip, acEvent.EquipSlotId);
         return false;
-    }
 
     Actor* pActor = Cast<Actor>(TESForm::GetById(acEvent.ActorId));
     const auto readiness = EvaluateActorReadiness(pActor);

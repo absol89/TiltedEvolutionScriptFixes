@@ -16,6 +16,104 @@
 
 #include <Messages/RequestQuestUpdate.h>
 #include <Messages/NotifyQuestUpdate.h>
+#include <Services/SyncModeService.h>
+#include <Structs/SyncMode.h>
+#include <TiltedCore/Filesystem.hpp>
+#include <filesystem>
+#include <fstream>
+#include <regex>
+#include <optional>
+#include <algorithm>
+#include <cctype>
+#include <string>
+#include <cstring>
+
+namespace
+{
+using GateRule = QuestService::GateRule;
+
+uint32_t ParseHex(const std::string& aText) noexcept
+{
+    try
+    {
+        return static_cast<uint32_t>(std::stoul(aText, nullptr, 0));
+    }
+    catch (...)
+    {
+        return 0;
+    }
+}
+
+std::optional<GateRule> ParseRuleChunk(const std::string& aChunk) noexcept
+{
+    std::regex idNameRx("\"idName\"\\s*:\\s*\"([^\"]+)\"");
+    std::regex minRx("\"stageMin\"\\s*:\\s*([0-9]+)");
+    std::regex maxRx("\"stageMax\"\\s*:\\s*([0-9]+)");
+
+    std::smatch match;
+
+    TiltedPhoques::String idName{};
+    if (std::regex_search(aChunk, match, idNameRx))
+        idName = match[1].str().c_str();
+
+    uint16_t stageMin = 0;
+    if (std::regex_search(aChunk, match, minRx))
+        stageMin = static_cast<uint16_t>(ParseHex(match[1].str()));
+
+    uint16_t stageMax = stageMin;
+    if (std::regex_search(aChunk, match, maxRx))
+        stageMax = static_cast<uint16_t>(ParseHex(match[1].str()));
+
+    if (stageMax < stageMin)
+        std::swap(stageMin, stageMax);
+
+    if (idName.empty())
+        return std::nullopt;
+
+    GateRule rule{};
+    rule.IdName = idName;
+    rule.StageMin = stageMin;
+    rule.StageMax = stageMax;
+    return rule;
+}
+
+void LoadRulesFromFile(const std::filesystem::path& aPath, TiltedPhoques::Vector<GateRule>& aOutRules) noexcept
+{
+    std::ifstream file(aPath);
+    if (!file.is_open())
+    {
+        spdlog::warn("Quest gating: failed to open {}", aPath.string());
+        return;
+    }
+
+    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    std::replace(content.begin(), content.end(), '\n', ' ');
+    std::replace(content.begin(), content.end(), '\r', ' ');
+
+    std::regex chunkRx("\\{[^\\{\\}]*?idName[^\\}]*?\\}");
+
+    auto chunkIt = std::sregex_iterator(content.begin(), content.end(), chunkRx);
+    auto end = std::sregex_iterator();
+    for (; chunkIt != end; ++chunkIt)
+    {
+        size_t start = static_cast<size_t>(chunkIt->position());
+        size_t limit = content.size();
+        auto nextBase = std::next(chunkIt);
+        if (nextBase != end)
+            limit = static_cast<size_t>(nextBase->position());
+
+        const std::string slice = content.substr(start, limit - start);
+
+        if (auto rule = ParseRuleChunk(slice))
+        {
+            aOutRules.push_back(*rule);
+        }
+    }
+
+    if (aOutRules.empty())
+        spdlog::warn("Quest gating: no rules parsed from {}", aPath.string());
+}
+} // namespace
 
 using Quest = TESQuest; // Alias for PAPYRUS_FUNCTION namespace string "Quest"
 
@@ -38,11 +136,26 @@ static Actor* GetActorByPlayerId(uint32_t aPlayerId, entt::registry& aWorld)
     return Cast<Actor>(TESForm::GetById(formIdComponent.Id));
 }
 
+bool RuleTargetsQuest(const GateRule& aRule, TESQuest* apQuest) noexcept
+{
+    if (!apQuest)
+        return false;
+
+    if (!aRule.IdName.empty())
+    {
+        if (std::strcmp(apQuest->idName.AsAscii(), aRule.IdName.c_str()) != 0)
+            return false;
+    }
+
+    return true;
+}
+
 QuestService::QuestService(World& aWorld, entt::dispatcher& aDispatcher)
     : m_world(aWorld)
 {
     m_joinedConnection = aDispatcher.sink<ConnectedEvent>().connect<&QuestService::OnConnected>(this);
     m_questUpdateConnection = aDispatcher.sink<NotifyQuestUpdate>().connect<&QuestService::OnQuestUpdate>(this);
+    m_updateConnection = aDispatcher.sink<UpdateEvent>().connect<&QuestService::OnUpdate>(this);
 
     // Game quest events
     auto* pEventList = EventDispatcherManager::Get();
@@ -52,11 +165,21 @@ QuestService::QuestService(World& aWorld, entt::dispatcher& aDispatcher)
 
 void QuestService::OnConnected(const ConnectedEvent&) noexcept
 {
-    // nothing for now
+    m_gateActive = false;
+    m_gateRescanTimer = 0.0;
+    m_gateRulesLoaded = false;
+    m_initialGateScan = false;
+    LoadGateRules();
+    EvaluateGatesFromWorld();
 }
 
 BSTEventResult QuestService::OnEvent(const TESQuestStartStopEvent* apEvent, const EventDispatcher<TESQuestStartStopEvent>*)
 {
+    EvaluateGateForQuest(apEvent->formId, 0);
+
+    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
+        return BSTEventResult::kOk;
+
     if (ScopedQuestOverride::IsOverriden() || !m_world.Get().GetPartyService().IsInParty())
         return BSTEventResult::kOk;
 
@@ -103,6 +226,11 @@ BSTEventResult QuestService::OnEvent(const TESQuestStartStopEvent* apEvent, cons
 
 BSTEventResult QuestService::OnEvent(const TESQuestStageEvent* apEvent, const EventDispatcher<TESQuestStageEvent>*)
 {
+    EvaluateGateForQuest(apEvent->formId, apEvent->stageId);
+
+    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
+        return BSTEventResult::kOk;
+
     if (ScopedQuestOverride::IsOverriden() || !m_world.Get().GetPartyService().IsInParty())
         return BSTEventResult::kOk;
 
@@ -160,9 +288,23 @@ void QuestService::OnQuestUpdate(const NotifyQuestUpdate& aUpdate) noexcept
     });
 }
 
-void QuestService::OnUpdate(const UpdateEvent&) noexcept
+void QuestService::OnUpdate(const UpdateEvent& acEvent) noexcept
 {
+    if (!m_initialGateScan)
+    {
+        m_initialGateScan = true;
+        EvaluateGatesFromWorld();
+    }
+
     FlushPendingUpdates();
+    // Re-evaluate gate rules periodically in case we missed events
+    constexpr double cGateRescanInterval = 2.5;
+    m_gateRescanTimer += acEvent.Delta;
+    if (m_gateRescanTimer >= cGateRescanInterval)
+    {
+        m_gateRescanTimer = 0.0;
+        EvaluateGatesFromWorld();
+    }
 }
 
 void QuestService::FlushPendingUpdates() noexcept
@@ -275,4 +417,104 @@ void QuestService::DebugDumpQuests()
     auto& quests = ModManager::Get()->quests;
     for (TESQuest* pQuest : quests)
         spdlog::info("{:X}|{}|{}|{}", pQuest->formID, (uint8_t)pQuest->type, pQuest->priority, pQuest->idName.AsAscii());
+}
+
+void QuestService::EvaluateGateForQuest(uint32_t aFormId, uint16_t aStage) noexcept
+{
+    if (!m_gateRulesLoaded)
+        LoadGateRules();
+
+    const auto it = std::find_if(m_gateRules.begin(), m_gateRules.end(),
+        [&](const GateRule& rule) { return RuleTargetsQuest(rule, Cast<TESQuest>(TESForm::GetById(aFormId))); });
+    if (it == m_gateRules.end())
+        return;
+
+    // If the event is relevant, recompute the full gate state using current quest data.
+    EvaluateGatesFromWorld();
+}
+
+void QuestService::EvaluateGatesFromWorld() noexcept
+{
+    if (!m_gateRulesLoaded)
+        LoadGateRules();
+
+    bool shouldGate = false;
+    uint32_t matchedQuestId = 0;
+    uint16_t matchedStage = 0;
+    for (const auto& rule : m_gateRules)
+    {
+        TESQuest* pQuest = nullptr;
+        uint32_t formId = 0;
+
+        if (!rule.IdName.empty())
+        {
+            pQuest = FindQuestByNameId(rule.IdName);
+            if (pQuest)
+                formId = pQuest->formID;
+        }
+        if (!RuleTargetsQuest(rule, pQuest))
+            continue;
+
+        if (!pQuest || pQuest->IsStopped())
+            continue;
+
+        if (rule.Matches(pQuest->currentStage))
+        {
+            shouldGate = true;
+            matchedQuestId = formId;
+            matchedStage = pQuest->currentStage;
+            break;
+        }
+    }
+
+    const SyncMode desiredMode = shouldGate ? SyncMode::Ghost : SyncMode::Normal;
+
+    if (shouldGate != m_gateActive || m_world.GetSyncModeService().GetLocalMode() != desiredMode)
+    {
+        m_gateActive = shouldGate;
+        m_world.GetSyncModeService().SetLocalMode(desiredMode);
+        if (shouldGate)
+            spdlog::info("Entering quest sync gate for quest {:X} stage {}", matchedQuestId, matchedStage);
+        else
+            spdlog::info("Exiting quest sync gate");
+    }
+}
+
+void QuestService::LoadGateRules() noexcept
+{
+    m_gateRulesLoaded = true;
+    m_gateRules.clear();
+
+    const auto basePath = TiltedPhoques::GetPath();
+    const std::filesystem::path isolationDir = basePath / "Isolation";
+
+    std::error_code ec;
+    if (!std::filesystem::exists(isolationDir, ec))
+    {
+        std::filesystem::create_directories(isolationDir, ec);
+        if (ec)
+        {
+            spdlog::warn("Quest gating: failed to create isolation directory {}", isolationDir.string());
+            return;
+        }
+        spdlog::info("Quest gating: created isolation directory {}", isolationDir.string());
+    }
+
+    for (const auto& entry : std::filesystem::directory_iterator(isolationDir, ec))
+    {
+        if (ec)
+            break;
+
+        if (!entry.is_regular_file())
+            continue;
+
+        auto ext = entry.path().extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (ext != ".json")
+            continue;
+
+        LoadRulesFromFile(entry.path(), m_gateRules);
+    }
+
+    spdlog::info("Quest gating: loaded {} gate rules from {}", m_gateRules.size(), isolationDir.string());
 }

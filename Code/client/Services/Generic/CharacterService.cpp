@@ -5,6 +5,7 @@
 
 #include <Services/CharacterService.h>
 #include <Services/QuestService.h>
+#include <Services/SyncModeService.h>
 #include <Services/TransportService.h>
 
 #include <Games/References.h>
@@ -383,6 +384,9 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
 
 void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) const noexcept
 {
+    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost && !acMessage.IsPlayer)
+        return;
+
     auto remoteView = m_world.view<RemoteComponent>();
     const auto remoteItor = std::find_if(std::begin(remoteView), std::end(remoteView), [remoteView, Id = acMessage.ServerId](auto entity) { return remoteView.get<RemoteComponent>(entity).Id == Id; });
 
@@ -516,6 +520,9 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
 
 void CharacterService::OnRemoteSpawnDataReceived(const NotifySpawnData& acMessage) noexcept
 {
+    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
+        return;
+
     auto view = m_world.view<FormIdComponent>(entt::exclude<ObjectComponent>);
 
     const auto itor = std::find_if(
@@ -574,6 +581,9 @@ void CharacterService::OnReferencesMoveRequest(const ServerReferencesMoveRequest
         auto itor = std::find_if(std::begin(view), std::end(view), [serverId = serverId, view](entt::entity entity) { return view.get<RemoteComponent>(entity).Id == serverId; });
 
         if (itor == std::end(view))
+            continue;
+
+        if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost && !m_world.any_of<PlayerComponent>(*itor))
             continue;
 
         auto& interpolationComponent = view.get<InterpolationComponent>(*itor);
@@ -804,6 +814,9 @@ void CharacterService::OnMountEvent(const MountEvent& acEvent) const noexcept
 
 void CharacterService::OnNotifyMount(const NotifyMount& acMessage) const noexcept
 {
+    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
+        return;
+
     auto remoteView = m_world.view<RemoteComponent, FormIdComponent>();
 
     const auto riderIt = std::find_if(std::begin(remoteView), std::end(remoteView), [remoteView, Id = acMessage.RiderId](auto entity) { return remoteView.get<RemoteComponent>(entity).Id == Id; });
@@ -890,6 +903,9 @@ void CharacterService::OnInitPackageEvent(const InitPackageEvent& acEvent) const
 
 void CharacterService::OnNotifyNewPackage(const NotifyNewPackage& acMessage) const noexcept
 {
+    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
+        return;
+
     auto remoteView = m_world.view<RemoteComponent, FormIdComponent>();
     const auto remoteIt = std::find_if(std::begin(remoteView), std::end(remoteView), [remoteView, Id = acMessage.ActorId](auto entity) { return remoteView.get<RemoteComponent>(entity).Id == Id; });
 
@@ -934,7 +950,7 @@ void CharacterService::OnNotifySyncExperience(const NotifySyncExperience& acMess
 
 void CharacterService::OnDialogueEvent(const DialogueEvent& acEvent) noexcept
 {
-    if (!m_transport.IsConnected())
+    if (!m_transport.IsConnected() || m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
         return;
 
     auto view = m_world.view<FormIdComponent>(entt::exclude<ObjectComponent>);
@@ -959,6 +975,9 @@ void CharacterService::OnDialogueEvent(const DialogueEvent& acEvent) noexcept
 
 void CharacterService::OnNotifyDialogue(const NotifyDialogue& acMessage) noexcept
 {
+    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
+        return;
+
     auto remoteView = m_world.view<RemoteComponent, FormIdComponent>();
     const auto remoteIt = std::find_if(std::begin(remoteView), std::end(remoteView), [remoteView, Id = acMessage.ServerId](auto entity) { return remoteView.get<RemoteComponent>(entity).Id == Id; });
 
@@ -975,13 +994,16 @@ void CharacterService::OnNotifyDialogue(const NotifyDialogue& acMessage) noexcep
     if (!pActor)
         return;
 
+    if (m_world.all_of<GhostComponent>(*remoteIt))
+        return;
+
     pActor->StopCurrentDialogue(true);
     pActor->SpeakSound(acMessage.SoundFilename.c_str());
 }
 
 void CharacterService::OnSubtitleEvent(const SubtitleEvent& acEvent) noexcept
 {
-    if (!m_transport.IsConnected())
+    if (!m_transport.IsConnected() || m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
         return;
 
     auto view = m_world.view<FormIdComponent>(entt::exclude<ObjectComponent>);
@@ -1007,6 +1029,9 @@ void CharacterService::OnSubtitleEvent(const SubtitleEvent& acEvent) noexcept
 
 void CharacterService::OnNotifySubtitle(const NotifySubtitle& acMessage) noexcept
 {
+    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
+        return;
+
     auto remoteView = m_world.view<RemoteComponent, FormIdComponent>();
     const auto remoteIt = std::find_if(std::begin(remoteView), std::end(remoteView), [remoteView, Id = acMessage.ServerId](auto entity) { return remoteView.get<RemoteComponent>(entity).Id == Id; });
 
@@ -1021,6 +1046,9 @@ void CharacterService::OnNotifySubtitle(const NotifySubtitle& acMessage) noexcep
     Actor* pActor = Cast<Actor>(pForm);
 
     if (!pActor)
+        return;
+
+    if (m_world.all_of<GhostComponent>(*remoteIt))
         return;
 
     // This is only for fallout 4
@@ -1081,6 +1109,9 @@ void CharacterService::OnNotifyRelinquishControl(const NotifyRelinquishControl& 
 
 void CharacterService::OnNotifyActorTeleport(const NotifyActorTeleport& acMessage) noexcept
 {
+    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
+        return;
+
     auto& modSystem = m_world.GetModSystem();
 
     const uint32_t cActorId = World::Get().GetModSystem().GetGameId(acMessage.FormId);
@@ -1144,6 +1175,7 @@ void CharacterService::ProcessNewEntity(entt::entity aEntity) const noexcept
         return;
 
     auto& formIdComponent = m_world.get<FormIdComponent>(aEntity);
+    const bool ghosting = (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost);
 
     Actor* const pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
     if (!pActor)
@@ -1154,6 +1186,9 @@ void CharacterService::ProcessNewEntity(entt::entity aEntity) const noexcept
 
     if (auto* pRemoteComponent = m_world.try_get<RemoteComponent>(aEntity); pRemoteComponent)
     {
+        if (ghosting)
+            return;
+
         // TODO(cosideci): don't just take all actors (i.e. from other parties),
         // maybe check it server side, add a variable to the request.
         if (m_world.GetPartyService().IsLeader() && !pActor->IsTemporary() && !pActor->IsMount())
@@ -1171,6 +1206,10 @@ void CharacterService::ProcessNewEntity(entt::entity aEntity) const noexcept
     if (m_world.any_of<RemoteComponent, LocalComponent, WaitingForAssignmentComponent>(aEntity))
         return;
 
+    // During ghost isolation, only the local player is allowed to enter server ownership/assignment flows.
+    if (ghosting && formIdComponent.Id != 0x14)
+        return;
+
     CacheSystem::Setup(World::Get(), aEntity, pActor);
 
     RequestServerAssignment(aEntity);
@@ -1184,6 +1223,8 @@ void CharacterService::RequestServerAssignment(const entt::entity aEntity) const
     static uint32_t sCookieSeed = 0;
 
     const auto& formIdComponent = m_world.get<FormIdComponent>(aEntity);
+    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost && formIdComponent.Id != 0x14)
+        return;
 
     auto* pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
     if (!pActor)
@@ -1221,6 +1262,7 @@ void CharacterService::RequestServerAssignment(const entt::entity aEntity) const
 
     // Serialize the base form
     const auto isPlayer = (formIdComponent.Id == 0x14);
+    const bool ghosting = (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost);
     const auto isTemporary = pActor->formID >= 0xFF000000;
 
     if (isPlayer)
@@ -1258,23 +1300,26 @@ void CharacterService::RequestServerAssignment(const entt::entity aEntity) const
     if (isPlayer)
     {
         auto& questLog = message.QuestContent.Entries;
-        auto& modSystem = m_world.GetModSystem();
 
-        for (const auto& objective : PlayerCharacter::Get()->objectives)
+        if (!ghosting)
         {
-            auto* pQuest = objective.instance->quest;
-            if (!pQuest)
-                continue;
-
-            if (!QuestService::IsNonSyncableQuest(pQuest))
+            auto& modSystem = m_world.GetModSystem();
+            for (const auto& objective : PlayerCharacter::Get()->objectives)
             {
-                GameId id{};
+                auto* pQuest = objective.instance->quest;
+                if (!pQuest)
+                    continue;
 
-                if (modSystem.GetServerModId(pQuest->formID, id))
+                if (!QuestService::IsNonSyncableQuest(pQuest))
                 {
-                    auto& entry = questLog.emplace_back();
-                    entry.Stage = pQuest->currentStage;
-                    entry.Id = id;
+                    GameId id{};
+
+                    if (modSystem.GetServerModId(pQuest->formID, id))
+                    {
+                        auto& entry = questLog.emplace_back();
+                        entry.Stage = pQuest->currentStage;
+                        entry.Id = id;
+                    }
                 }
             }
         }
@@ -1284,9 +1329,19 @@ void CharacterService::RequestServerAssignment(const entt::entity aEntity) const
         questLog.resize(std::distance(questLog.begin(), ip));
     }
 
-    message.CurrentActorData = BuildActorData(pActor);
+    if (ghosting)
+    {
+        message.CurrentActorData.InitialActorValues = pActor->GetEssentialActorValues();
+        message.CurrentActorData.InitialInventory = {};
+        message.CurrentActorData.IsDead = pActor->IsDead();
+        message.CurrentActorData.IsWeaponDrawn = pActor->actorState.IsWeaponFullyDrawn();
+    }
+    else
+    {
+        message.CurrentActorData = BuildActorData(pActor);
+    }
 
-    message.FactionsContent = pActor->GetFactions();
+    message.FactionsContent = ghosting ? Factions{} : pActor->GetFactions();
     message.IsDragon = pActor->IsDragon();
     message.IsMount = pActor->IsMount();
     message.IsPlayerSummon = pActor->GetCommandingActor() && pActor->GetCommandingActor()->formID == 0x14;
@@ -1494,16 +1549,21 @@ void CharacterService::RunLocalUpdates() const noexcept
 
     auto animatedLocalView = m_world.view<LocalComponent, LocalAnimationComponent, FormIdComponent>();
 
+    const bool ghosting = (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost);
     for (auto entity : animatedLocalView)
     {
         auto& localComponent = animatedLocalView.get<LocalComponent>(entity);
         auto& animationComponent = animatedLocalView.get<LocalAnimationComponent>(entity);
         auto& formIdComponent = animatedLocalView.get<FormIdComponent>(entity);
 
+        if (ghosting && formIdComponent.Id != 0x14)
+            continue;
+
         AnimationSystem::Serialize(m_world, message, localComponent, animationComponent, formIdComponent);
     }
 
-    m_transport.Send(message);
+    if (!message.Updates.empty())
+        m_transport.Send(message);
 }
 
 void CharacterService::RunRemoteUpdates() noexcept

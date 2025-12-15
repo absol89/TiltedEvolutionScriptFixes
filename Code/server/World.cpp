@@ -20,6 +20,7 @@
 #include <Services/MapService.h>
 #include <Services/VoteTimeService.h>
 #include <Services/LoginService.h>
+#include <Services/SyncModeService.h>
 
 #include <es_loader/ESLoader.h>
 
@@ -36,6 +37,7 @@ World::World()
     ctx().emplace<ServerListService>(*this, m_dispatcher);
     ctx().emplace<QuestService>(*this, m_dispatcher);
     ctx().emplace<PartyService>(*this, m_dispatcher);
+    ctx().emplace<SyncModeService>(*this, m_dispatcher);
     ctx().emplace<ActorValueService>(*this, m_dispatcher);
     ctx().emplace<InventoryService>(*this, m_dispatcher);
     ctx().emplace<DropService>(*this, m_dispatcher);

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Structs/SyncMode.h>
+
 struct ServerMessage;
 struct Player
 {
@@ -22,6 +24,7 @@ struct Player
     [[nodiscard]] const uint64_t GetDiscordId() const noexcept { return m_discordId; }
     [[nodiscard]] const uint32_t GetStringCacheId() const noexcept { return m_stringCacheId; }
     [[nodiscard]] const uint16_t GetLevel() const noexcept { return m_level; }
+    [[nodiscard]] SyncMode GetSyncMode() const noexcept { return m_syncMode; }
 
     [[nodiscard]] CellIdComponent& GetCellComponent() noexcept;
     [[nodiscard]] const CellIdComponent& GetCellComponent() const noexcept;
@@ -38,6 +41,7 @@ struct Player
     void SetStringCacheId(uint32_t aStringCacheId) noexcept;
     // TODO(cosideci): update on level up
     void SetLevel(uint16_t aLevel) noexcept;
+    void SetSyncMode(SyncMode aMode) noexcept { m_syncMode = aMode; }
 
     void SetCellComponent(const CellIdComponent& aCellComponent) noexcept;
 
@@ -58,4 +62,5 @@ private:
     CellIdComponent m_cell;
     uint32_t m_stringCacheId{0};
     uint16_t m_level{0};
+    SyncMode m_syncMode{SyncMode::Normal};
 };

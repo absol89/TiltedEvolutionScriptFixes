@@ -21,5 +21,6 @@
 #include <Components/ObjectComponent.h>
 #include <Components/PlayerComponent.h>
 #include <Components/CombatComponent.h>
+#include <Components/GhostComponent.h>
 
 #undef TP_INTERNAL_COMPONENTS_GUARD

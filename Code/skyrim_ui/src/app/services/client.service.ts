@@ -56,6 +56,12 @@ export interface ReviveProgressPayload {
   label?: string;
 }
 
+export interface SyncStatusPayload {
+  isolated: boolean;
+  title: string;
+  detail: string;
+}
+
 /** Client game service. */
 @Injectable({
   providedIn: 'root',
@@ -77,6 +83,13 @@ export class ClientService implements OnDestroy {
   public connectionStateChange = new BehaviorSubject(false);
 
   public isConnectionInProgressChange = new BehaviorSubject(false);
+
+  /** Quest isolation / sync gating status. */
+  public syncStatusChange = new BehaviorSubject<SyncStatusPayload>({
+    isolated: false,
+    title: '',
+    detail: '',
+  });
 
   /** Player name change. */
   public nameChange = new BehaviorSubject(environment.game ? '' : 'test');
@@ -255,6 +268,10 @@ export class ClientService implements OnDestroy {
       this.onSetPlayer3dUnloaded.bind(this),
     );
     skyrimtogether.on('setLocalPlayerId', this.onSetLocalPlayerId.bind(this));
+    (skyrimtogether as any).on(
+      'setSyncStatus',
+      this.onSetSyncStatus.bind(this),
+    );
     skyrimtogether.on('protocolMismatch', this.onProtocolMismatch.bind(this));
     skyrimtogether.on('triggerError', this.onTriggerError.bind(this));
     skyrimtogether.on('dummyData', this.onDummyData.bind(this));
@@ -335,6 +352,7 @@ export class ClientService implements OnDestroy {
     skyrimtogether.off('setPlayer3dLoaded');
     skyrimtogether.off('setPlayer3dUnloaded');
     skyrimtogether.off('setLocalPlayerId');
+    skyrimtogether.off('setSyncStatus');
     skyrimtogether.off('protocolMismatch');
     skyrimtogether.off('triggerError');
     skyrimtogether.off('dummyData');
@@ -609,6 +627,7 @@ export class ClientService implements OnDestroy {
       this.localPlayerIdChange.next(undefined);
       this.connectionStateChange.next(false);
       this.isConnectionInProgressChange.next(false);
+      this.syncStatusChange.next({ isolated: false, title: '', detail: '' });
 
       if (isError && this._remainingReconnectionAttempt > 0) {
         this._remainingReconnectionAttempt--;
@@ -823,6 +842,12 @@ export class ClientService implements OnDestroy {
     this.zone.run(() => {
       this.localPlayerId = playerId;
       this.localPlayerIdChange.next(playerId);
+    });
+  }
+
+  private onSetSyncStatus(isolated: boolean, title: string, detail: string) {
+    this.zone.run(() => {
+      this.syncStatusChange.next({ isolated, title, detail });
     });
   }
 

@@ -38,6 +38,7 @@
 #include <EquipManager.h>
 #include <DefaultObjectManager.h>
 #include <Forms/TESRace.h>
+#include <Services/SyncModeService.h>
 
 PlayerService::PlayerService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
     : m_world(aWorld)
@@ -156,7 +157,7 @@ void PlayerService::OnCellChangeEvent(const CellChangeEvent& acEvent) const noex
 
 void PlayerService::OnPlayerDialogueEvent(const PlayerDialogueEvent& acEvent) const noexcept
 {
-    if (!m_transport.IsConnected())
+    if (!m_transport.IsConnected() || m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
         return;
 
     const auto& partyService = m_world.GetPartyService();

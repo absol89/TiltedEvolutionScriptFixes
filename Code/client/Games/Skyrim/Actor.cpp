@@ -1118,7 +1118,13 @@ bool TP_MAKE_THISCALL(HookSpawnActorInWorld, Actor)
         spdlog::info("Spawn Actor: {:X}, and NPC {}", apThis->formID, pNpc->fullName.value);
     }
 
-    return TiltedPhoques::ThisCall(RealSpawnActorInWorld, apThis);
+    const bool result = TiltedPhoques::ThisCall(RealSpawnActorInWorld, apThis);
+
+    // Re-apply ghost visuals after 3D rebuilds/cell transitions without doing it from the per-frame update loop.
+    if (entt::locator<World>::has_value())
+        World::Get().GetSyncModeService().OnActor3DUpdated(apThis);
+
+    return result;
 }
 
 TP_THIS_FUNCTION(TDamageActor, bool, Actor, float aDamage, Actor* apHitter, bool aKillMove);

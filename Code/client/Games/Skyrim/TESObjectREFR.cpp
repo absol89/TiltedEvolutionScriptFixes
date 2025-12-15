@@ -46,6 +46,7 @@ TP_THIS_FUNCTION(TPlayAnimationAndWait, bool, void, uint32_t auiStackID, TESObje
 TP_THIS_FUNCTION(TPlayAnimation, bool, void, uint32_t auiStackID, TESObjectREFR* apSelf, BSFixedString* apEventName);
 TP_THIS_FUNCTION(TRotate, void, TESObjectREFR, float aAngle);
 TP_THIS_FUNCTION(TLockChange, void, TESObjectREFR);
+TP_THIS_FUNCTION(TApplyEffectShader, ShaderReferenceEffect*, TESObjectREFR, TESEffectShader* apEffectShader, float aDuration, TESObjectREFR* apFacingRef, bool aFaceTarget, bool aAttachToCamera, NiAVObject* apAttachNode, bool aInterfaceEffect);
 
 static TActivate* RealActivate = nullptr;
 static TAddInventoryItem* RealAddInventoryItem = nullptr;
@@ -134,6 +135,12 @@ uint32_t* TESObjectREFR::GetNullHandle() noexcept
     POINTER_SKYRIMSE(uint32_t, s_nullHandle, 400312);
 
     return s_nullHandle.Get();
+}
+
+ShaderReferenceEffect* TESObjectREFR::ApplyEffectShader(TESEffectShader* apEffectShader, float aDuration, TESObjectREFR* apFacingRef, bool aFaceTarget, bool aAttachToCamera, NiAVObject* apAttachNode, bool aInterfaceEffect)
+{
+    POINTER_SKYRIMSE(TApplyEffectShader, s_applyEffectShader, 19446);
+    return TiltedPhoques::ThisCall(s_applyEffectShader, this, apEffectShader, aDuration, apFacingRef, aFaceTarget, aAttachToCamera, apAttachNode, aInterfaceEffect);
 }
 
 void TESObjectREFR::SetRotation(float aX, float aY, float aZ) noexcept

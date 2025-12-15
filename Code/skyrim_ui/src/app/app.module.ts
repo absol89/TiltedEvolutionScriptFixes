@@ -32,6 +32,7 @@ import { PopupComponent } from './components/popup/popup.component';
 import { RootComponent } from './components/root/root.component';
 import { ServerListComponent } from './components/server-list/server-list.component';
 import { SettingsComponent } from './components/settings/settings.component';
+import { SyncStatusBadgeComponent } from './components/sync-status-badge/sync-status-badge.component';
 import { ToggleComponent } from './components/toggle/toggle.component';
 import { WindowComponent } from './components/window/window.component';
 import { PartyPinsComponent } from './components/party-pins/party-pins.component';
@@ -77,6 +78,7 @@ import { TranslocoRootModule } from './transloco-root.module';
     ActionButtonsComponent,
     PopupComponent,
     RootComponent,
+    SyncStatusBadgeComponent,
     ServerListComponent,
     SettingsComponent,
     ToggleComponent,

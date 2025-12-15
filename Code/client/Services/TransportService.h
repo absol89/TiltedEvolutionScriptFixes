@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <Client.hpp>
+#include <Structs/SyncMode.h>
 
 struct ImguiService;
 struct UpdateEvent;
@@ -13,6 +14,7 @@ struct AuthenticationResponse;
 struct NotifySettingsChange;
 
 struct World;
+struct SyncModeService;
 
 using TiltedPhoques::Client;
 
@@ -50,6 +52,9 @@ protected:
     void HandleNotifySettingsChange(const NotifySettingsChange& acMessage) noexcept;
 
 private:
+    bool IsAllowedOutbound(const ClientMessage& acMessage) const noexcept;
+    bool IsAllowedInbound(const ServerMessage& acMessage) const noexcept;
+
     World& m_world;
     entt::dispatcher& m_dispatcher;
     bool m_connected;

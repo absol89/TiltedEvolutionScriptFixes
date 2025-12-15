@@ -1,0 +1,22 @@
+{
+    "docs": [
+        "Drop quest gating files in this Isolation folder. Each JSON file can contain any number of rule objects.",
+        "Only the fields below are parsed: quest.idName, blacklist[].stageMin, blacklist[].stageMax.",
+        "All other fields (name, notes, docs) are ignored by the parser but can be used for documentation.",
+        "Stage ranges are inclusive; hitting any matching range forces the client into GhostOnly mode."
+    ],
+    "rules": [
+        {
+            "name": "MQ101_Helgen",
+            "quest": { "idName": "MQ101" },
+            "blacklist": [
+                {
+                    "stageMin": 0,
+                    "stageMax": 800,
+                    "notes": "Carts + dragon attack. Avoids breaking the intro scripts."
+                }
+            ],
+            "notes": "Copy this block and adjust quest/baseId/stage ranges for other scripted sequences."
+        }
+    ]
+}

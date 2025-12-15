@@ -22,9 +22,11 @@
 #include <Messages/NotifySettingsChange.h>
 #include <CredentialHash.h>
 #include <Packet.hpp>
+#include <Opcodes.h>
 
 #include <ScriptExtender.h>
 #include <Services/DiscordService.h>
+#include <Services/SyncModeService.h>
 #include <fmt/format.h>
 
 // #include <imgui_internal.h>
@@ -80,6 +82,9 @@ bool TransportService::Send(const ClientMessage& acMessage) const noexcept
     {
         ScopedAllocator _{s_allocator};
 
+        if (!IsAllowedOutbound(acMessage))
+            return true; // Intentionally dropped in ghost mode; treat as success to avoid retries/log spam.
+
         Buffer buffer(1 << 16);
         Buffer::Writer writer(&buffer);
         writer.WriteBits(0, 8); // Write first byte as packet needs it
@@ -116,6 +121,9 @@ void TransportService::OnConsume(const void* apData, uint32_t aSize)
         spdlog::error("Couldn't parse packet from server");
         return;
     }
+
+    if (!IsAllowedInbound(*pMessage))
+        return;
 
     m_messageHandlers[pMessage->GetOpcode()](pMessage);
 }
@@ -303,4 +311,60 @@ void TransportService::HandleNotifySettingsChange(const NotifySettingsChange& ac
 {
     m_world.SetServerSettings(acMessage.Settings);
     m_dispatcher.trigger(acMessage.Settings);
+}
+
+bool TransportService::IsAllowedOutbound(const ClientMessage& acMessage) const noexcept
+{
+    // Only filter once we are connected and ghosting
+    if (!m_connected || m_world.GetSyncModeService().GetLocalMode() != SyncMode::Ghost)
+        return true;
+
+    const auto opcode = static_cast<ClientOpcode>(acMessage.GetOpcode());
+    switch (opcode)
+    {
+    // Minimal presence + movement for the local player while ghosting
+    case kAssignCharacterRequest:
+    case kClientReferencesMoveRequest:
+    case kShiftGridCellRequest:
+    case kEnterExteriorCellRequest:
+    case kEnterInteriorCellRequest:
+        return true;
+    // Keep sync mode negotiation working
+    case kRequestSetSyncMode:
+        return true;
+    default: break;
+    }
+
+    return false;
+}
+
+bool TransportService::IsAllowedInbound(const ServerMessage& acMessage) const noexcept
+{
+    if (!m_connected || m_world.GetSyncModeService().GetLocalMode() != SyncMode::Ghost)
+        return true;
+
+    const auto opcode = static_cast<ServerOpcode>(acMessage.GetOpcode());
+    switch (opcode)
+    {
+    // Handshake / presence only
+    case kAuthenticationResponse:
+    case kAssignCharacterResponse:
+    case kServerTimeSettings:
+    case kNotifyPlayerList:
+    case kNotifyPlayerJoined:
+    case kNotifyPlayerLeft:
+    case kNotifyPlayerSyncMode:
+    case kStringCacheUpdate:
+        return true;
+
+    // Bare minimum to render remote players
+    case kCharacterSpawnRequest:
+    case kNotifyRemoveCharacter:
+    case kServerReferencesMoveRequest:
+        return true;
+
+    default: break;
+    }
+
+    return false;
 }

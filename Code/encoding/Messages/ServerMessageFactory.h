@@ -75,6 +75,7 @@
 #include <Messages/NotifyHealingProximity.h>
 #include <Messages/NotifyPartyMemberDowned.h>
 #include <Messages/NotifyPartyFastTravelMarkers.h>
+#include <Messages/NotifyPlayerSyncMode.h>
 
 using TiltedPhoques::UniquePtr;
 
@@ -89,7 +90,7 @@ struct ServerMessageFactory
             NotifyPartyJoined, NotifyPartyLeft, NotifyTradeInvite, NotifyTradeStarted, NotifyTradeState, NotifyTradeCancel, NotifyTradeComplete, NotifyActorValueChanges, NotifyActorMaxValueChanges, NotifyHealthChangeBroadcast, NotifySpawnData, NotifyActivate, NotifyLockChange, AssignObjectsResponse, NotifyDeathStateChange, NotifyOwnershipTransfer, NotifyObjectInventoryChanges, NotifySpellCast,
             NotifyProjectileLaunch, NotifyInterruptCast, NotifyAddTarget, NotifyScriptAnimation, NotifyDrawWeapon, NotifyMount, NotifyNewPackage, NotifyRespawn, NotifySyncExperience, NotifyEquipmentChanges, NotifyChatMessageBroadcast, TeleportCommandResponse, NotifyPlayerRespawn, NotifyDialogue,
             NotifySubtitle, NotifyPlayerDialogue, NotifyActorTeleport, NotifyRelinquishControl, NotifyPlayerLeft, NotifyPlayerJoined, NotifyPlayerProfileImage, NotifyDialogue, NotifySubtitle, NotifyPlayerDialogue, NotifyPlayerLevel, NotifyPlayerCellChanged, NotifyTeleportRequest, NotifyTeleportCountdown, NotifyTeleport, NotifyPlayerHealthUpdate, NotifySettingsChange,
-            NotifyWeatherChange, NotifySetWaypoint, NotifyRemoveWaypoint, NotifySetTimeResult, NotifyPartyPositions, NotifyRemoveSpell, NotifyHealingProximity, NotifyPartyMemberDowned, NotifyPartyFastTravelMarkers>;
+            NotifyWeatherChange, NotifySetWaypoint, NotifyRemoveWaypoint, NotifySetTimeResult, NotifyPartyPositions, NotifyRemoveSpell, NotifyHealingProximity, NotifyPartyMemberDowned, NotifyPartyFastTravelMarkers, NotifyPlayerSyncMode>;
 
         return s_visitor(std::forward<T>(func));
     }

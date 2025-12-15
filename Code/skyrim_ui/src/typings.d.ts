@@ -84,6 +84,13 @@ declare namespace SkyrimTogetherTypes {
 
   type SetLocalPlayerIdCallback = (playerId: number) => void;
 
+  /** Quest isolation / sync gating status callback */
+  type SetSyncStatusCallback = (
+    isolated: boolean,
+    title: string,
+    detail: string,
+  ) => void;
+
   type ProtocolMismatch = () => void;
 
   type TriggerError = () => void;
@@ -301,6 +308,11 @@ interface SkyrimTogether {
   ): void;
 
   on(
+    event: 'setSyncStatus',
+    callback: SkyrimTogetherTypes.SetSyncStatusCallback,
+  ): void;
+
+  on(
     event: 'protocolMismatch',
     callback: SkyrimTogetherTypes.ProtocolMismatch,
   ): void;
@@ -512,6 +524,11 @@ interface SkyrimTogether {
   off(
     event: 'setLocalPlayerId',
     callback?: SkyrimTogetherTypes.SetLocalPlayerIdCallback,
+  ): void;
+
+  off(
+    event: 'setSyncStatus',
+    callback?: SkyrimTogetherTypes.SetSyncStatusCallback,
   ): void;
 
   off(

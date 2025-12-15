@@ -27,6 +27,7 @@
 #include <Services/PartyMapOverlayService.h>
 #include <Services/BrandingService.h>
 #include <Services/NameTagService.h>
+#include <Services/SyncModeService.h>
 
 
 
@@ -45,13 +46,15 @@ World::World()
     ctx().emplace<DiscoveryService>(*this, m_dispatcher);
     ctx().emplace<OverlayService>(*this, m_transport, m_dispatcher);
     ctx().emplace<InputService>(ctx().at<OverlayService>());
+    // Quest gating needs to observe ConnectedEvent before gameplay replication starts.
+    ctx().emplace<QuestService>(*this, m_dispatcher);
+    ctx().emplace<SyncModeService>(*this, m_dispatcher, m_transport);
     ctx().emplace<CharacterService>(*this, m_dispatcher, m_transport);
     ctx().emplace<DebugService>(m_dispatcher, *this, m_transport, ctx().at<ImguiService>());
     ctx().emplace<PapyrusService>(m_dispatcher);
     ctx().emplace<DiscordService>(m_dispatcher);
     ctx().emplace<ObjectService>(*this, m_dispatcher, m_transport);
     ctx().emplace<CalendarService>(*this, m_dispatcher, m_transport);
-    ctx().emplace<QuestService>(*this, m_dispatcher);
     ctx().emplace<PartyService>(*this, m_dispatcher, m_transport);
     ctx().emplace<TradeService>(*this, m_dispatcher, m_transport);
     ctx().emplace<ActorValueService>(*this, m_dispatcher, m_transport);

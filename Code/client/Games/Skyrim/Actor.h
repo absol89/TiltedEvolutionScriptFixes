@@ -24,6 +24,7 @@ struct ActorExtension;
 struct AIProcess;
 struct CombatController;
 struct TESIdleForm;
+struct SpellItem;
 
 struct Actor : TESObjectREFR
 {

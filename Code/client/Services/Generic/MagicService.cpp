@@ -92,6 +92,9 @@ void MagicService::OnSpellCastEvent(const SpellCastEvent& acEvent) noexcept
     if (!m_transport.IsConnected())
         return;
 
+    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
+        return;
+
     if (!acEvent.pCaster->pCasterActor || !acEvent.pCaster->pCasterActor->GetNiNode())
     {
         spdlog::warn("Spell cast event has no actor or actor is not loaded");
@@ -158,7 +161,7 @@ void MagicService::OnSpellCastEvent(const SpellCastEvent& acEvent) noexcept
             if (desiredTargetIdRes.has_value())
                 request.DesiredTarget = desiredTargetIdRes.value();
             else
-                spdlog::error("{}: failed to find server id", __FUNCTION__);
+                spdlog::debug("{}: failed to find server id", __FUNCTION__);
         }
     }
 
@@ -234,7 +237,7 @@ void MagicService::OnNotifySpellCast(const NotifySpellCast& acMessage) const noe
             std::optional<uint32_t> serverIdRes = Utils::GetServerId(entity);
             if (!serverIdRes.has_value())
             {
-                spdlog::error("{}: failed to find server id", __FUNCTION__);
+                spdlog::debug("{}: failed to find server id", __FUNCTION__);
                 continue;
             }
 
@@ -267,6 +270,9 @@ void MagicService::OnInterruptCastEvent(const InterruptCastEvent& acEvent) noexc
     if (!m_transport.IsConnected())
         return;
 
+    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
+        return;
+
     uint32_t formId = acEvent.CasterFormID;
 
     auto view = m_world.view<FormIdComponent, LocalComponent>();
@@ -274,7 +280,7 @@ void MagicService::OnInterruptCastEvent(const InterruptCastEvent& acEvent) noexc
 
     if (casterEntityIt == std::end(view))
     {
-        spdlog::warn("{}: could not find caster, form id {:X}", __FUNCTION__, formId);
+        spdlog::debug("{}: could not find caster, form id {:X}", __FUNCTION__, formId);
         return;
     }
 
@@ -330,6 +336,9 @@ void MagicService::OnNotifyInterruptCast(const NotifyInterruptCast& acMessage) c
 void MagicService::OnAddTargetEvent(const AddTargetEvent& acEvent) noexcept
 {
     if (!m_transport.IsConnected())
+        return;
+
+    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
         return;
 
     // These effects are applied through spell cast sync
@@ -485,6 +494,9 @@ void MagicService::OnNotifyAddTarget(const NotifyAddTarget& acMessage) noexcept
 void MagicService::OnRemoveSpellEvent(const RemoveSpellEvent& acEvent) noexcept
 {
     if (!m_transport.IsConnected())
+        return;
+
+    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
         return;
 
     RemoveSpellRequest request{};

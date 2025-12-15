@@ -1,0 +1,381 @@
+#include <TiltedOnlinePCH.h>
+
+#include <Services/SyncModeService.h>
+
+#include <OverlayApp.hpp>
+#include <include/cef_values.h>
+
+#include <Components.h>
+#include <Events/ConnectedEvent.h>
+#include <Events/DisconnectedEvent.h>
+#include <Events/UpdateEvent.h>
+#include <Games/References.h>
+#include <Games/Skyrim/Actor.h>
+#include <PlayerCharacter.h>
+#include <Messages/NotifyPlayerJoined.h>
+#include <Messages/NotifyPlayerLeft.h>
+#include <Messages/NotifyPlayerSyncMode.h>
+#include <Messages/RequestSetSyncMode.h>
+#include <Messages/RequestDroppedItems.h>
+#include <Messages/RequestCurrentWeather.h>
+#include <Services/OverlayService.h>
+#include <Services/TransportService.h>
+#include <Systems/ModSystem.h>
+#include <World.h>
+#include <Forms/TESObjectCELL.h>
+#include <Forms/TESWorldSpace.h>
+#include <Games/Overrides.h>
+
+namespace
+{
+// "Blue ghost glow" spell. User verified in-game via console `player.addspell 5030B`.
+constexpr uint32_t kGhostGlowSpellFormId = 0x0005030B;
+
+struct GhostGlowEffect
+{
+    MagicItem* pSpell = nullptr;
+    EffectItem* pEffect = nullptr;
+};
+
+GhostGlowEffect GetGhostGlowEffect() noexcept
+{
+    static bool s_attempted = false;
+    static GhostGlowEffect s_effect{};
+
+    if (!s_attempted)
+    {
+        s_attempted = true;
+
+        s_effect.pSpell = Cast<MagicItem>(TESForm::GetById(kGhostGlowSpellFormId));
+        if (!s_effect.pSpell)
+        {
+            spdlog::warn("Ghost glow spell {:X} not found (or not a MagicItem); blue glow disabled", kGhostGlowSpellFormId);
+            return s_effect;
+        }
+
+        if (s_effect.pSpell->listOfEffects.Empty())
+        {
+            spdlog::warn("Ghost glow spell {:X} has no effects; blue glow disabled", kGhostGlowSpellFormId);
+            s_effect.pSpell = nullptr;
+            return s_effect;
+        }
+
+        // Use the spell's first effect as the visual carrier, similar to MagicService::StartRevealingOtherPlayers().
+        s_effect.pEffect = s_effect.pSpell->listOfEffects[0];
+        if (!s_effect.pEffect || !s_effect.pEffect->pEffectSetting)
+        {
+            spdlog::warn("Ghost glow spell {:X} has invalid first effect; blue glow disabled", kGhostGlowSpellFormId);
+            s_effect = {};
+            return s_effect;
+        }
+    }
+
+    return s_effect;
+}
+
+void ApplyGhostGlowEffect(Actor* apActor) noexcept
+{
+    if (!apActor)
+        return;
+
+    const auto effect = GetGhostGlowEffect();
+    if (!effect.pSpell || !effect.pEffect)
+        return;
+
+    // Prevent our own forced visuals from feeding back into magic sync hooks/events.
+    ScopedSpellCastOverride _;
+
+    MagicTarget::AddTargetData data{};
+    data.pCaster = nullptr;
+    data.pSpell = effect.pSpell;
+    data.pEffectItem = effect.pEffect;
+    data.fMagnitude = 1.f;
+    data.fUnkFloat1 = 1.f;
+    data.eCastingSource = MagicSystem::CastingSource::CASTING_SOURCE_COUNT;
+
+    apActor->magicTarget.AddTarget(data, false, false);
+}
+} // namespace
+
+SyncModeService::SyncModeService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
+    : m_world(aWorld)
+    , m_dispatcher(aDispatcher)
+    , m_transport(aTransport)
+{
+    m_connectedConnection = aDispatcher.sink<ConnectedEvent>().connect<&SyncModeService::OnConnected>(this);
+    m_disconnectedConnection = aDispatcher.sink<DisconnectedEvent>().connect<&SyncModeService::OnDisconnected>(this);
+    m_updateConnection = aDispatcher.sink<UpdateEvent>().connect<&SyncModeService::OnUpdate>(this);
+    m_playerJoinedConnection = aDispatcher.sink<NotifyPlayerJoined>().connect<&SyncModeService::OnPlayerJoined>(this);
+    m_playerLeftConnection = aDispatcher.sink<NotifyPlayerLeft>().connect<&SyncModeService::OnPlayerLeft>(this);
+    m_notifySyncModeConnection = aDispatcher.sink<NotifyPlayerSyncMode>().connect<&SyncModeService::OnNotifyPlayerSyncMode>(this);
+    m_remoteRemovedConnection = m_world.on_destroy<RemoteComponent>().connect<&SyncModeService::OnRemoteComponentRemoved>(this);
+}
+
+void SyncModeService::SetLocalMode(const SyncMode aMode) noexcept
+{
+    const auto previousMode = m_localMode;
+    if (previousMode == aMode)
+        return;
+
+    m_localMode = aMode;
+
+    if (m_transport.IsOnline())
+    {
+        RequestSetSyncMode request{};
+        request.Mode = aMode;
+        m_transport.Send(request);
+    }
+
+    RefreshGhostStates();
+    UpdateOverlaySyncStatus();
+
+    if (previousMode == SyncMode::Ghost && aMode == SyncMode::Normal)
+    {
+        // Lightweight resync: ask for cell drops and weather so we can clean up obvious gaps.
+        RequestResync();
+    }
+}
+
+void SyncModeService::OnConnected(const ConnectedEvent& acEvent) noexcept
+{
+    m_localPlayerId = acEvent.PlayerId;
+    m_remoteModes.clear();
+
+    if (m_localMode != SyncMode::Normal)
+    {
+        RequestSetSyncMode request{};
+        request.Mode = m_localMode;
+        m_transport.Send(request);
+    }
+
+    RefreshGhostStates();
+    UpdateOverlaySyncStatus();
+}
+
+void SyncModeService::OnDisconnected(const DisconnectedEvent&) noexcept
+{
+    m_localPlayerId = 0;
+    m_localMode = SyncMode::Normal;
+    m_remoteModes.clear();
+    m_pending3DRefresh.clear();
+    m_glowApplied.clear();
+    UpdateOverlaySyncStatus();
+}
+
+void SyncModeService::OnUpdate(const UpdateEvent&) noexcept
+{
+    if (!m_transport.IsOnline())
+        return;
+
+    RefreshGhostStates();
+
+    if (!m_pending3DRefresh.empty())
+    {
+        // Process 3D refresh requests outside of the UpdateReference3D hook (more stable during cell loads).
+        TiltedPhoques::Set<uint32_t> pending;
+        pending.swap(m_pending3DRefresh);
+
+        for (const uint32_t formId : pending)
+        {
+            Actor* pActor = Cast<Actor>(TESForm::GetById(formId));
+            if (!pActor)
+                continue;
+
+            if (pActor == PlayerCharacter::Get())
+                continue;
+
+            // Only remote player actors are eligible for ghost visuals.
+            auto view = m_world.view<FormIdComponent, PlayerComponent, RemoteComponent>();
+            const auto it = std::find_if(std::begin(view), std::end(view),
+                [view, formId](entt::entity e) { return view.get<FormIdComponent>(e).Id == formId; });
+            if (it == std::end(view))
+                continue;
+
+            const auto entity = *it;
+            const bool isGhosted = m_world.any_of<GhostComponent>(entity);
+            ApplyGhostToActor(pActor, isGhosted);
+        }
+    }
+}
+
+void SyncModeService::OnPlayerJoined(const NotifyPlayerJoined& acMessage) noexcept
+{
+    m_remoteModes[acMessage.PlayerId] = SyncMode::Normal;
+}
+
+void SyncModeService::OnPlayerLeft(const NotifyPlayerLeft& acMessage) noexcept
+{
+    m_remoteModes.erase(acMessage.PlayerId);
+}
+
+void SyncModeService::OnNotifyPlayerSyncMode(const NotifyPlayerSyncMode& acMessage) noexcept
+{
+    if (acMessage.PlayerId == m_localPlayerId)
+        m_localMode = acMessage.Mode;
+    else
+        m_remoteModes[acMessage.PlayerId] = acMessage.Mode;
+
+    RefreshGhostStates();
+    if (acMessage.PlayerId == m_localPlayerId)
+        UpdateOverlaySyncStatus();
+}
+
+void SyncModeService::UpdateOverlaySyncStatus() const noexcept
+{
+    auto* pOverlay = m_world.GetOverlayService().GetOverlayApp();
+    if (!pOverlay)
+        return;
+
+    const bool isolated = (m_transport.IsOnline() && m_localMode == SyncMode::Ghost);
+
+    auto pArgs = CefListValue::Create();
+    pArgs->SetBool(0, isolated);
+    pArgs->SetString(1, isolated ? "Quest Isolation" : "");
+    pArgs->SetString(2, isolated ? "Sync paused" : "");
+
+    pOverlay->ExecuteAsync("setSyncStatus", pArgs);
+}
+
+bool SyncModeService::ShouldGhost(const uint32_t aPlayerId) const noexcept
+{
+    if (aPlayerId == m_localPlayerId)
+        return m_localMode == SyncMode::Ghost;
+
+    // While we're quest-gated, all remote players should be presented as ghosts locally (regardless of their own mode).
+    if (m_localMode == SyncMode::Ghost)
+        return true;
+
+    const auto itor = m_remoteModes.find(aPlayerId);
+    if (itor != std::end(m_remoteModes))
+        return itor->second == SyncMode::Ghost;
+
+    return false;
+}
+
+void SyncModeService::RefreshGhostStates() noexcept
+{
+    auto view = m_world.view<PlayerComponent, RemoteComponent, FormIdComponent>();
+    for (auto entity : view)
+    {
+        const auto& playerComponent = view.get<PlayerComponent>(entity);
+        const bool shouldGhost = ShouldGhost(playerComponent.Id);
+
+        const auto* pGhostComponent = m_world.try_get<GhostComponent>(entity);
+        const bool isGhosted = pGhostComponent && pGhostComponent->IsGhost;
+
+        if (shouldGhost != isGhosted)
+        {
+            ToggleGhostState(entity, shouldGhost);
+            continue;
+        }
+    }
+}
+
+bool SyncModeService::ToggleGhostState(const entt::entity aEntity, const bool aGhost) noexcept
+{
+    const auto* pFormIdComponent = m_world.try_get<FormIdComponent>(aEntity);
+    if (!pFormIdComponent)
+        return false;
+
+    Actor* pActor = Cast<Actor>(TESForm::GetById(pFormIdComponent->Id));
+    if (!pActor)
+        return false;
+
+    if (!ApplyGhostToActor(pActor, aGhost))
+        return false;
+
+    if (aGhost)
+        m_world.emplace_or_replace<GhostComponent>(aEntity, true);
+    else
+        m_world.remove<GhostComponent>(aEntity);
+
+    return true;
+}
+
+bool SyncModeService::ApplyGhostToActor(Actor* apActor, const bool aGhost) noexcept
+{
+    if (!apActor)
+        return false;
+
+    const bool has3D = apActor->GetNiNode() != nullptr;
+    const uint32_t formId = apActor->formID;
+
+    if (aGhost)
+    {
+        apActor->SetIgnoreFriendlyHit(true);
+        if (has3D)
+        {
+            if (m_glowApplied.find(formId) == std::end(m_glowApplied))
+            {
+                ApplyGhostGlowEffect(apActor);
+                m_glowApplied.insert(formId);
+            }
+            apActor->SetRefraction(true, 0.65f);
+            apActor->UpdateAlpha();
+            apActor->QueueUpdate();
+        }
+
+        return true;
+    }
+
+    apActor->SetIgnoreFriendlyHit(false);
+    m_glowApplied.erase(formId);
+    if (has3D)
+    {
+        apActor->SetRefraction(false, 0.0f);
+        apActor->UpdateAlpha();
+        apActor->QueueUpdate();
+    }
+
+    return true;
+}
+
+void SyncModeService::RequestResync() const noexcept
+{
+    PlayerCharacter* pPlayer = PlayerCharacter::Get();
+    if (!pPlayer)
+        return;
+
+    RequestDroppedItems drops{};
+    drops.RequestAll = false;
+
+    auto& modSystem = m_world.GetModSystem();
+    if (TESObjectCELL* pCell = pPlayer->parentCell)
+    {
+        drops.HasCellFilter = modSystem.GetServerModId(pCell->formID, drops.CellId);
+        if (auto* pWorldSpace = pCell->worldspace)
+            drops.HasWorldSpaceFilter = modSystem.GetServerModId(pWorldSpace->formID, drops.WorldSpaceId);
+    }
+
+    m_transport.Send(drops);
+
+    RequestCurrentWeather weather{};
+    m_transport.Send(weather);
+}
+
+void SyncModeService::OnRemoteComponentRemoved(entt::registry& aRegistry, entt::entity aEntity) noexcept
+{
+    const auto* pGhostComponent = aRegistry.try_get<GhostComponent>(aEntity);
+    const auto* pFormIdComponent = aRegistry.try_get<FormIdComponent>(aEntity);
+    if (!pGhostComponent || !pFormIdComponent)
+        return;
+
+    Actor* pActor = Cast<Actor>(TESForm::GetById(pFormIdComponent->Id));
+    if (pActor)
+        ApplyGhostToActor(pActor, false);
+
+    aRegistry.remove<GhostComponent>(aEntity);
+}
+
+void SyncModeService::OnActor3DUpdated(Actor* apActor) noexcept
+{
+    if (!apActor)
+        return;
+
+    // Never change the local player's visuals; only remote player actors are ghosted.
+    if (apActor == PlayerCharacter::Get())
+        return;
+
+    // Defer work to OnUpdate to avoid doing extra engine calls from inside UpdateReference3D.
+    m_pending3DRefresh.insert(apActor->formID);
+}
