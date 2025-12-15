@@ -56,6 +56,8 @@ private:
     TiltedPhoques::Map<uint32_t, SyncMode> m_remoteModes;
     TiltedPhoques::Set<uint32_t> m_pending3DRefresh;
     TiltedPhoques::Set<uint32_t> m_glowApplied;
+    TiltedPhoques::Map<uint32_t, uint32_t> m_originalNpcFlags;
+    TiltedPhoques::Map<uint32_t, uint32_t> m_originalRefFlagBits;
 
     entt::scoped_connection m_connectedConnection;
     entt::scoped_connection m_disconnectedConnection;

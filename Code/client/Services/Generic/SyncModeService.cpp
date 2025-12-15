@@ -25,16 +25,20 @@
 #include <Forms/TESObjectCELL.h>
 #include <Forms/TESWorldSpace.h>
 #include <Games/Overrides.h>
+#include <Forms/TESNPC.h>
 
 namespace
 {
-// "Blue ghost glow" spell. User verified in-game via console `player.addspell 5030B`.
-constexpr uint32_t kGhostGlowSpellFormId = 0x0005030B;
+// Ghost visual spell (applied to remote player actors only).
+constexpr uint32_t kGhostGlowSpellFormId = 0x000D2056;
+// TESObjectREFR::RecordFlags::kCollisionsDisabled (CommonLibSSE-Reference) for refs/actors.
+constexpr uint32_t kCollisionDisabledFlag = 1u << 4;
+constexpr uint32_t kGhostRefFlagMask = kCollisionDisabledFlag | TESForm::IGNORE_FRIENDLY_HITS;
 
 struct GhostGlowEffect
 {
     MagicItem* pSpell = nullptr;
-    EffectItem* pEffect = nullptr;
+    TiltedPhoques::Vector<EffectItem*> effects;
 };
 
 GhostGlowEffect GetGhostGlowEffect() noexcept
@@ -60,11 +64,18 @@ GhostGlowEffect GetGhostGlowEffect() noexcept
             return s_effect;
         }
 
-        // Use the spell's first effect as the visual carrier, similar to MagicService::StartRevealingOtherPlayers().
-        s_effect.pEffect = s_effect.pSpell->listOfEffects[0];
-        if (!s_effect.pEffect || !s_effect.pEffect->pEffectSetting)
+        // Apply all effects from the spell (some spells bundle multiple visuals).
+        s_effect.effects.clear();
+        for (auto* pEffect : s_effect.pSpell->listOfEffects)
         {
-            spdlog::warn("Ghost glow spell {:X} has invalid first effect; blue glow disabled", kGhostGlowSpellFormId);
+            if (!pEffect || !pEffect->pEffectSetting)
+                continue;
+            s_effect.effects.push_back(pEffect);
+        }
+
+        if (s_effect.effects.empty())
+        {
+            spdlog::warn("Ghost glow spell {:X} has no valid effects; blue glow disabled", kGhostGlowSpellFormId);
             s_effect = {};
             return s_effect;
         }
@@ -79,21 +90,24 @@ void ApplyGhostGlowEffect(Actor* apActor) noexcept
         return;
 
     const auto effect = GetGhostGlowEffect();
-    if (!effect.pSpell || !effect.pEffect)
+    if (!effect.pSpell || effect.effects.empty())
         return;
 
     // Prevent our own forced visuals from feeding back into magic sync hooks/events.
     ScopedSpellCastOverride _;
 
-    MagicTarget::AddTargetData data{};
-    data.pCaster = nullptr;
-    data.pSpell = effect.pSpell;
-    data.pEffectItem = effect.pEffect;
-    data.fMagnitude = 1.f;
-    data.fUnkFloat1 = 1.f;
-    data.eCastingSource = MagicSystem::CastingSource::CASTING_SOURCE_COUNT;
+    for (auto* pEffectItem : effect.effects)
+    {
+        MagicTarget::AddTargetData data{};
+        data.pCaster = nullptr;
+        data.pSpell = effect.pSpell;
+        data.pEffectItem = pEffectItem;
+        data.fMagnitude = 1.f;
+        data.fUnkFloat1 = 1.f;
+        data.eCastingSource = MagicSystem::CastingSource::CASTING_SOURCE_COUNT;
 
-    apActor->magicTarget.AddTarget(data, false, false);
+        apActor->magicTarget.AddTarget(data, false, false);
+    }
 }
 } // namespace
 
@@ -159,6 +173,8 @@ void SyncModeService::OnDisconnected(const DisconnectedEvent&) noexcept
     m_remoteModes.clear();
     m_pending3DRefresh.clear();
     m_glowApplied.clear();
+    m_originalNpcFlags.clear();
+    m_originalRefFlagBits.clear();
     UpdateOverlaySyncStatus();
 }
 
@@ -302,7 +318,21 @@ bool SyncModeService::ApplyGhostToActor(Actor* apActor, const bool aGhost) noexc
 
     if (aGhost)
     {
-        apActor->SetIgnoreFriendlyHit(true);
+        if (m_originalRefFlagBits.find(formId) == std::end(m_originalRefFlagBits))
+            m_originalRefFlagBits[formId] = apActor->flags & kGhostRefFlagMask;
+
+        apActor->flags |= kGhostRefFlagMask;
+
+        if (auto* pNpc = Cast<TESNPC>(apActor->baseForm))
+        {
+            if (m_originalNpcFlags.find(formId) == std::end(m_originalNpcFlags))
+                m_originalNpcFlags[formId] = pNpc->actorData.flags;
+
+            // Vanilla ghost flag: this is what makes actors behave as "ghosts" (no collision / hard interaction)
+            // and is more reliable than trying to manually tweak Havok state.
+            pNpc->actorData.flags |= (1u << 29); // TESActorBaseData::kIsGhost
+        }
+
         if (has3D)
         {
             if (m_glowApplied.find(formId) == std::end(m_glowApplied))
@@ -310,7 +340,6 @@ bool SyncModeService::ApplyGhostToActor(Actor* apActor, const bool aGhost) noexc
                 ApplyGhostGlowEffect(apActor);
                 m_glowApplied.insert(formId);
             }
-            apActor->SetRefraction(true, 0.65f);
             apActor->UpdateAlpha();
             apActor->QueueUpdate();
         }
@@ -318,11 +347,30 @@ bool SyncModeService::ApplyGhostToActor(Actor* apActor, const bool aGhost) noexc
         return true;
     }
 
-    apActor->SetIgnoreFriendlyHit(false);
     m_glowApplied.erase(formId);
+    if (auto it = m_originalRefFlagBits.find(formId); it != std::end(m_originalRefFlagBits))
+    {
+        apActor->flags = (apActor->flags & ~kGhostRefFlagMask) | it->second;
+        m_originalRefFlagBits.erase(it);
+    }
+    else
+    {
+        apActor->flags &= ~kGhostRefFlagMask;
+    }
+    if (auto* pNpc = Cast<TESNPC>(apActor->baseForm))
+    {
+        if (auto it = m_originalNpcFlags.find(formId); it != std::end(m_originalNpcFlags))
+        {
+            pNpc->actorData.flags = it->second;
+            m_originalNpcFlags.erase(it);
+        }
+        else
+        {
+            pNpc->actorData.flags &= ~(1u << 29);
+        }
+    }
     if (has3D)
     {
-        apActor->SetRefraction(false, 0.0f);
         apActor->UpdateAlpha();
         apActor->QueueUpdate();
     }
@@ -375,6 +423,14 @@ void SyncModeService::OnActor3DUpdated(Actor* apActor) noexcept
     // Never change the local player's visuals; only remote player actors are ghosted.
     if (apActor == PlayerCharacter::Get())
         return;
+
+    // Only remote player actors are eligible for ghost visuals.
+    const auto* pExtension = apActor->GetExtension();
+    if (!pExtension || !pExtension->IsRemotePlayer())
+        return;
+
+    // Force a re-apply after 3D rebuilds/cell transitions (effects can get dropped when 3D reloads).
+    m_glowApplied.erase(apActor->formID);
 
     // Defer work to OnUpdate to avoid doing extra engine calls from inside UpdateReference3D.
     m_pending3DRefresh.insert(apActor->formID);

@@ -25,6 +25,7 @@
 
 #include <Games/TES.h>
 #include <World.h>
+#include <Services/SyncModeService.h>
 #include <Services/PapyrusService.h>
 
 #include <Forms/ActorValueInfo.h>
@@ -1122,7 +1123,11 @@ bool TP_MAKE_THISCALL(HookSpawnActorInWorld, Actor)
 
     // Re-apply ghost visuals after 3D rebuilds/cell transitions without doing it from the per-frame update loop.
     if (entt::locator<World>::has_value())
-        World::Get().GetSyncModeService().OnActor3DUpdated(apThis);
+    {
+        const auto* pExtension = apThis ? apThis->GetExtension() : nullptr;
+        if (pExtension && pExtension->IsRemotePlayer())
+            World::Get().GetSyncModeService().OnActor3DUpdated(apThis);
+    }
 
     return result;
 }
@@ -1133,8 +1138,19 @@ static TDamageActor* RealDamageActor = nullptr;
 // TODO: this is flawed, since it does not account for invulnerable actors
 bool TP_MAKE_THISCALL(HookDamageActor, Actor, float aDamage, Actor* apHitter, bool aKillMove)
 {
-    if (apHitter)
+    if (apHitter && entt::locator<World>::has_value())
         World::Get().GetRunner().Trigger(HitEvent(apHitter->formID, apThis->formID));
+
+    // Ghosted remote players are visual-only and must not be hittable.
+    if (apThis->GetExtension() && apThis->GetExtension()->IsRemotePlayer())
+    {
+        const bool locallyGated = entt::locator<World>::has_value() && World::Get().GetSyncModeService().GetLocalMode() == SyncMode::Ghost;
+        const auto* pNpc = Cast<TESNPC>(apThis->baseForm);
+        const bool isGhostFlagged = pNpc && (pNpc->actorData.flags & (1u << 29));
+
+        if (locallyGated || isGhostFlagged)
+            return false;
+    }
 
     float realDamage = GameplayFormulas::CalculateRealDamage(apThis, aDamage, aKillMove);
 

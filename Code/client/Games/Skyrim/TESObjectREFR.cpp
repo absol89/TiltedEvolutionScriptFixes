@@ -5,6 +5,9 @@
 
 #include <World.h>
 #include <Services/PapyrusService.h>
+#include <Services/SyncModeService.h>
+#include <Actor.h>
+#include <Forms/TESNPC.h>
 #include <Events/ActivateEvent.h>
 #include <Events/InventoryChangeEvent.h>
 #include <Events/ScriptAnimationEvent.h>
@@ -1026,11 +1029,25 @@ bool TP_MAKE_THISCALL(HookPlayAnimation, void, uint32_t auiStackID, TESObjectREF
 
 bool TP_MAKE_THISCALL(HookActivate, TESObjectREFR, TESObjectREFR* apActivator, uint8_t aUnk1, TESBoundObject* apObjectToGet, int32_t aCount, char aDefaultProcessing)
 {
+    // Ghosted remote player actors must be non-interactive.
+    if (auto* pTargetActor = Cast<Actor>(apThis))
+    {
+        const auto* pTargetEx = pTargetActor->GetExtension();
+        const bool isRemotePlayer = pTargetEx && pTargetEx->IsRemotePlayer();
+
+        const bool locallyGated = entt::locator<World>::has_value() && World::Get().GetSyncModeService().GetLocalMode() == SyncMode::Ghost;
+        const bool isGhostFlagged = pTargetActor->baseForm && pTargetActor->baseForm->formType == TESNPC::Type &&
+            (Cast<TESNPC>(pTargetActor->baseForm)->actorData.flags & (1u << 29));
+
+        if (isRemotePlayer && (locallyGated || isGhostFlagged))
+            return false;
+    }
+
     Actor* pActivator = Cast<Actor>(apActivator);
 
     // Exclude books from activation since only reading them removes them from the cell
     // Note: Books are now unsynced 
-    if (pActivator && apThis->baseForm->formType != FormType::Book)
+    if (pActivator && apThis->baseForm->formType != FormType::Book && entt::locator<World>::has_value())
     {
         auto openState = TESObjectREFR::kNone;
         if (apThis->baseForm->formType == FormType::Door)
