@@ -117,6 +117,7 @@ private:
 
     std::deque<QueuedDropSync> m_dropSyncQueue{};
     TiltedPhoques::Set<GameId> m_dropSyncQueuedCells{};
+    GameId m_dropSyncWorldSpace{};
     double m_dropSyncQueueAccumulator{0.0};
 
     struct DropSyncContext

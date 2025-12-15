@@ -47,9 +47,9 @@ namespace
 {
 constexpr float kDropSearchRadiusSquared = 400.f * 400.f;
 constexpr float kPickupRemovalRadiusSquared = 2500.f * 2500.f;
-constexpr float kMaterializeGraceSeconds = 0.06f;
+constexpr float kMaterializeGraceSeconds = 0.5f;
 constexpr double kPeriodicPlayerCellSyncSeconds = 5.0;
-constexpr double kDropSyncQueueIntervalSeconds = 0.2;
+constexpr double kDropSyncQueueIntervalSeconds = 0.5;
 constexpr uint32_t kMaxPendingDropRetries = 600;
 constexpr uint32_t kMaxPendingPickupRetries = 120;
 TiltedPhoques::Map<uint64_t, float> g_materializeGrace;
@@ -263,7 +263,7 @@ void DropService::OnDropEvent(const DropItemEvent& acEvent) noexcept
     request.WorldSpaceId = acEvent.WorldSpaceId;
     request.ReferenceId = acEvent.ReferenceId;
 
-    spdlog::info("DropService: requesting drop for actor {:X}, server {:X}, item {:X}:{:X}", acEvent.ActorFormId, *serverIdRes, acEvent.Item.BaseId.ModId, acEvent.Item.BaseId.BaseId);
+    spdlog::debug("DropService: requesting drop for actor {:X}, server {:X}, item {:X}:{:X}", acEvent.ActorFormId, *serverIdRes, acEvent.Item.BaseId.ModId, acEvent.Item.BaseId.BaseId);
     m_transport.Send(request);
 
     // Client drop payload is captured in the request; mapping cache is server-authoritative.
@@ -288,7 +288,7 @@ void DropService::OnPickupEvent(const PickupDroppedItemEvent& acEvent) noexcept
     if (resolvedDropId == 0)
         resolvedDropId = acEvent.DropId;
 
-    spdlog::info("DropService: local pickup event actor {:X} drop {}", acEvent.ActorFormId, resolvedDropId);
+    spdlog::debug("DropService: local pickup event actor {:X} drop {}", acEvent.ActorFormId, resolvedDropId);
 
     auto serverIdRes = ResolveServerId(acEvent.ActorFormId);
     if (!serverIdRes)
@@ -345,7 +345,7 @@ void DropService::OnPickupEvent(const PickupDroppedItemEvent& acEvent) noexcept
         request.ReferenceId = acEvent.ReferenceId;
     }
 
-    spdlog::info("DropService: requesting pickup for actor {:X} (server {:X}), drop {}", acEvent.ActorFormId, *serverIdRes, resolvedDropId);
+    spdlog::debug("DropService: requesting pickup for actor {:X} (server {:X}), drop {}", acEvent.ActorFormId, *serverIdRes, resolvedDropId);
     m_transport.Send(request);
 }
 
@@ -361,7 +361,7 @@ void DropService::OnNotifyDrop(const NotifyActorDrop& acMessage) noexcept
     }
     else
     {
-        spdlog::info("DropService: processed drop {} immediately", acMessage.DropId);
+        spdlog::debug("DropService: processed drop {} immediately", acMessage.DropId);
     }
 }
 
@@ -441,13 +441,13 @@ bool DropService::ApplyDrop(const NotifyActorDrop& acMessage) noexcept
         return false;
 
     m_localDrops.insert(acMessage.DropId);
-    spdlog::info("DropService: applied drop {} for actor {:X}", acMessage.DropId, serverData.ActorFormId);
+    spdlog::debug("DropService: applied drop {} for actor {:X}", acMessage.DropId, serverData.ActorFormId);
     return true;
 }
 
 void DropService::OnNotifyPickup(const NotifyDroppedItemPickedUp& acMessage) noexcept
 {
-    spdlog::info("DropService: received pickup notify drop {} from actor {:X}", acMessage.DropId, acMessage.ServerId);
+    spdlog::debug("DropService: received pickup notify drop {} from actor {:X}", acMessage.DropId, acMessage.ServerId);
     if (!ApplyPickup(acMessage))
     {
         PendingAction pending{};
@@ -458,7 +458,7 @@ void DropService::OnNotifyPickup(const NotifyDroppedItemPickedUp& acMessage) noe
     }
     else
     {
-        spdlog::info("DropService: processed pickup {} immediately", acMessage.DropId);
+        spdlog::debug("DropService: processed pickup {} immediately", acMessage.DropId);
     }
 }
 
@@ -528,7 +528,7 @@ bool DropService::ApplyPickup(const NotifyDroppedItemPickedUp& acMessage) noexce
     if (isLocalPicker || removed)
         m_dropStorage.RemoveCachedDrop(dropId);
 
-    spdlog::info("DropService: applied pickup {} (removed={}, localPicker={})", dropId, removed, isLocalPicker);
+    spdlog::debug("DropService: applied pickup {} (removed={}, localPicker={})", dropId, removed, isLocalPicker);
     return true;
 }
 
@@ -581,7 +581,7 @@ bool DropService::IsPickupRelevant(const NotifyDroppedItemPickedUp& acMessage) n
 
 void DropService::OnNotifyDroppedItems(const NotifyDroppedItems& acMessage) noexcept
 {
-    spdlog::info("DropService: received {} drops and {} creation-engine pickups from server (request {})", acMessage.Entries.size(), acMessage.CreationEnginePickedUpReferences.size(), acMessage.RequestId);
+    spdlog::debug("DropService: received {} drops and {} creation-engine pickups from server (request {})", acMessage.Entries.size(), acMessage.CreationEnginePickedUpReferences.size(), acMessage.RequestId);
     HandleDropSyncResponse(acMessage);
 }
 
@@ -591,26 +591,30 @@ void DropService::OnConnected(const ConnectedEvent&) noexcept
     m_pendingCreationEngineRemovals.clear();
     m_dropSyncQueue.clear();
     m_dropSyncQueuedCells.clear();
+    m_dropSyncWorldSpace = GetPlayerWorldId();
     m_dropSyncQueueAccumulator = 0.0;
     m_periodicPlayerCellSyncAccumulator = 0.0;
     RequestCellSync();
 
-    const GameId worldId = GetPlayerWorldId();
-    if (worldId)
-        QueueLoadedExteriorCells(worldId);
+    if (m_dropSyncWorldSpace)
+        QueueLoadedExteriorCells(m_dropSyncWorldSpace);
 }
 
 void DropService::OnCellChange(const CellChangeEvent& acEvent) noexcept
 {
     m_pendingCreationEngineRemovals.clear();
-    m_dropSyncQueue.clear();
-    m_dropSyncQueuedCells.clear();
-    m_dropSyncQueueAccumulator = 0.0;
+
+    if (m_dropSyncWorldSpace != acEvent.WorldSpaceId)
+    {
+        m_dropSyncWorldSpace = acEvent.WorldSpaceId;
+        m_dropSyncQueue.clear();
+        m_dropSyncQueuedCells.clear();
+        m_dropSyncQueueAccumulator = 0.0;
+    }
+
     m_periodicPlayerCellSyncAccumulator = 0.0;
 
     QueueDropSync(acEvent.CellId, acEvent.WorldSpaceId);
-    if (acEvent.WorldSpaceId)
-        QueueLoadedExteriorCells(acEvent.WorldSpaceId);
 }
 
 void DropService::OnGridCellChange(const GridCellChangeEvent& acEvent) noexcept
@@ -638,6 +642,14 @@ void DropService::OnGridCellChange(const GridCellChangeEvent& acEvent) noexcept
     m_world.GetModSystem().GetServerModId(pWorldSpace->formID, worldId);
     if (!worldId)
         return;
+
+    if (m_dropSyncWorldSpace != worldId)
+    {
+        m_dropSyncWorldSpace = worldId;
+        m_dropSyncQueue.clear();
+        m_dropSyncQueuedCells.clear();
+        m_dropSyncQueueAccumulator = 0.0;
+    }
 
     // Sync newly loaded cells so drops appear as soon as the cell is loaded, not only after walking into it.
     for (const auto& cellId : acEvent.Cells)
@@ -824,7 +836,7 @@ uint32_t DropService::SendDropSyncRequest(bool aRequestAll, bool aHasCellFilter,
     if (request.RequestId != 0)
         m_pendingDropSyncs[request.RequestId] = context;
 
-    spdlog::info("DropService: requested drop sync {}, all={}, cell {:X}:{:X}", request.RequestId, aRequestAll, context.CellId.ModId, context.CellId.BaseId);
+    spdlog::debug("DropService: requested drop sync {}, all={}, cell {:X}:{:X}", request.RequestId, aRequestAll, context.CellId.ModId, context.CellId.BaseId);
     return request.RequestId;
 }
 
@@ -1164,7 +1176,7 @@ bool DropService::SpawnLocalDrop(const DropManager::ServerDropData& acData, uint
 
     DropManager::BindHandleToServerDrop(aDropId, acData.ActorFormId, handleBits);
 
-    spdlog::info("DropService: spawned local drop {} at ({:.2f}, {:.2f}, {:.2f}) handle {:X}", aDropId, dropLocation.x, dropLocation.y, dropLocation.z, handleBits);
+    spdlog::debug("DropService: spawned local drop {} at ({:.2f}, {:.2f}, {:.2f}) handle {:X}", aDropId, dropLocation.x, dropLocation.y, dropLocation.z, handleBits);
     return true;
 }
 
@@ -1216,7 +1228,7 @@ bool DropService::RemoveReferenceById(const GameId& acReferenceId, const char* a
         pReference->Delete();
     else
         pReference->Disable();
-    spdlog::info("DropService: {} -> removed reference {:X}:{:X}", apReason ? apReason : "cleanup", acReferenceId.ModId, acReferenceId.BaseId);
+    spdlog::debug("DropService: {} -> removed reference {:X}:{:X}", apReason ? apReason : "cleanup", acReferenceId.ModId, acReferenceId.BaseId);
     return true;
 }
 
@@ -1233,8 +1245,8 @@ bool DropService::RemoveReferenceByLocation(const Inventory::Entry& acItem, cons
             pRef->Delete();
         else
             pRef->Disable();
-        spdlog::info("DropService: {} -> removed reference near ({:.2f}, {:.2f}, {:.2f}) for item {:X}:{:X}", apReason ? apReason : "cleanup", location.x, location.y, location.z, acItem.BaseId.ModId,
-                     acItem.BaseId.BaseId);
+        spdlog::debug("DropService: {} -> removed reference near ({:.2f}, {:.2f}, {:.2f}) for item {:X}:{:X}", apReason ? apReason : "cleanup", location.x, location.y, location.z, acItem.BaseId.ModId,
+                      acItem.BaseId.BaseId);
         return true;
     }
 

@@ -601,8 +601,8 @@ void DropService::OnDropRequest(const PacketEvent<RequestActorDrop>& acMessage) 
         GameServer::Get()->SendToPlayers(notify, nullptr);
     }
 
-    spdlog::info("DropService: drop {} tracked for actor {:X}, player {}, cell {:X}:{:X}, world {:X}:{:X}", drop.DropId, drop.ServerId, drop.OriginPlayerId, drop.CellId.ModId, drop.CellId.BaseId,
-                 drop.WorldSpaceId.ModId, drop.WorldSpaceId.BaseId);
+    spdlog::debug("DropService: drop {} tracked for actor {:X}, player {}, cell {:X}:{:X}, world {:X}:{:X}", drop.DropId, drop.ServerId, drop.OriginPlayerId, drop.CellId.ModId, drop.CellId.BaseId,
+                  drop.WorldSpaceId.ModId, drop.WorldSpaceId.BaseId);
 }
 
 void DropService::OnPickupRequest(const PacketEvent<RequestPickupDroppedItem>& acMessage) noexcept
@@ -611,7 +611,7 @@ void DropService::OnPickupRequest(const PacketEvent<RequestPickupDroppedItem>& a
         return;
 
     const auto& message = acMessage.Packet;
-    spdlog::info("DropService: pickup request actor {:X} drop {} ref {:X}:{:X}", message.ServerId, message.DropId, message.ReferenceId.ModId, message.ReferenceId.BaseId);
+    spdlog::debug("DropService: pickup request actor {:X} drop {} ref {:X}:{:X}", message.ServerId, message.DropId, message.ReferenceId.ModId, message.ReferenceId.BaseId);
 
     if (!message.DropId)
     {
@@ -764,7 +764,7 @@ void DropService::OnPickupRequest(const PacketEvent<RequestPickupDroppedItem>& a
     notify.ReferenceId = message.ReferenceId ? message.ReferenceId : dropCopy.ReferenceId;
 
     BroadcastPickup(notify);
-    spdlog::info("DropService: drop {} picked up by actor {:X}", dropCopy.DropId, message.ServerId);
+    spdlog::debug("DropService: drop {} picked up by actor {:X}", dropCopy.DropId, message.ServerId);
 }
 
 void DropService::OnDroppedItemsRequest(const PacketEvent<RequestDroppedItems>& acMessage) noexcept
@@ -775,8 +775,8 @@ void DropService::OnDroppedItemsRequest(const PacketEvent<RequestDroppedItems>& 
     const auto& request = acMessage.Packet;
     NotifyDroppedItems notify{};
     notify.RequestId = request.RequestId;
-    spdlog::info("DropService: drop sync request {} from player {:X}, all={}, cell {:X}:{:X}", request.RequestId, acMessage.GetSender()->GetConnectionId(), request.RequestAll,
-                 request.HasCellFilter ? request.CellId.ModId : 0, request.HasCellFilter ? request.CellId.BaseId : 0);
+    spdlog::debug("DropService: drop sync request {} from player {:X}, all={}, cell {:X}:{:X}", request.RequestId, acMessage.GetSender()->GetConnectionId(), request.RequestAll,
+                  request.HasCellFilter ? request.CellId.ModId : 0, request.HasCellFilter ? request.CellId.BaseId : 0);
 
     auto appendEntry = [&](const ActiveDrop& acDrop) {
         if (!request.RequestAll)
@@ -812,7 +812,7 @@ void DropService::OnDroppedItemsRequest(const PacketEvent<RequestDroppedItems>& 
         notify.CreationEnginePickedUpReferences = FetchCreationEnginePickupsForCell(m_pCreationEngineDatabase, request.CellId, request.HasWorldSpaceFilter, request.WorldSpaceId);
 
     acMessage.pPlayer->Send(notify);
-    spdlog::info("DropService: sent {} drops and {} creation-engine pickups in response to request {}", notify.Entries.size(), notify.CreationEnginePickedUpReferences.size(), request.RequestId);
+    spdlog::debug("DropService: sent {} drops and {} creation-engine pickups in response to request {}", notify.Entries.size(), notify.CreationEnginePickedUpReferences.size(), request.RequestId);
 }
 
 void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept
@@ -1696,7 +1696,7 @@ void DropService::HandleUntrackedPickupRequest(const PacketEvent<RequestPickupDr
     notify.ReferenceId = message.ReferenceId;
 
     BroadcastPickup(notify);
-    spdlog::info("DropService: processed untracked pickup for actor {:X}", message.ServerId);
+    spdlog::debug("DropService: processed untracked pickup for actor {:X}", message.ServerId);
 }
 
 void DropService::BroadcastPickup(const NotifyDroppedItemPickedUp& acMessage) const noexcept

@@ -351,7 +351,9 @@ char TP_MAKE_THISCALL(HookPickUpObject, PlayerCharacter, TESObjectREFR* apObject
         if (apObject->GetExtraDataList() && !ScopedExtraDataOverride::IsOverriden())
         {
             ScopedExtraDataOverride _;
+            const int32_t engineCount = fallbackItem.Count;
             apThis->GetItemFromExtraData(fallbackItem, apObject->GetExtraDataList());
+            fallbackItem.Count = engineCount;
         }
     }
 

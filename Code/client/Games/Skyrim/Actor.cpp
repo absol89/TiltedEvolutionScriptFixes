@@ -1274,7 +1274,11 @@ void* TP_MAKE_THISCALL(HookPickUpObject, Actor, TESObjectREFR* apObject, int32_t
         fallbackItem.Count = aCount;
 
         if (apObject->GetExtraDataList())
+        {
+            const int32_t engineCount = fallbackItem.Count;
             apThis->GetItemFromExtraData(fallbackItem, apObject->GetExtraDataList());
+            fallbackItem.Count = engineCount;
+        }
     }
 
     if (!isRemotePickup && isLocalPlayer && isConnected)
@@ -1332,7 +1336,11 @@ void* TP_MAKE_THISCALL(HookDropObject, Actor, void* apResult, TESBoundObject* ap
     item.Count = -aCount;
 
     if (apExtraData)
+    {
+        const int32_t engineCount = item.Count;
         apThis->GetItemFromExtraData(item, apExtraData);
+        item.Count = engineCount;
+    }
 
     const bool shouldSend = !ScopedInventoryOverride::IsOverriden();
     const bool isLocalPlayer = apThis->GetExtension() && apThis->GetExtension()->IsLocalPlayer();
