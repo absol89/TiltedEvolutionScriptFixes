@@ -16,6 +16,7 @@
 
 #include <BranchInfo.h>
 #include <Components.h>
+#include <TiltedCore/Stl.hpp>
 
 #include <Systems/InterpolationSystem.h>
 #include <Systems/AnimationSystem.h>
@@ -114,6 +115,8 @@ CharacterService::CharacterService(World& aWorld, entt::dispatcher& aDispatcher,
     m_relinquishConnection = m_dispatcher.sink<NotifyRelinquishControl>().connect<&CharacterService::OnNotifyRelinquishControl>(this);
 
     m_partyJoinedConnection = aDispatcher.sink<PartyJoinedEvent>().connect<&CharacterService::OnPartyJoinedEvent>(this);
+
+    EventDispatcherManager::Get()->loadGameEvent.RegisterSink(this);
 }
 
 void CharacterService::DeleteRemoteEntityComponents(entt::entity aEntity) const noexcept
@@ -236,6 +239,12 @@ void CharacterService::OnActorRemoved(const ActorRemovedEvent& acEvent) noexcept
 
 void CharacterService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
 {
+    if (m_pendingLoadCleanup && !m_transport.IsOnline())
+    {
+        CleanupRemoteActorsAndOwnership(/*aFromLoad*/ true);
+        m_pendingLoadCleanup = false;
+    }
+
     RunSpawnUpdates();
     RunLocalUpdates();
     RunFactionsUpdates();
@@ -269,22 +278,92 @@ void CharacterService::OnConnected(const ConnectedEvent& acConnectedEvent) const
 
 void CharacterService::OnDisconnected(const DisconnectedEvent& acDisconnectedEvent) const noexcept
 {
+    const_cast<CharacterService*>(this)->m_pendingLoadCleanup = false;
+    CleanupRemoteActorsAndOwnership(/*aFromLoad*/ false);
+}
+
+void CharacterService::CleanupRemoteActorsAndOwnership(const bool aFromLoad) const noexcept
+{
     auto remoteView = m_world.view<FormIdComponent, RemoteComponent>();
-    for (auto entity : remoteView)
+    TiltedPhoques::Vector<entt::entity> remoteEntities(remoteView.begin(), remoteView.end());
+    for (auto entity : remoteEntities)
     {
         auto& formIdComponent = remoteView.get<FormIdComponent>(entity);
 
-        auto pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
-        if (!pActor)
+        if (aFromLoad)
+        {
+            if (m_world.valid(entity))
+            {
+                if (m_world.all_of<GhostComponent>(entity))
+                    m_world.remove<GhostComponent>(entity);
+                if (m_world.all_of<RemoteComponent>(entity))
+                    m_world.remove<RemoteComponent>(entity);
+            }
             continue;
+        }
 
-        if (pActor->GetExtension()->IsRemotePlayer())
-            pActor->Delete();
-        else
-            pActor->GetExtension()->SetRemote(false);
+        auto pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
+        if (pActor)
+        {
+            if (pActor->GetExtension()->IsRemotePlayer())
+                pActor->Delete();
+            else
+                pActor->GetExtension()->SetRemote(false);
+        }
+
+        if (m_world.valid(entity) && m_world.all_of<RemoteComponent>(entity))
+            m_world.remove<RemoteComponent>(entity);
     }
 
-    m_world.clear<WaitingForAssignmentComponent, LocalComponent, RemoteComponent>();
+    auto localView = m_world.view<LocalComponent, FormIdComponent>();
+    TiltedPhoques::Vector<entt::entity> localEntities(localView.begin(), localView.end());
+    for (auto entity : localEntities)
+    {
+        if (m_world.valid(entity))
+            m_world.remove<LocalAnimationComponent, LocalComponent>(entity);
+    }
+
+    m_world.clear<WaitingForAssignmentComponent>();
+}
+
+void CharacterService::OnSyncModeChanged(const SyncMode aPreviousMode, const SyncMode aCurrentMode) noexcept
+{
+    if (aPreviousMode == aCurrentMode)
+        return;
+
+    if (aCurrentMode == SyncMode::Ghost)
+    {
+        // Drop any local ownership/assignment requests (except the player) so others can safely control actors while we are isolated.
+        auto view = m_world.view<FormIdComponent>();
+        TiltedPhoques::Vector<entt::entity> entities(view.begin(), view.end());
+        for (auto entity : entities)
+        {
+            const auto& formIdComponent = view.get<FormIdComponent>(entity);
+            if (formIdComponent.Id == 0x14)
+                continue;
+
+            if (m_world.all_of<LocalComponent>(entity) || m_world.all_of<WaitingForAssignmentComponent>(entity))
+                CancelServerAssignment(entity, formIdComponent.Id);
+        }
+    }
+
+    if (aPreviousMode == SyncMode::Ghost && aCurrentMode == SyncMode::Normal)
+    {
+        // After leaving isolation, re-evaluate assignments so ownership and replication snap back to the right owner (e.g., party leader).
+        auto view = m_world.view<FormIdComponent>(entt::exclude<ObjectComponent>);
+        TiltedPhoques::Vector<entt::entity> entities(view.begin(), view.end());
+        for (auto entity : entities)
+            ProcessNewEntity(entity);
+    }
+}
+
+BSTEventResult CharacterService::OnEvent(const TESLoadGameEvent*, const EventDispatcher<TESLoadGameEvent>*) 
+{
+    // Clear any ghost visuals from the previous world before we tear down components.
+    m_world.GetSyncModeService().OnLoadGameReset();
+    // Defer cleanup to the next update tick to avoid doing heavy deletes inside the load event.
+    m_pendingLoadCleanup = true;
+    return BSTEventResult::kOk;
 }
 
 void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessage) noexcept
@@ -1406,6 +1485,8 @@ void CharacterService::RequestServerAssignment(const entt::entity aEntity) const
 
 void CharacterService::CancelServerAssignment(const entt::entity aEntity, const uint32_t aFormId) const noexcept
 {
+    const bool connected = m_transport.IsOnline();
+
     if (m_world.all_of<RemoteComponent>(aEntity))
     {
         Actor* pActor = Cast<Actor>(TESForm::GetById(aFormId));
@@ -1433,10 +1514,13 @@ void CharacterService::CancelServerAssignment(const entt::entity aEntity, const 
     {
         auto& waitingComponent = m_world.get<WaitingForAssignmentComponent>(aEntity);
 
-        CancelAssignmentRequest message;
-        message.Cookie = waitingComponent.Cookie;
+        if (connected)
+        {
+            CancelAssignmentRequest message;
+            message.Cookie = waitingComponent.Cookie;
 
-        m_transport.Send(message);
+            m_transport.Send(message);
+        }
 
         m_world.remove<WaitingForAssignmentComponent>(aEntity);
     }
@@ -1445,37 +1529,40 @@ void CharacterService::CancelServerAssignment(const entt::entity aEntity, const 
     {
         auto& localComponent = m_world.get<LocalComponent>(aEntity);
 
-        RequestOwnershipTransfer request{};
-        request.ServerId = localComponent.Id;
-
-        if (Actor* pActor = Cast<Actor>(TESForm::GetById(aFormId)))
+        if (connected)
         {
-            if (!pActor->IsTemporary())
+            RequestOwnershipTransfer request{};
+            request.ServerId = localComponent.Id;
+
+            if (Actor* pActor = Cast<Actor>(TESForm::GetById(aFormId)))
             {
-                auto& modSystem = m_world.GetModSystem();
-
-                if (TESWorldSpace* pWorldSpace = pActor->GetWorldSpace())
+                if (!pActor->IsTemporary())
                 {
-                    if (!modSystem.GetServerModId(pWorldSpace->formID, request.WorldSpaceId))
-                        spdlog::error("World space id not found, despite having a world space, {:X}", pWorldSpace->formID);
-                }
+                    auto& modSystem = m_world.GetModSystem();
 
-                if (TESObjectCELL* pCell = pActor->GetParentCell())
-                {
-                    if (!modSystem.GetServerModId(pCell->formID, request.CellId))
-                        spdlog::error("Cell id not found, despite having a cell, {:X}", pCell->formID);
-                }
+                    if (TESWorldSpace* pWorldSpace = pActor->GetWorldSpace())
+                    {
+                        if (!modSystem.GetServerModId(pWorldSpace->formID, request.WorldSpaceId))
+                            spdlog::error("World space id not found, despite having a world space, {:X}", pWorldSpace->formID);
+                    }
 
-                request.Position = pActor->position;
+                    if (TESObjectCELL* pCell = pActor->GetParentCell())
+                    {
+                        if (!modSystem.GetServerModId(pCell->formID, request.CellId))
+                            spdlog::error("Cell id not found, despite having a cell, {:X}", pCell->formID);
+                    }
+
+                    request.Position = pActor->position;
+                }
             }
+
+            spdlog::info(
+                "Transferring ownership of local actor, server id: {:X}, worldspace: {:X}, cell: {:X}, position: "
+                "({}, {}, {})",
+                request.ServerId, request.WorldSpaceId.BaseId, request.CellId.BaseId, request.Position.x, request.Position.y, request.Position.z);
+
+            m_transport.Send(request);
         }
-
-        spdlog::info(
-            "Transferring ownership of local actor, server id: {:X}, worldspace: {:X}, cell: {:X}, position: "
-            "({}, {}, {})",
-            request.ServerId, request.WorldSpaceId.BaseId, request.CellId.BaseId, request.Position.x, request.Position.y, request.Position.z);
-
-        m_transport.Send(request);
 
         m_world.remove<LocalAnimationComponent, LocalComponent>(aEntity);
     }

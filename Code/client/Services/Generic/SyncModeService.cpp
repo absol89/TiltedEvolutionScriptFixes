@@ -20,6 +20,7 @@
 #include <Messages/RequestCurrentWeather.h>
 #include <Services/OverlayService.h>
 #include <Services/TransportService.h>
+#include <Services/CharacterService.h>
 #include <Systems/ModSystem.h>
 #include <World.h>
 #include <Games/Memory.h>
@@ -137,6 +138,9 @@ void SyncModeService::SetLocalMode(const SyncMode aMode) noexcept
 
     m_localMode = aMode;
 
+    if (auto* pCharacterService = m_world.ctx().find<CharacterService>(); pCharacterService)
+        pCharacterService->OnSyncModeChanged(previousMode, m_localMode);
+
     if (m_transport.IsOnline())
     {
         RequestSetSyncMode request{};
@@ -172,6 +176,9 @@ void SyncModeService::OnConnected(const ConnectedEvent& acEvent) noexcept
 
 void SyncModeService::OnDisconnected(const DisconnectedEvent&) noexcept
 {
+    // Proactively strip ghost state from any remaining remote actors before we clear tracking data.
+    ClearGhostStates();
+
     m_localPlayerId = 0;
     m_localMode = SyncMode::Normal;
     m_remoteModes.clear();
@@ -289,6 +296,18 @@ void SyncModeService::RefreshGhostStates() noexcept
             ToggleGhostState(entity, shouldGhost);
             continue;
         }
+    }
+}
+
+void SyncModeService::ClearGhostStates() noexcept
+{
+    auto view = m_world.view<GhostComponent, FormIdComponent>();
+    TiltedPhoques::Vector<entt::entity> entities(view.begin(), view.end());
+
+    for (auto entity : entities)
+    {
+        if (!ToggleGhostState(entity, false))
+            m_world.remove<GhostComponent>(entity);
     }
 }
 
@@ -491,4 +510,15 @@ void SyncModeService::OnActor3DUpdated(Actor* apActor) noexcept
 
     // Defer work to OnUpdate to avoid doing extra engine calls from inside UpdateReference3D.
     m_pending3DRefresh.insert(apActor->formID);
+}
+
+void SyncModeService::OnLoadGameReset() noexcept
+{
+    ClearGhostStates();
+    m_pending3DRefresh.clear();
+    m_glowApplied.clear();
+    m_addedExtraGhost.clear();
+    m_originalNpcFlags.clear();
+    m_originalRefFlagBits.clear();
+    m_remoteModes.clear();
 }
