@@ -1588,6 +1588,8 @@ void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
             // Skip detection processing when ghosted remote players are involved; they should be invisible to AI.
             if (ownerGhosted || targetGhosted)
             {
+                apThis->hTarget = 0; // Clear detection target so AI loses interest.
+
                 if (!ownerGhosted && pOwnerActor && !pOwnerActor->GetExtension()->IsRemotePlayer())
                 {
                     // Ensure local AI drops ghost targets so they don't chase or face them.

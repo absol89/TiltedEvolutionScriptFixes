@@ -520,8 +520,16 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
 
 void CharacterService::OnRemoteSpawnDataReceived(const NotifySpawnData& acMessage) noexcept
 {
-    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
-        return;
+    const bool ghosting = (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost);
+    if (ghosting)
+    {
+        // While ghosting, only apply spawn data for remote players (to keep their visuals/equipment updated).
+        auto remotePlayerView = m_world.view<RemoteComponent, PlayerComponent>();
+        const auto it = std::find_if(remotePlayerView.begin(), remotePlayerView.end(),
+            [remotePlayerView, id = acMessage.Id](entt::entity e) { return remotePlayerView.get<RemoteComponent>(e).Id == id; });
+        if (it == remotePlayerView.end())
+            return;
+    }
 
     auto view = m_world.view<FormIdComponent>(entt::exclude<ObjectComponent>);
 
