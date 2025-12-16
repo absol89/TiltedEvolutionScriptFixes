@@ -68,6 +68,32 @@
 #include <Forms/TESObjectARMO.h>
 
 #include <ModCompat/BehaviorVar.h>
+#include <Components.h>
+
+namespace
+{
+bool IsRemoteGhostActor(Actor* apActor)
+{
+    if (!apActor || !entt::locator<World>::has_value())
+        return false;
+
+    auto* pExt = apActor->GetExtension();
+    if (!pExt || !pExt->IsRemotePlayer())
+        return false;
+
+    auto& world = World::Get();
+
+    if (world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
+        return true;
+
+    auto view = world.view<FormIdComponent, GhostComponent>();
+    const auto it = std::find_if(view.begin(), view.end(),
+        [view, formId = apActor->formID](entt::entity e)
+        { return view.get<FormIdComponent>(e).Id == formId && view.get<GhostComponent>(e).IsGhost; });
+
+    return it != view.end();
+}
+} // namespace
 
 namespace
 {
@@ -471,6 +497,9 @@ Actor* Actor::GetCombatTarget() const noexcept
 // The internal targeting system should be disabled instead.
 void Actor::StartCombatEx(Actor* apTarget) noexcept
 {
+    if (IsRemoteGhostActor(apTarget))
+        return;
+
     if (GetCombatTarget() != apTarget)
     {
         StopCombat();
@@ -480,12 +509,22 @@ void Actor::StartCombatEx(Actor* apTarget) noexcept
 
 void Actor::SetCombatTargetEx(Actor* apTarget) noexcept
 {
+    if (IsRemoteGhostActor(apTarget))
+    {
+        if (pCombatController)
+            pCombatController->SetTarget(nullptr);
+        return;
+    }
+
     if (pCombatController)
         pCombatController->SetTarget(apTarget);
 }
 
 void Actor::StartCombat(Actor* apTarget) noexcept
 {
+    if (IsRemoteGhostActor(apTarget))
+        return;
+
     PAPYRUS_FUNCTION(void, Actor, StartCombat, Actor*);
     s_pStartCombat(this, apTarget);
 }
@@ -1138,6 +1177,28 @@ static TDamageActor* RealDamageActor = nullptr;
 // TODO: this is flawed, since it does not account for invulnerable actors
 bool TP_MAKE_THISCALL(HookDamageActor, Actor, float aDamage, Actor* apHitter, bool aKillMove)
 {
+    // Remote ghosts should never generate hits that can aggro NPCs locally.
+    if (apHitter && entt::locator<World>::has_value())
+    {
+        auto* pHitterExt = apHitter->GetExtension();
+        if (pHitterExt && pHitterExt->IsRemotePlayer())
+        {
+            auto& world = World::Get();
+            bool hitterGhosted = (world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost);
+
+            if (!hitterGhosted)
+            {
+                auto view = world.view<FormIdComponent, GhostComponent>();
+                const auto it = std::find_if(view.begin(), view.end(),
+                    [view, hitterId = apHitter->formID](entt::entity e) { return view.get<FormIdComponent>(e).Id == hitterId && view.get<GhostComponent>(e).IsGhost; });
+                hitterGhosted = (it != view.end());
+            }
+
+            if (hitterGhosted)
+                return false;
+        }
+    }
+
     if (apHitter && entt::locator<World>::has_value())
         World::Get().GetRunner().Trigger(HitEvent(apHitter->formID, apThis->formID));
 
@@ -1521,6 +1582,21 @@ void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
         auto pTargetActor = Cast<Actor>(pTarget);
         if (pOwnerActor && pTargetActor)
         {
+            const bool ownerGhosted = IsRemoteGhostActor(pOwnerActor);
+            const bool targetGhosted = IsRemoteGhostActor(pTargetActor);
+
+            // Skip detection processing when ghosted remote players are involved; they should be invisible to AI.
+            if (ownerGhosted || targetGhosted)
+            {
+                if (!ownerGhosted && pOwnerActor && !pOwnerActor->GetExtension()->IsRemotePlayer())
+                {
+                    // Ensure local AI drops ghost targets so they don't chase or face them.
+                    pOwnerActor->SetCombatTargetEx(nullptr);
+                    pOwnerActor->StopCombat();
+                }
+                return;
+            }
+
             if (pOwnerActor->GetExtension()->IsRemotePlayer() && pTargetActor->GetExtension()->IsLocalPlayer())
             {
                 spdlog::debug("Cancelling detection from remote player to local player, owner: {:X}, target: {:X}", pOwner->formID, pTarget->formID);

@@ -22,10 +22,14 @@
 #include <Services/TransportService.h>
 #include <Systems/ModSystem.h>
 #include <World.h>
+#include <Games/Memory.h>
+#include <cstring>
+#include <ExtraData/ExtraDataList.h>
 #include <Forms/TESObjectCELL.h>
 #include <Forms/TESWorldSpace.h>
 #include <Games/Overrides.h>
 #include <Forms/TESNPC.h>
+#include <ExtraData/ExtraGhost.h>
 
 namespace
 {
@@ -173,6 +177,7 @@ void SyncModeService::OnDisconnected(const DisconnectedEvent&) noexcept
     m_remoteModes.clear();
     m_pending3DRefresh.clear();
     m_glowApplied.clear();
+    m_addedExtraGhost.clear();
     m_originalNpcFlags.clear();
     m_originalRefFlagBits.clear();
     UpdateOverlaySyncStatus();
@@ -318,19 +323,46 @@ bool SyncModeService::ApplyGhostToActor(Actor* apActor, const bool aGhost) noexc
 
     if (aGhost)
     {
-        if (m_originalRefFlagBits.find(formId) == std::end(m_originalRefFlagBits))
+        const bool firstGhostApplication = m_originalRefFlagBits.find(formId) == std::end(m_originalRefFlagBits);
+        if (firstGhostApplication)
             m_originalRefFlagBits[formId] = apActor->flags & kGhostRefFlagMask;
 
         apActor->flags |= kGhostRefFlagMask;
 
         if (auto* pNpc = Cast<TESNPC>(apActor->baseForm))
         {
-            if (m_originalNpcFlags.find(formId) == std::end(m_originalNpcFlags))
-                m_originalNpcFlags[formId] = pNpc->actorData.flags;
+            const uint32_t baseId = pNpc->formID;
+            // Base forms are shared across player clones, so keep a refcount per NPC base.
+            auto& npcState = m_originalNpcFlags[baseId];
+            if (npcState.RefCount == 0)
+                npcState.Flags = pNpc->actorData.flags;
+            if (firstGhostApplication)
+                npcState.RefCount++;
 
             // Vanilla ghost flag: this is what makes actors behave as "ghosts" (no collision / hard interaction)
             // and is more reliable than trying to manually tweak Havok state.
             pNpc->actorData.flags |= (1u << 29); // TESActorBaseData::kIsGhost
+        }
+
+        // Add per-reference ExtraGhost so Havok/activation treat the actor as intangible.
+        if (auto* pExtraData = apActor->GetExtraDataList())
+        {
+            if (!pExtraData->Contains(ExtraDataType::Ghost))
+            {
+                if (auto* pExtraGhost = Memory::New<ExtraGhost>())
+                {
+                    pExtraGhost->ghost = true;
+                    if (!pExtraData->bitfield)
+                    {
+                        pExtraData->bitfield = Memory::Allocate<ExtraDataList::Bitfield>();
+                        std::memset(pExtraData->bitfield, 0, sizeof(ExtraDataList::Bitfield));
+                    }
+                    if (pExtraData->Add(ExtraDataType::Ghost, pExtraGhost))
+                        m_addedExtraGhost.insert(formId);
+                    else
+                        Memory::Delete(pExtraGhost);
+                }
+            }
         }
 
         if (has3D)
@@ -359,14 +391,39 @@ bool SyncModeService::ApplyGhostToActor(Actor* apActor, const bool aGhost) noexc
     }
     if (auto* pNpc = Cast<TESNPC>(apActor->baseForm))
     {
-        if (auto it = m_originalNpcFlags.find(formId); it != std::end(m_originalNpcFlags))
+        const uint32_t baseId = pNpc->formID;
+        if (auto it = m_originalNpcFlags.find(baseId); it != std::end(m_originalNpcFlags))
         {
-            pNpc->actorData.flags = it->second;
-            m_originalNpcFlags.erase(it);
+            auto& npcState = it->second;
+            if (npcState.RefCount > 0)
+                npcState.RefCount--;
+
+            if (npcState.RefCount == 0)
+            {
+                pNpc->actorData.flags = npcState.Flags;
+                m_originalNpcFlags.erase(it);
+            }
+            else
+            {
+                // Keep the ghost flag active while other ghosted actors share this base.
+                pNpc->actorData.flags |= (1u << 29);
+            }
         }
         else
         {
             pNpc->actorData.flags &= ~(1u << 29);
+        }
+    }
+    if (auto* pExtraData = apActor->GetExtraDataList())
+    {
+        if (m_addedExtraGhost.contains(formId))
+        {
+            if (auto* pExtraGhost = pExtraData->GetByType(ExtraDataType::Ghost))
+            {
+                pExtraData->Remove(ExtraDataType::Ghost, pExtraGhost);
+                Memory::Delete(pExtraGhost);
+            }
+            m_addedExtraGhost.erase(formId);
         }
     }
     if (has3D)
