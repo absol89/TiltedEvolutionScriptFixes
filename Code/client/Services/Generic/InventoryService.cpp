@@ -112,6 +112,17 @@ void InventoryService::OnNotifyEquipmentChanges(const NotifyEquipmentChanges& ac
         return;
     }
 
+    // Quest isolation: only apply equipment changes to remote player ghost actors.
+    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
+    {
+        auto remotePlayerView = m_world.view<RemoteComponent, PlayerComponent, FormIdComponent>();
+        const auto it = std::find_if(remotePlayerView.begin(), remotePlayerView.end(),
+            [remotePlayerView, serverId = acMessage.ServerId](entt::entity e) { return remotePlayerView.get<RemoteComponent>(e).Id == serverId; });
+
+        if (it == remotePlayerView.end())
+            return;
+    }
+
     const auto readiness = EvaluateActorReadiness(pActor);
     if (readiness != ActorReadinessStatus::Ready)
     {
@@ -183,6 +194,22 @@ void InventoryService::ApplyEquipmentChange(Actor* pActor, const NotifyEquipment
 
     // TODO: ExtraData necessary? probably
     const int32_t count = acMessage.Count == 0 ? 1 : acMessage.Count;
+
+    // Quest isolation: remote player ghosts may not have full inventory state.
+    // Ensure the item exists locally before attempting to equip, purely for visuals.
+    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost && !acMessage.Unequip && !acMessage.IsSpell && !acMessage.IsShout)
+    {
+        auto* pExt = pActor->GetExtension();
+        if (pExt && pExt->IsRemotePlayer() && !pActor->IsItemInInventory(itemId))
+        {
+            Inventory::Entry add{};
+            add.BaseId = acMessage.ItemId;
+            add.Count = count;
+
+            ScopedInventoryOverride sio;
+            pActor->AddOrRemoveItem(add, true);
+        }
+    }
 
     if (acMessage.Unequip)
     {
@@ -284,9 +311,13 @@ bool InventoryService::SendEquipmentChange(const EquipmentChangeEvent& acEvent) 
     if (!m_transport.IsConnected())
         return false;
 
-    // Ignore equipment sync while in ghost-only mode to avoid noisy retries/logs
+    // Quest isolation: allow equipment sync only for the local player (so others see your ghost correctly).
     if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
-        return true;
+    {
+        // Player reference form is always 0x14; keep isolation strict and avoid relying on extension flags being initialized.
+        if (acEvent.ActorId != 0x14)
+            return true; // Drop anything else to avoid retries/log spam.
+    }
 
     auto view = m_world.view<FormIdComponent>();
 

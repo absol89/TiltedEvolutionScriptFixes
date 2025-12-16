@@ -30,11 +30,13 @@
 #include <Messages/PlayerProfileImageUpdateRequest.h>
 
 #include <Events/SetTimeCommandEvent.h>
+#include <Services/SyncModeService.h>
 
 #include <World.h>
 #include <include/cef_values.h>
 
 extern thread_local bool g_forceAnimation;
+extern thread_local bool g_forceAnimationNetwork;
 std::atomic<bool> g_emoteWheelActive{false};
 std::string g_emoteEventName{};
 std::chrono::steady_clock::time_point g_emoteLastPlayed{};
@@ -101,9 +103,15 @@ void PlayEmoteInternal(const std::string& acEventName)
         actionData.idleForm = pIdle;
         actionData.someFlag = instantFlag ? 1u : 0u;
 
+        const bool ghosting = World::Get().ctx().contains<SyncModeService>() &&
+                              (World::Get().GetSyncModeService().GetLocalMode() == SyncMode::Ghost);
+
         g_forceAnimation = true;
+        g_forceAnimationNetwork = ghosting;
         ActorMediator::Get()->PerformAction(&actionData);
+        g_forceAnimationNetwork = false;
         g_forceAnimation = false;
+
         g_emoteWheelActive.store(true);
         g_emoteEventName = eventName;
         g_emoteLastPlayed = std::chrono::steady_clock::now();

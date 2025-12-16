@@ -562,19 +562,39 @@ void CharacterService::OnRemoteSpawnDataReceived(const NotifySpawnData& acMessag
     if (!pActor)
         return;
 
-    pActor->SetActorValues(acMessage.NewActorData.InitialActorValues);
-
-    if (pActor->GetNiNode())
+    if (ghosting)
     {
-        pActor->SetActorInventory(acMessage.NewActorData.InitialInventory);
-        m_weaponDrawUpdates[pActor->formID] = {acMessage.NewActorData.IsWeaponDrawn};
+        // Quest isolation: equipment-only update so ghosts aren't naked, without syncing other state.
+        Inventory equipmentOnly = acMessage.NewActorData.InitialInventory;
+        equipmentOnly.RemoveByFilter([](const Inventory::Entry& aEntry) { return !aEntry.IsWorn(); });
 
-        if (pActor->IsDead() != acMessage.NewActorData.IsDead)
-            acMessage.NewActorData.IsDead ? pActor->Kill() : pActor->Respawn();
+        if (pActor->GetNiNode())
+        {
+            pActor->SetActorInventory(equipmentOnly);
+            m_weaponDrawUpdates[pActor->formID] = {acMessage.NewActorData.IsWeaponDrawn};
+        }
+        else
+        {
+            const bool currentDead = pActor->IsDead();
+            m_world.emplace_or_replace<PendingInventoryComponent>(*itor, std::move(equipmentOnly), currentDead, acMessage.NewActorData.IsWeaponDrawn);
+        }
     }
     else
     {
-        m_world.emplace_or_replace<PendingInventoryComponent>(*itor, acMessage.NewActorData.InitialInventory, acMessage.NewActorData.IsDead, acMessage.NewActorData.IsWeaponDrawn);
+        pActor->SetActorValues(acMessage.NewActorData.InitialActorValues);
+
+        if (pActor->GetNiNode())
+        {
+            pActor->SetActorInventory(acMessage.NewActorData.InitialInventory);
+            m_weaponDrawUpdates[pActor->formID] = {acMessage.NewActorData.IsWeaponDrawn};
+
+            if (pActor->IsDead() != acMessage.NewActorData.IsDead)
+                acMessage.NewActorData.IsDead ? pActor->Kill() : pActor->Respawn();
+        }
+        else
+        {
+            m_world.emplace_or_replace<PendingInventoryComponent>(*itor, acMessage.NewActorData.InitialInventory, acMessage.NewActorData.IsDead, acMessage.NewActorData.IsWeaponDrawn);
+        }
     }
 
     spdlog::info("Applied remote spawn data, actor form id: {:X}", pActor->formID);
@@ -1340,7 +1360,9 @@ void CharacterService::RequestServerAssignment(const entt::entity aEntity) const
     if (ghosting)
     {
         message.CurrentActorData.InitialActorValues = pActor->GetEssentialActorValues();
-        message.CurrentActorData.InitialInventory = {};
+        // Quest isolation: still send equipment only so other clients can render this player as a properly equipped ghost.
+        // Keep the full inventory isolated.
+        message.CurrentActorData.InitialInventory = isPlayer ? pActor->GetEquipment() : Inventory{};
         message.CurrentActorData.IsDead = pActor->IsDead();
         message.CurrentActorData.IsWeaponDrawn = pActor->actorState.IsWeaponFullyDrawn();
     }
@@ -1645,8 +1667,20 @@ void CharacterService::RunRemoteUpdates() noexcept
 
         // By now, the actor has materialized in the world and is ready for further setup
 
-        pActor->SetActorInventory(waitingFor3D.SpawnRequest.InventoryContent);
-        pActor->SetFactions(waitingFor3D.SpawnRequest.FactionsContent);
+        const bool ghosting = (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost);
+        const bool remotePlayer = pActor->GetExtension() && pActor->GetExtension()->IsRemotePlayer();
+
+        if (ghosting && remotePlayer)
+        {
+            Inventory equipmentOnly = waitingFor3D.SpawnRequest.InventoryContent;
+            equipmentOnly.RemoveByFilter([](const Inventory::Entry& aEntry) { return !aEntry.IsWorn(); });
+            pActor->SetActorInventory(equipmentOnly);
+        }
+        else
+        {
+            pActor->SetActorInventory(waitingFor3D.SpawnRequest.InventoryContent);
+            pActor->SetFactions(waitingFor3D.SpawnRequest.FactionsContent);
+        }
 
         if (!waitingFor3D.SpawnRequest.ActionsToReplay.Actions.empty())
         {
@@ -1655,8 +1689,11 @@ void CharacterService::RunRemoteUpdates() noexcept
 
         m_weaponDrawUpdates[pActor->formID] = {waitingFor3D.SpawnRequest.IsWeaponDrawn};
 
-        if (pActor->IsDead() != waitingFor3D.SpawnRequest.IsDead)
-            waitingFor3D.SpawnRequest.IsDead ? pActor->Kill() : pActor->Respawn();
+        if (!(ghosting && remotePlayer))
+        {
+            if (pActor->IsDead() != waitingFor3D.SpawnRequest.IsDead)
+                waitingFor3D.SpawnRequest.IsDead ? pActor->Kill() : pActor->Respawn();
+        }
 
         if (pActor->IsVampireLord())
             pActor->FixVampireLordModel();
@@ -1685,10 +1722,22 @@ void CharacterService::RunRemoteUpdates() noexcept
         if (!pActor->GetNiNode() || !pContainerChanges || !pContainerChanges->entries)
             continue;
 
-        pActor->SetActorInventory(pendingInventory.InventoryContent);
+        const bool ghosting = (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost);
+        const bool remotePlayer = pActor->GetExtension() && pActor->GetExtension()->IsRemotePlayer();
 
-        if (pActor->IsDead() != pendingInventory.IsDead)
-            pendingInventory.IsDead ? pActor->Kill() : pActor->Respawn();
+        if (ghosting && remotePlayer)
+        {
+            Inventory equipmentOnly = pendingInventory.InventoryContent;
+            equipmentOnly.RemoveByFilter([](const Inventory::Entry& aEntry) { return !aEntry.IsWorn(); });
+            pActor->SetActorInventory(equipmentOnly);
+        }
+        else
+        {
+            pActor->SetActorInventory(pendingInventory.InventoryContent);
+
+            if (pActor->IsDead() != pendingInventory.IsDead)
+                pendingInventory.IsDead ? pActor->Kill() : pActor->Respawn();
+        }
 
         m_weaponDrawUpdates[pActor->formID] = {pendingInventory.IsWeaponDrawn};
 

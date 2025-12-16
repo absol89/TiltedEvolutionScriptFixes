@@ -329,6 +329,9 @@ bool TransportService::IsAllowedOutbound(const ClientMessage& acMessage) const n
     case kEnterExteriorCellRequest:
     case kEnterInteriorCellRequest:
         return true;
+    // Cosmetic-only: keep remote ghost visuals correct while quest-gated
+    case kRequestEquipmentChanges:
+        return true;
     // Keep sync mode negotiation working
     case kRequestSetSyncMode:
         return true;
@@ -359,8 +362,11 @@ bool TransportService::IsAllowedInbound(const ServerMessage& acMessage) const no
 
     // Bare minimum to render remote players
     case kCharacterSpawnRequest:
+    case kNotifySpawnData:
     case kNotifyRemoveCharacter:
     case kServerReferencesMoveRequest:
+    // Cosmetic-only: keep remote ghost visuals correct while quest-gated
+    case kNotifyEquipmentChanges:
         return true;
 
     default: break;
