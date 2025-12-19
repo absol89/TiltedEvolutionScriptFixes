@@ -2,6 +2,7 @@
 
 #include <Services/InputService.h>
 #include <Services/OverlayService.h>
+#include <Services/OverlayClient.h>
 
 #include <OverlayApp.hpp>
 
@@ -15,6 +16,8 @@
 #include <World.h>
 
 #include "Games/Skyrim/Interface/MenuControls.h"
+#include "Games/Skyrim/Interface/UI.h"
+#include <cstring>
 
 static OverlayService* s_pOverlay = nullptr;
 static UINT s_currentACP = CP_ACP;
@@ -104,6 +107,27 @@ bool IsEmoteKey(uint16_t aVirtualKey, uint16_t aScanCode) noexcept
 bool IsDisableKey(int aKey) noexcept
 {
     return aKey == VK_ESCAPE;
+}
+
+bool IsAnyMenuOpen() noexcept
+{
+    UI* pUI = UI::Get();
+    if (!pUI)
+        return false;
+
+    for (auto* pMenu : pUI->menuStack)
+    {
+        if (!pMenu)
+            continue;
+
+        const BSFixedString* pName = pUI->LookupMenuNameByInstance(pMenu);
+        if (pName && (std::strcmp(pName->AsAscii(), "HUD Menu") == 0 || std::strcmp(pName->AsAscii(), "HUDMenu") == 0))
+            continue;
+
+        return true;
+    }
+
+    return false;
 }
 
 static bool s_emoteOpenedFromInactive = false;
@@ -213,7 +237,7 @@ void ProcessKeyboard(uint16_t aKey, uint16_t aScanCode, cef_key_event_type_t aTy
             SetUIActive(overlay, pRenderer, !active);
         }
     }
-    else if (IsEmoteKey(aKey, aScanCode))
+    else if (IsEmoteKey(aKey, aScanCode) && (g_emoteWheelActive.load() || (!active && !IsAnyMenuOpen())))
     {
         if (!overlay.GetInGame())
         {

@@ -47,12 +47,38 @@
 #include <AI/Movement/PlayerControls.h>
 #include <Services/OverlayClient.h>
 #include <Misc/BSFixedString.h>
+#include <Games/Skyrim/Interface/UI.h>
+#include <cstring>
 #include <string>
 #include <string_view>
 #include <chrono>
 
 using TiltedPhoques::OverlayRenderHandler;
 using TiltedPhoques::OverlayRenderHandlerD3D11;
+
+namespace
+{
+bool IsAnyMenuOpen() noexcept
+{
+    UI* pUI = UI::Get();
+    if (!pUI)
+        return false;
+
+    for (auto* pMenu : pUI->menuStack)
+    {
+        if (!pMenu)
+            continue;
+
+        const BSFixedString* pName = pUI->LookupMenuNameByInstance(pMenu);
+        if (pName && (std::strcmp(pName->AsAscii(), "HUD Menu") == 0 || std::strcmp(pName->AsAscii(), "HUDMenu") == 0))
+            continue;
+
+        return true;
+    }
+
+    return false;
+}
+}
 
 struct D3D11RenderProvider final : OverlayApp::RenderProvider, OverlayRenderHandlerD3D11::Renderer
 {
@@ -315,7 +341,8 @@ void OverlayService::OnUpdate(const UpdateEvent&) noexcept
 
     // Allow cancelling emotes from the keyboard even when the menu is closed.
     const bool cancelRequested = (GetAsyncKeyState(VK_OEM_PERIOD) & 0x8001) != 0;
-    if (cancelRequested)
+    const bool allowCancel = g_emoteWheelActive.load() || (!m_active && !IsAnyMenuOpen());
+    if (cancelRequested && allowCancel)
     {
         if (auto* pPlayer = PlayerCharacter::Get())
         {
