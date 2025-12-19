@@ -32,23 +32,18 @@
 #include <glm/gtx/norm.hpp>
 #include <cmath>
 
+void sendPlayerMessage(const ChatMessageType acType, const String acContent, Player* aSendingPlayer) noexcept;
+
 namespace
 {
-bool IsVoteTimeCommand(const TiltedPhoques::String& msg) noexcept
+TiltedPhoques::String TrimCopy(const TiltedPhoques::String& value)
 {
-    TiltedPhoques::String text = msg;
-    // trim spaces
-    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front())))
-        text.erase(text.begin());
-    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())))
-        text.pop_back();
-    // to lower
-    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    if (text.rfind("/votetime", 0) == 0)
-        return true;
-    if (text == "/yes" || text == "/no")
-        return true;
-    return false;
+    TiltedPhoques::String trimmed = value;
+    while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.front())))
+        trimmed.erase(trimmed.begin());
+    while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.back())))
+        trimmed.pop_back();
+    return trimmed;
 }
 
 void SendSystemMessage(Player* apPlayer, std::string_view aMessage)
@@ -91,12 +86,18 @@ OverlayService::OverlayService(World& aWorld, entt::dispatcher& aDispatcher)
     : m_world(aWorld)
 {
     m_chatMessageConnection = aDispatcher.sink<PacketEvent<SendChatMessageRequest>>().connect<&OverlayService::HandleChatMessage>(this);
+    m_playerEnterWorldConnection = aDispatcher.sink<PlayerEnterWorldEvent>().connect<&OverlayService::HandlePlayerJoin>(this);
     m_playerDialogueConnection = aDispatcher.sink<PacketEvent<PlayerDialogueRequest>>().connect<&OverlayService::OnPlayerDialogue>(this);
     m_teleportConnection = aDispatcher.sink<PacketEvent<TeleportRequest>>().connect<&OverlayService::OnTeleport>(this);
     m_teleportResponseConnection = aDispatcher.sink<PacketEvent<TeleportResponse>>().connect<&OverlayService::OnTeleportResponse>(this);
     m_playerHealthConnection = aDispatcher.sink<PacketEvent<RequestPlayerHealthUpdate>>().connect<&OverlayService::OnPlayerHealthUpdate>(this);
     m_playerLeaveConnection = aDispatcher.sink<PlayerLeaveEvent>().connect<&OverlayService::OnPlayerLeave>(this);
     m_updateConnection = aDispatcher.sink<UpdateEvent>().connect<&OverlayService::OnUpdate>(this);
+}
+
+void OverlayService::SendCommandList(Player* apPlayer) const noexcept
+{
+    m_world.GetChatCommandService().SendCommandList(apPlayer);
 }
 
 void sendPlayerMessage(const ChatMessageType acType, const String acContent, Player* aSendingPlayer) noexcept
@@ -131,12 +132,22 @@ void sendPlayerMessage(const ChatMessageType acType, const String acContent, Pla
     }
 }
 
+void OverlayService::HandlePlayerJoin(const PlayerEnterWorldEvent& acEvent) const noexcept
+{
+    SendCommandList(const_cast<Player*>(acEvent.pPlayer));
+}
+
 void OverlayService::HandleChatMessage(const PacketEvent<SendChatMessageRequest>& acMessage) const noexcept
 {
-    // Intercept and suppress vote commands before scripts handle chat,
-    // to avoid third-party script packs printing "unknown command".
-    if (IsVoteTimeCommand(acMessage.Packet.ChatMessage))
+    const TiltedPhoques::String trimmed = TrimCopy(acMessage.Packet.ChatMessage);
+    if (!trimmed.empty() && trimmed.front() == '/')
+    {
+        if (m_world.GetChatCommandService().TryHandle(acMessage.pPlayer, trimmed))
+            return;
+
+        SendSystemMessage(acMessage.pPlayer, "Unknown command. Type /help for a list of commands.");
         return;
+    }
 
     auto [canceled, reason] = m_world.GetScriptService().HandleChatMessage(*acMessage.pPlayer->GetCharacter(), acMessage.Packet.ChatMessage);
     if (canceled)

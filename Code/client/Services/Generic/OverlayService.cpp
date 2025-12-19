@@ -27,6 +27,7 @@
 #include <Messages/NotifyTeleportRequest.h>
 #include <Messages/RequestPlayerHealthUpdate.h>
 #include <Messages/NotifyPlayerHealthUpdate.h>
+#include <Messages/NotifyCommandList.h>
 
 #include <DefaultObjectManager.h>
 #include <Structs/GridCellCoords.h>
@@ -47,6 +48,7 @@
 #include <Services/OverlayClient.h>
 #include <Misc/BSFixedString.h>
 #include <string>
+#include <string_view>
 #include <chrono>
 
 using TiltedPhoques::OverlayRenderHandler;
@@ -136,6 +138,7 @@ OverlayService::OverlayService(World& aWorld, TransportService& transport, entt:
     m_teleportConnection = aDispatcher.sink<NotifyTeleport>().connect<&OverlayService::OnNotifyTeleport>(this);
     m_teleportCountdownConnection = aDispatcher.sink<NotifyTeleportCountdown>().connect<&OverlayService::OnNotifyTeleportCountdown>(this);
     m_playerHealthConnection = aDispatcher.sink<NotifyPlayerHealthUpdate>().connect<&OverlayService::OnNotifyPlayerHealthUpdate>(this);
+    m_commandListConnection = aDispatcher.sink<NotifyCommandList>().connect<&OverlayService::OnNotifyCommandList>(this);
     m_partyJoinedConnection = aDispatcher.sink<PartyJoinedEvent>().connect<&OverlayService::OnPartyJoinedEvent>(this);
     m_partyLeftConnection = aDispatcher.sink<PartyLeftEvent>().connect<&OverlayService::OnPartyLeftEvent>(this);
 }
@@ -589,6 +592,53 @@ void OverlayService::OnNotifyPlayerHealthUpdate(const NotifyPlayerHealthUpdate& 
     pArguments->SetInt(0, acMessage.PlayerId);
     pArguments->SetDouble(1, static_cast<double>(percentage));
     m_pOverlay->ExecuteAsync("setHealth", pArguments);
+}
+
+namespace
+{
+std::string EscapeJson(std::string_view text)
+{
+    std::string out;
+    out.reserve(text.size() + 8);
+    for (char c : text)
+    {
+        switch (c)
+        {
+        case '\\': out += "\\\\"; break;
+        case '"': out += "\\\""; break;
+        case '\n': out += "\\n"; break;
+        case '\r': out += "\\r"; break;
+        case '\t': out += "\\t"; break;
+        default: out += c; break;
+        }
+    }
+    return out;
+}
+} // namespace
+
+void OverlayService::OnNotifyCommandList(const NotifyCommandList& acMessage) noexcept
+{
+    if (!m_pOverlay)
+        return;
+
+    std::string json = "[";
+    bool first = true;
+    for (const auto& command : acMessage.Commands)
+    {
+        if (!first)
+            json += ",";
+        first = false;
+        json += "{\"name\":\"";
+        json += EscapeJson(command.Name);
+        json += "\",\"description\":\"";
+        json += EscapeJson(command.Description);
+        json += "\"}";
+    }
+    json += "]";
+
+    auto pArguments = CefListValue::Create();
+    pArguments->SetString(0, json);
+    m_pOverlay->ExecuteAsync("commandList", pArguments);
 }
 
 void OverlayService::OnPartyJoinedEvent(const PartyJoinedEvent& acEvent) noexcept

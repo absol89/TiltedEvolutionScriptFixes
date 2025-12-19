@@ -358,6 +358,7 @@ bool TransportService::IsAllowedInbound(const ServerMessage& acMessage) const no
     case kNotifyPlayerLeft:
     case kNotifyPlayerSyncMode:
     case kStringCacheUpdate:
+    case kNotifyCommandList:
         return true;
 
     // Bare minimum to render remote players

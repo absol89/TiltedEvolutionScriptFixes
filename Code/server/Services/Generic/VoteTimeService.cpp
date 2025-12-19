@@ -166,15 +166,22 @@ void VoteTimeService::OnPlayerLeave(const PlayerLeaveEvent& evt) noexcept
 
 void VoteTimeService::OnChat(const PacketEvent<SendChatMessageRequest>& aMsg) noexcept
 {
-    const uint32_t playerId = aMsg.pPlayer ? aMsg.pPlayer->GetId() : 0u;
+    HandleChatCommand(aMsg.pPlayer, aMsg.Packet.ChatMessage);
+}
+
+void VoteTimeService::HandleChatCommand(Player* player, const TiltedPhoques::String& message) noexcept
+{
+    const uint32_t playerId = player ? player->GetId() : 0u;
     if (playerId == 0)
         return;
 
-    String text = ToLower(aMsg.Packet.ChatMessage);
+    String text = ToLower(message);
 
     // Strip leading/trailing spaces
-    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front()))) text.erase(text.begin());
-    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back()))) text.pop_back();
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front())))
+        text.erase(text.begin());
+    while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())))
+        text.pop_back();
 
     if (text.rfind("/votetime", 0) == 0)
     {
@@ -184,9 +191,10 @@ void VoteTimeService::OnChat(const PacketEvent<SendChatMessageRequest>& aMsg) no
         {
             arg = text.substr(9);
             // strip spaces
-            while (!arg.empty() && std::isspace(static_cast<unsigned char>(arg.front()))) arg.erase(arg.begin());
+            while (!arg.empty() && std::isspace(static_cast<unsigned char>(arg.front())))
+                arg.erase(arg.begin());
         }
-        int h=0,m=0;
+        int h = 0, m = 0;
         if (!arg.empty() && ParseTime(arg, h, m))
         {
             StartVote(playerId, h, m);
@@ -209,4 +217,3 @@ void VoteTimeService::OnChat(const PacketEvent<SendChatMessageRequest>& aMsg) no
         return;
     }
 }
-

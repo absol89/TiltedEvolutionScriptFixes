@@ -27,8 +27,34 @@
 #include <resources/ResourceCollection.h>
 #include <fmt/format.h>
 #include <Services/AdminService.h>
+#include <Services/ChatCommandService.h>
 
 constexpr size_t kMaxServerNameLength = 128u;
+
+namespace
+{
+Player* FindPlayerByUsernameInsensitive(World& world, const TiltedPhoques::String& username)
+{
+    if (username.empty())
+        return nullptr;
+
+    TiltedPhoques::String needle = username;
+    std::transform(needle.begin(), needle.end(), needle.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    for (Player* player : world.GetPlayerManager())
+    {
+        if (!player)
+            continue;
+
+        TiltedPhoques::String candidate = player->GetUsername();
+        std::transform(candidate.begin(), candidate.end(), candidate.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (candidate == needle)
+            return player;
+    }
+
+    return nullptr;
+}
+} // namespace
 
 // -- Cvars --
 Console::Setting uServerPort{"GameServer:uPort", "Which port to host the server on", 10578u};
@@ -325,7 +351,11 @@ void GameServer::BindServerCommands()
             }
 
             if (m_pWorld->GetAdminService().AddAdmin(username))
+            {
                 out->info("Added admin '{}'.", username.c_str());
+                if (auto* player = FindPlayerByUsernameInsensitive(*m_pWorld, username))
+                    m_pWorld->ctx().at<ChatCommandService>().SendCommandList(player);
+            }
             else
                 out->error("Failed to add admin '{}'.", username.c_str());
         });
@@ -343,7 +373,11 @@ void GameServer::BindServerCommands()
             }
 
             if (m_pWorld->GetAdminService().RemoveAdmin(username))
+            {
                 out->info("Removed admin '{}'.", username.c_str());
+                if (auto* player = FindPlayerByUsernameInsensitive(*m_pWorld, username))
+                    m_pWorld->ctx().at<ChatCommandService>().SendCommandList(player);
+            }
             else
                 out->error("Failed to remove admin '{}'.", username.c_str());
         });

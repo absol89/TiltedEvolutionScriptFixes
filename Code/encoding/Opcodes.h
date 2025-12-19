@@ -146,5 +146,6 @@ enum ServerOpcode : unsigned char
     kNotifyPlayerProfileImage,
     kNotifyPartyFastTravelMarkers,
     kNotifyPlayerSyncMode,
+    kNotifyCommandList,
     kServerOpcodeMax
 };

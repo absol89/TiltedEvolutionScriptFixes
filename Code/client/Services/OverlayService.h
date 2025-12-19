@@ -29,6 +29,7 @@ struct NotifyTeleportRequest;
 struct NotifyTeleportCountdown;
 struct NotifyTeleport;
 struct NotifyPlayerHealthUpdate;
+struct NotifyCommandList;
 enum ChatMessageTypes;
 struct PartyJoinedEvent;
 struct PartyLeftEvent;
@@ -88,6 +89,7 @@ protected:
     void OnNotifyTeleportCountdown(const NotifyTeleportCountdown& acMessage) noexcept;
     void OnNotifyTeleport(const NotifyTeleport& acMessage) noexcept;
     void OnNotifyPlayerHealthUpdate(const NotifyPlayerHealthUpdate& acMessage) noexcept;
+    void OnNotifyCommandList(const NotifyCommandList& acMessage) noexcept;
     void OnPartyJoinedEvent(const PartyJoinedEvent& acEvent) noexcept;
     void OnPartyLeftEvent(const PartyLeftEvent& acEvent) noexcept;
 
@@ -122,6 +124,7 @@ private:
     entt::scoped_connection m_teleportRequestConnection;
     entt::scoped_connection m_teleportCountdownConnection;
     entt::scoped_connection m_playerHealthConnection;
+    entt::scoped_connection m_commandListConnection;
     entt::scoped_connection m_partyJoinedConnection;
     entt::scoped_connection m_partyLeftConnection;
 };

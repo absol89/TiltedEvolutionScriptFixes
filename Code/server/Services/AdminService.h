@@ -4,10 +4,7 @@
 
 #include <filesystem>
 
-namespace entt
-{
-class dispatcher;
-}
+#include <entt/fwd.hpp>
 
 struct sqlite3;
 struct World;

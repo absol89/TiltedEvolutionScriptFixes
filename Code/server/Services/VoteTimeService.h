@@ -11,6 +11,7 @@
 
 struct World;
 struct SendChatMessageRequest;
+struct Player;
 
 // Simple unanimous vote-to-set-time feature, initiated via chat command.
 // Commands (global/party/local chat all acceptable):
@@ -23,6 +24,7 @@ class VoteTimeService
 {
 public:
     VoteTimeService(World& aWorld, entt::dispatcher& aDispatcher) noexcept;
+    void HandleChatCommand(Player* player, const TiltedPhoques::String& message) noexcept;
 
 private:
     void OnChat(const PacketEvent<SendChatMessageRequest>& aMsg) noexcept;
@@ -55,4 +57,3 @@ private:
     entt::scoped_connection m_joinConn;
     entt::scoped_connection m_leaveConn;
 };
-

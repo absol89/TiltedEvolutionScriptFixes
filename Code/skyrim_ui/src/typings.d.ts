@@ -31,6 +31,13 @@ declare namespace SkyrimTogetherTypes {
     sender: string,
   ) => void;
 
+  type CommandListEntry = {
+    name: string;
+    description: string;
+  };
+
+  type CommandListCallback = (commandsJson: string) => void;
+
   /** Connection callback */
   type ConnectCallback = () => void;
 
@@ -233,6 +240,12 @@ interface SkyrimTogether {
 
   /** Add listener to when a player message is received. */
   on(event: 'message', callback: SkyrimTogetherTypes.MessageCallback): void;
+
+  /** Add listener to when the server command list is updated. */
+  on(
+    event: 'commandList',
+    callback: SkyrimTogetherTypes.CommandListCallback,
+  ): void;
 
   /** Add listener to when the player connects to a server. */
   on(event: 'connect', callback: SkyrimTogetherTypes.ConnectCallback): void;
