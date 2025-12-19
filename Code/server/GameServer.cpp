@@ -26,6 +26,7 @@
 #include <console/ConsoleRegistry.h>
 #include <resources/ResourceCollection.h>
 #include <fmt/format.h>
+#include <Services/AdminService.h>
 
 constexpr size_t kMaxServerNameLength = 128u;
 
@@ -309,6 +310,60 @@ void GameServer::BindServerCommands()
             {
                 out->info("{}: {}", pPlayer->GetId(), pPlayer->GetUsername().c_str());
             }
+        });
+
+    m_commands.RegisterCommand<std::string>(
+        "AdminAdd", "Add a username to the admin list",
+        [&](Console::ArgStack& aStack)
+        {
+            auto out = spdlog::get("ConOut");
+            const TiltedPhoques::String username = aStack.Pop<TiltedPhoques::String>();
+            if (username.empty())
+            {
+                out->error("AdminAdd <username>");
+                return;
+            }
+
+            if (m_pWorld->GetAdminService().AddAdmin(username))
+                out->info("Added admin '{}'.", username.c_str());
+            else
+                out->error("Failed to add admin '{}'.", username.c_str());
+        });
+
+    m_commands.RegisterCommand<std::string>(
+        "AdminRemove", "Remove a username from the admin list",
+        [&](Console::ArgStack& aStack)
+        {
+            auto out = spdlog::get("ConOut");
+            const TiltedPhoques::String username = aStack.Pop<TiltedPhoques::String>();
+            if (username.empty())
+            {
+                out->error("AdminRemove <username>");
+                return;
+            }
+
+            if (m_pWorld->GetAdminService().RemoveAdmin(username))
+                out->info("Removed admin '{}'.", username.c_str());
+            else
+                out->error("Failed to remove admin '{}'.", username.c_str());
+        });
+
+    m_commands.RegisterCommand<>(
+        "AdminList", "List all admins",
+        [&](Console::ArgStack&)
+        {
+            auto out = spdlog::get("ConOut");
+            TiltedPhoques::Vector<TiltedPhoques::String> admins;
+            m_pWorld->GetAdminService().GetAdmins(admins);
+            if (admins.empty())
+            {
+                out->info("No admins configured.");
+                return;
+            }
+
+            out->info("<------Admins-({})--->", admins.size());
+            for (const auto& name : admins)
+                out->info("{}", name.c_str());
         });
 
     m_commands.RegisterCommand<>(
