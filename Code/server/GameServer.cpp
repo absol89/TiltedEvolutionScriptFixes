@@ -2,7 +2,6 @@
 #include <GameServer.h>
 #include <Packet.hpp>
 
-#include <Events/AdminPacketEvent.h>
 #include <Events/CharacterRemoveEvent.h>
 #include <Events/OwnershipTransferEvent.h>
 #include <Events/PacketEvent.h>
@@ -14,8 +13,6 @@
 
 #include <Services/LoginService.h>
 
-#include <AdminMessages/AdminSessionOpen.h>
-#include <AdminMessages/ClientAdminMessageFactory.h>
 #include <Messages/AuthenticationResponse.h>
 #include <Messages/ClientMessageFactory.h>
 #include <Messages/NotifyPlayerJoined.h>
@@ -38,7 +35,6 @@ Console::Setting uMaxPlayerCount{"GameServer:uMaxPlayerCount", "Maximum number o
 Console::Setting bPremiumTickrate{"GameServer:bPremiumMode", "Use premium tick rate", true};
 
 Console::StringSetting sServerName{"GameServer:sServerName", "Name that shows up in the server list", "Dedicated Together Server"};
-Console::StringSetting sAdminPassword{"GameServer:sAdminPassword", "Admin authentication password", ""};
 Console::StringSetting sPassword{"GameServer:sPassword", "Server password", ""};
 
 // Gameplay
@@ -284,20 +280,6 @@ void GameServer::BindMessageHandlers()
         HandleAuthenticationRequest(aConnectionId, pRealMessage);
     };
 
-    auto adminHandlerGenerator = [this](auto& x)
-    {
-        using T = typename std::remove_reference_t<decltype(x)>::Type;
-
-        m_adminMessageHandlers[T::Opcode] = [this](UniquePtr<ClientAdminMessage>& apMessage, ConnectionId_t aConnectionId)
-        {
-            const auto pRealMessage = CastUnique<T>(std::move(apMessage));
-            m_pWorld->GetDispatcher().trigger(AdminPacketEvent<T>(pRealMessage.get(), aConnectionId));
-        };
-
-        return false;
-    };
-
-    ClientAdminMessageFactory::Visit(adminHandlerGenerator);
 }
 
 void GameServer::BindServerCommands()
@@ -371,8 +353,8 @@ void GameServer::BindServerCommands()
         {
             auto out = spdlog::get("ConOut");
 
-            auto hour = aStack.Pop<int64_t>();
-            auto minute = aStack.Pop<int64_t>();
+            const int hour = static_cast<int>(aStack.Pop<int64_t>());
+            const int minute = static_cast<int>(aStack.Pop<int64_t>());
             auto timescale = m_pWorld->GetCalendarService().GetTimeScale();
 
             bool time_set_successfully = m_pWorld->GetCalendarService().SetTime(hour, minute, timescale);
@@ -393,9 +375,9 @@ void GameServer::BindServerCommands()
         {
             auto out = spdlog::get("ConOut");
 
-            auto day = aStack.Pop<int64_t>();
-            auto month = aStack.Pop<int64_t>();
-            auto year = aStack.Pop<int64_t>();
+            const int day = static_cast<int>(aStack.Pop<int64_t>());
+            const int month = static_cast<int>(aStack.Pop<int64_t>());
+            const float year = static_cast<float>(aStack.Pop<int64_t>());
 
             bool time_set_successfully = m_pWorld->GetCalendarService().SetDate(day, month, year);
 
@@ -409,112 +391,6 @@ void GameServer::BindServerCommands()
             }
         });
 
-    m_commands.RegisterCommand<std::string>(
-        "AddAdmin", "Add admin privileges to player",
-        [&](Console::ArgStack& aStack)
-        {
-            auto out = spdlog::get("ConOut");
-
-            const auto& cUsername = aStack.Pop<String>();
-            if (GetAdminByUsername(cUsername))
-            {
-                out->info("{} is already an admin", cUsername.c_str());
-                return;
-            }
-
-            auto* pPlayer = PlayerManager::Get()->GetByUsername(cUsername);
-            if (pPlayer)
-            {
-                AddAdminSession(pPlayer->GetConnectionId());
-                out->info("{} admin privileges added", cUsername.c_str());
-            }
-            else
-            {
-                // retry after sanitizing username
-                String backupUsername = SanitizeUsername(cUsername);
-                pPlayer = PlayerManager::Get()->GetByUsername(backupUsername);
-
-                if (pPlayer)
-                {
-                    AddAdminSession(pPlayer->GetConnectionId());
-                    out->info("{} admin privileges added", cUsername.c_str());
-                }
-                else
-                {
-                    out->warn("{} is not a valid player", backupUsername.c_str());
-                }
-            }
-        });
-    m_commands.RegisterCommand<std::string>(
-        "RemoveAdmin", "Remove admin privileges from player",
-        [&](Console::ArgStack& aStack)
-        {
-            auto out = spdlog::get("ConOut");
-
-            const auto& cUsername = aStack.Pop<String>();
-            auto* pPlayer = GetAdminByUsername(cUsername);
-
-            if (pPlayer)
-            {
-                RemoveAdminSession(pPlayer->GetConnectionId());
-                out->info("{} admin privileges revoked", cUsername.c_str());
-            }
-            else
-            {
-                // retry after sanitizing username
-                String backupUsername = SanitizeUsername(cUsername);
-                pPlayer = GetAdminByUsername(backupUsername);
-
-                if (pPlayer)
-                {
-                    RemoveAdminSession(pPlayer->GetConnectionId());
-                    out->info("{} admin privileges revoked", cUsername.c_str());
-                }
-                else
-                {
-                    out->warn("{} is not an admin", backupUsername.c_str());
-                }
-            }
-        });
-    m_commands.RegisterCommand<>(
-        "admins", "List all admins",
-        [&](Console::ArgStack&)
-        {
-            auto out = spdlog::get("ConOut");
-            if (m_adminSessions.size() == 0)
-            {
-                out->warn("No admins");
-                return;
-            }
-
-            String output = "Admins: ";
-            bool _first = true;
-
-            for (const auto& cAdminSession : m_adminSessions)
-            {
-                auto* pPlayer = PlayerManager::Get()->GetByConnectionId(cAdminSession);
-
-                if (!pPlayer)
-                {
-                    out->error("Admin session not found: {}", cAdminSession);
-                    continue;
-                }
-
-                const auto& cUsername = pPlayer->GetUsername();
-
-                if (_first)
-                {
-                    _first = false;
-                }
-                else
-                {
-                    output += ", ";
-                }
-                output += cUsername;
-            }
-
-            out->info("{}", output.c_str());
-        });
 }
 
 /* Update Info fields from user facing CVARS.*/
@@ -573,21 +449,6 @@ void GameServer::OnConsume(const void* apData, const uint32_t aSize, const Conne
     ViewBuffer buf((uint8_t*)apData, aSize);
     Buffer::Reader reader(&buf);
 
-    // TODO: ClientAdminMessageFactory
-    /*if (m_adminSessions.contains(aConnectionId)) [[unlikely]]
-    {
-        const ClientAdminMessageFactory factory;
-        auto pMessage = factory.Extract(reader);
-        if (!pMessage)
-        {
-            spdlog::error("Couldn't parse packet from {:x}", aConnectionId);
-            return;
-        }
-
-        m_adminMessageHandlers[pMessage->GetOpcode()](pMessage, aConnectionId);
-    }
-    else
-    {*/
     const ClientMessageFactory factory;
     auto pMessage = factory.Extract(reader);
     if (!pMessage)
@@ -597,7 +458,6 @@ void GameServer::OnConsume(const void* apData, const uint32_t aSize, const Conne
     }
 
     m_messageHandlers[pMessage->GetOpcode()](pMessage, aConnectionId);
-    //}
 }
 
 void GameServer::OnConnection(const ConnectionId_t aHandle)
@@ -608,8 +468,6 @@ void GameServer::OnConnection(const ConnectionId_t aHandle)
 
 void GameServer::OnDisconnection(const ConnectionId_t aConnectionId, EDisconnectReason aReason)
 {
-    m_adminSessions.erase(aConnectionId);
-
     auto* pPlayer = m_pWorld->GetPlayerManager().GetByConnectionId(aConnectionId);
 
     spdlog::info("Connection ended {:x} - '{}' disconnected", aConnectionId, (pPlayer != NULL ? pPlayer->GetUsername().c_str() : "NULL"));
@@ -675,21 +533,6 @@ void GameServer::Send(const ConnectionId_t aConnectionId, const ServerMessage& a
     s_allocator.Reset();
 }
 
-void GameServer::Send(ConnectionId_t aConnectionId, const ServerAdminMessage& acServerMessage) const
-{
-    static thread_local TiltedPhoques::ScratchAllocator s_allocator{1 << 18};
-
-    Buffer buffer(1 << 20);
-    Buffer::Writer writer(&buffer);
-    writer.WriteBits(0, 8); // Skip the first byte as it is used by packet
-
-    acServerMessage.Serialize(writer);
-
-    TiltedPhoques::PacketView packet(reinterpret_cast<char*>(buffer.GetWriteData()), static_cast<uint32_t>(writer.Size()));
-    Server::Send(aConnectionId, &packet);
-
-    s_allocator.Reset();
-}
 
 void GameServer::SendToLoaded(const ServerMessage& acServerMessage) const
 {
@@ -958,16 +801,9 @@ void GameServer::HandleAuthenticationRequest(const ConnectionId_t aConnectionId,
     acRequest->Username = sanitizedUsername;
     acRequest->Password.clear();
 
-    bool adminPasswordUsed = acRequest->Token == sAdminPassword.value() && !sAdminPassword.empty();
-
     // check if the proper server password was supplied.
-    if (acRequest->Token == sPassword.value() || adminPasswordUsed)
+    if (acRequest->Token == sPassword.value())
     {
-        if (adminPasswordUsed)
-        {
-            m_adminSessions.insert(aConnectionId);
-            spdlog::warn("New admin session for {:x} '{}'", aConnectionId, remoteAddress);
-        }
 
         Mods& responseList = serverResponse.UserMods;
         auto& modsComponent = m_pWorld->ctx().at<ModsComponent>();
@@ -1112,14 +948,6 @@ void GameServer::HandleAuthenticationRequest(const ConnectionId_t aConnectionId,
 
         m_pWorld->GetDispatcher().trigger(PlayerJoinEvent(pPlayer, acRequest->WorldSpaceId, acRequest->CellId, acRequest->PlayerTime));
     }
-    /*else if (acRequest->Token == sAdminPassword.value() && !sAdminPassword.empty())
-    {
-        AdminSessionOpen response;
-        Send(aConnectionId, response);
-
-        m_adminSessions.insert(aConnectionId);
-        spdlog::warn("New admin session for {:x} '{}'", aConnectionId, remoteAddress);
-    } */
     else
     {
         spdlog::info("New player {:x} '{}' supplied an incorrect server password, kicking.", aConnectionId, remoteAddress);
@@ -1148,6 +976,50 @@ GameServer::Uptime GameServer::GetUptime() const noexcept
     return {weeks.count(), days.count(), hours.count(), minutes.count()};
 }
 
+bool GameServer::ExecuteConsoleCommand(const String& aCommand) noexcept
+{
+    using exr = Console::ConsoleRegistry::ExecutionResult;
+    const auto result = m_commands.TryExecuteCommand(aCommand);
+    return result != exr::kFailure;
+}
+
+void GameServer::GetStatusSnapshot(ServerStatusSnapshot& aOutStatus) const
+{
+    const auto duration = std::chrono::high_resolution_clock::now() - m_startTime;
+    aOutStatus.UptimeSeconds = static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::seconds>(duration).count());
+
+    aOutStatus.Players.clear();
+    aOutStatus.Players.reserve(m_pWorld->GetPlayerManager().Count());
+
+    for (Player* player : m_pWorld->GetPlayerManager())
+    {
+        ServerPlayerStatusSnapshot entry;
+        entry.PlayerId = player->GetId();
+        entry.Username = player->GetUsername();
+
+        const auto& cell = player->GetCellComponent();
+        entry.CellBaseId = cell.Cell.BaseId;
+        entry.CellModId = cell.Cell.ModId;
+        entry.WorldBaseId = cell.WorldSpaceId.BaseId;
+        entry.WorldModId = cell.WorldSpaceId.ModId;
+        entry.GridX = cell.CenterCoords.X;
+        entry.GridY = cell.CenterCoords.Y;
+
+        if (auto character = player->GetCharacter())
+        {
+            if (const auto* movement = m_pWorld->try_get<MovementComponent>(*character))
+            {
+                entry.HasPosition = true;
+                entry.PositionX = movement->Position.x;
+                entry.PositionY = movement->Position.y;
+                entry.PositionZ = movement->Position.z;
+            }
+        }
+
+        aOutStatus.Players.push_back(std::move(entry));
+    }
+}
+
 void GameServer::UpdateTitle() const
 {
     const auto name = m_info.name.empty() ? "Private server" : m_info.name;
@@ -1160,34 +1032,6 @@ void GameServer::UpdateTitle() const
 #else
     std::cout << "\033]0;" << title << "\007";
 #endif
-}
-
-Player* GameServer::GetAdminByUsername(const String& acUsername) const noexcept
-{
-    for (auto session : m_adminSessions)
-    {
-        if (auto* pPlayer = PlayerManager::Get()->GetByConnectionId(session))
-        {
-            if (pPlayer->GetUsername() == acUsername)
-                return pPlayer;
-        }
-    }
-
-    return nullptr;
-}
-
-Player const* GameServer::GetAdminByUsername(const String& acUsername) noexcept
-{
-    for (auto session : m_adminSessions)
-    {
-        if (auto const* pPlayer = PlayerManager::Get()->GetByConnectionId(session))
-        {
-            if (pPlayer->GetUsername() == acUsername)
-                return pPlayer;
-        }
-    }
-
-    return nullptr;
 }
 
 String GameServer::SanitizeUsername(const String& acUsername) const noexcept

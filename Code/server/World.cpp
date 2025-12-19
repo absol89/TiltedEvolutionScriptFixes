@@ -6,7 +6,6 @@
 #include <Services/QuestService.h>
 #include <Services/ServerListService.h>
 #include <Services/ActorValueService.h>
-#include <Services/AdminService.h>
 #include <Services/InventoryService.h>
 #include <Services/DropService.h>
 #include <Services/MagicService.h>
@@ -26,8 +25,6 @@
 
 World::World()
 {
-    m_spAdminService = std::make_shared<AdminService>(*this, m_dispatcher);
-    spdlog::default_logger()->sinks().push_back(std::static_pointer_cast<spdlog::sinks::sink>(m_spAdminService));
 
     ctx().emplace<CharacterService>(*this, m_dispatcher);
     ctx().emplace<PlayerService>(*this, m_dispatcher);

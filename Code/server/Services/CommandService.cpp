@@ -20,55 +20,12 @@ void CommandService::OnSetTimeCommand(const PacketEvent<SetTimeCommandRequest>& 
 {
     NotifySetTimeResult response{};
 
-    const auto cPlayerId = static_cast<uint32_t>(acMessage.Packet.PlayerId);
-
-    // Only set time if player is an admin
-    for (const auto session : GameServer::Get()->GetAdminSessions())
-    {
-        auto* pAdmin = PlayerManager::Get()->GetByConnectionId(session);
-        if (pAdmin && pAdmin->GetId() == cPlayerId)
-        {
-            const auto cHours = static_cast<int>(acMessage.Packet.Hours);
-            const auto cMinutes = static_cast<int>(acMessage.Packet.Minutes);
-
-            m_world.GetCalendarService().SetTime(cHours, cMinutes, m_world.GetCalendarService().GetTimeScale());
-
-            response.Result = NotifySetTimeResult::SetTimeResult::kSuccess;
-            acMessage.pPlayer->Send(response);
-
-            return;
-        }
-    }
-
     response.Result = NotifySetTimeResult::SetTimeResult::kNoPermission;
     acMessage.pPlayer->Send(response);
 }
 
 void CommandService::OnTeleportCommandRequest(const PacketEvent<TeleportCommandRequest>& acMessage) const noexcept
 {
-    Player* pTargetPlayer = nullptr;
-    for (Player* pPlayer : m_world.GetPlayerManager())
-    {
-        if (pPlayer->GetUsername() == acMessage.Packet.TargetPlayer)
-            pTargetPlayer = pPlayer;
-    }
-
     TeleportCommandResponse response{};
-    if (pTargetPlayer)
-    {
-        auto character = pTargetPlayer->GetCharacter();
-        if (character)
-        {
-            const auto* pMovementComponent = m_world.try_get<MovementComponent>(*character);
-            if (pMovementComponent)
-            {
-                const auto& cellComponent = pTargetPlayer->GetCellComponent();
-                response.CellId = cellComponent.Cell;
-                response.Position = pMovementComponent->Position;
-                response.WorldSpaceId = cellComponent.WorldSpaceId;
-            }
-        }
-    }
-
     acMessage.pPlayer->Send(response);
 }

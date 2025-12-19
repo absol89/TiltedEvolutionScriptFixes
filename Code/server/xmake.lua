@@ -26,7 +26,6 @@ local function build_server()
         "ESLoader",
         "CrashHandler",
         "BaseLib",
-        "AdminProtocol",
         "TiltedConnect"
     )
     add_packages(

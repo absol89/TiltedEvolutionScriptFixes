@@ -1,5 +1,7 @@
 #pragma once
 
+#include <common/ServerStatusSnapshot.h>
+
 class IGameServerInstance
 {
 public:
@@ -14,4 +16,6 @@ public:
 
     // update the server logic
     virtual void Update() = 0;
+
+    virtual void GetStatus(ServerStatusSnapshot& aOutStatus) const = 0;
 };
