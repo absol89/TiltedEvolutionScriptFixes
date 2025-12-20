@@ -221,7 +221,10 @@ void SyncModeService::OnUpdate(const UpdateEvent&) noexcept
 
             const auto entity = *it;
             const bool isGhosted = m_world.any_of<GhostComponent>(entity);
-            ApplyGhostToActor(pActor, isGhosted);
+            if (!isGhosted)
+                continue;
+
+            ApplyGhostToActor(pActor, true);
         }
     }
 }
@@ -504,6 +507,16 @@ void SyncModeService::OnActor3DUpdated(Actor* apActor) noexcept
     const auto* pExtension = apActor->GetExtension();
     if (!pExtension || !pExtension->IsRemotePlayer())
         return;
+
+    // FaceGen tints can drop when the 3D rebuilds; force a re-apply next update.
+    {
+        auto view = m_world.view<FormIdComponent, FaceGenComponent>();
+        const uint32_t formId = apActor->formID;
+        const auto it = std::find_if(std::begin(view), std::end(view),
+            [view, formId](entt::entity e) { return view.get<FormIdComponent>(e).Id == formId; });
+        if (it != std::end(view))
+            view.get<FaceGenComponent>(*it).Generated = false;
+    }
 
     // Force a re-apply after 3D rebuilds/cell transitions (effects can get dropped when 3D reloads).
     m_glowApplied.erase(apActor->formID);
