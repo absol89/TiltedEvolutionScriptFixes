@@ -13,6 +13,10 @@
 #include <Messages/NotifyTeleportRequest.h>
 #include <Messages/NotifyTeleportCountdown.h>
 #include <Messages/TeleportResponse.h>
+#include <Messages/PlayEmoteRequest.h>
+#include <Messages/CancelEmoteRequest.h>
+#include <Messages/NotifyPlayEmote.h>
+#include <Messages/NotifyCancelEmote.h>
 #include <fmt/format.h>
 #include <algorithm>
 #include <cctype>
@@ -25,6 +29,7 @@
 #include "Game/Player.h"
 #include <Events/PlayerLeaveEvent.h>
 #include <Components/MovementComponent.h>
+#include <Components.h>
 
 #include <regex>
 #include <string_view>
@@ -93,6 +98,8 @@ OverlayService::OverlayService(World& aWorld, entt::dispatcher& aDispatcher)
     m_playerHealthConnection = aDispatcher.sink<PacketEvent<RequestPlayerHealthUpdate>>().connect<&OverlayService::OnPlayerHealthUpdate>(this);
     m_playerLeaveConnection = aDispatcher.sink<PlayerLeaveEvent>().connect<&OverlayService::OnPlayerLeave>(this);
     m_updateConnection = aDispatcher.sink<UpdateEvent>().connect<&OverlayService::OnUpdate>(this);
+    m_playEmoteConnection = aDispatcher.sink<PacketEvent<PlayEmoteRequest>>().connect<&OverlayService::OnPlayEmoteRequest>(this);
+    m_cancelEmoteConnection = aDispatcher.sink<PacketEvent<CancelEmoteRequest>>().connect<&OverlayService::OnCancelEmoteRequest>(this);
 }
 
 void OverlayService::SendCommandList(Player* apPlayer) const noexcept
@@ -359,6 +366,89 @@ void OverlayService::OnUpdate(const UpdateEvent& acEvent) noexcept
         }
 
         ++it;
+    }
+}
+
+void OverlayService::OnPlayEmoteRequest(const PacketEvent<PlayEmoteRequest>& acMessage) const noexcept
+{
+    const auto& message = acMessage.Packet;
+    const auto entity = m_world.TryResolveEntity(message.ServerId);
+    if (!entity)
+    {
+        spdlog::debug("Play emote request for unknown entity {:X}", message.ServerId);
+        return;
+    }
+
+    const auto* pOwner = m_world.try_get<OwnerComponent>(*entity);
+    if (!pOwner || pOwner->GetOwner() != acMessage.pPlayer)
+    {
+        spdlog::warn("Play emote request rejected for entity {:X}", message.ServerId);
+        return;
+    }
+
+    NotifyPlayEmote notify{};
+    notify.ServerId = message.ServerId;
+    notify.EventName = message.EventName;
+
+    const auto senderCell = acMessage.pPlayer->GetCellComponent().Cell;
+    if (!senderCell)
+        return;
+
+    TiltedPhoques::Vector<ConnectionId_t> players;
+    players.reserve(m_world.GetPlayerManager().Count());
+
+    for (Player* pPlayer : m_world.GetPlayerManager())
+        players.push_back(pPlayer->GetConnectionId());
+
+    for (auto connectionId : players)
+    {
+        Player* pPlayer = m_world.GetPlayerManager().GetByConnectionId(connectionId);
+        if (!pPlayer || pPlayer == acMessage.pPlayer)
+            continue;
+
+        if (pPlayer->GetCellComponent().Cell == senderCell)
+            pPlayer->Send(notify);
+    }
+}
+
+void OverlayService::OnCancelEmoteRequest(const PacketEvent<CancelEmoteRequest>& acMessage) const noexcept
+{
+    const auto& message = acMessage.Packet;
+    const auto entity = m_world.TryResolveEntity(message.ServerId);
+    if (!entity)
+    {
+        spdlog::debug("Cancel emote request for unknown entity {:X}", message.ServerId);
+        return;
+    }
+
+    const auto* pOwner = m_world.try_get<OwnerComponent>(*entity);
+    if (!pOwner || pOwner->GetOwner() != acMessage.pPlayer)
+    {
+        spdlog::warn("Cancel emote request rejected for entity {:X}", message.ServerId);
+        return;
+    }
+
+    NotifyCancelEmote notify{};
+    notify.ServerId = message.ServerId;
+
+    const auto senderCell = acMessage.pPlayer->GetCellComponent().Cell;
+    if (!senderCell)
+        return;
+
+    TiltedPhoques::Vector<ConnectionId_t> players;
+    players.reserve(m_world.GetPlayerManager().Count());
+
+    for (Player* pPlayer : m_world.GetPlayerManager())
+        players.push_back(pPlayer->GetConnectionId());
+
+    for (auto connectionId : players)
+    {
+        Player* pPlayer = m_world.GetPlayerManager().GetByConnectionId(connectionId);
+        if (!pPlayer || pPlayer == acMessage.pPlayer)
+            continue;
+
+        if (pPlayer->GetCellComponent().Cell == senderCell)
+            pPlayer->Send(notify);
     }
 }
 

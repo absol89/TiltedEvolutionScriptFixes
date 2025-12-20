@@ -71,6 +71,8 @@
 #include <Messages/HealingProximityRequest.h>
 #include <Messages/PartyFastTravelMarkersRequest.h>
 #include <Messages/RequestSetSyncMode.h>
+#include <Messages/PlayEmoteRequest.h>
+#include <Messages/CancelEmoteRequest.h>
 
 using TiltedPhoques::UniquePtr;
 
@@ -85,7 +87,7 @@ struct ClientMessageFactory
             PartyChangeLeaderRequest, PartyKickRequest, TradeInviteRequest, TradeInviteResponseRequest, TradeOfferUpdateRequest, TradeSetReadyRequest, TradeCancelRequest, RequestActorValueChanges, RequestActorMaxValueChanges, EnterExteriorCellRequest, RequestHealthChangeBroadcast, ActivateRequest, LockChangeRequest, AssignObjectsRequest, RequestDeathStateChange, ShiftGridCellRequest,
             RequestOwnershipTransfer, RequestOwnershipClaim, RequestObjectInventoryChanges, SpellCastRequest, ProjectileLaunchRequest, InterruptCastRequest, AddTargetRequest, ScriptAnimationRequest, DrawWeaponRequest, MountRequest, NewPackageRequest, RequestRespawn, SyncExperienceRequest,
             RequestEquipmentChanges, SendChatMessageRequest, TeleportCommandRequest, PlayerRespawnRequest, DialogueRequest, SubtitleRequest, PlayerDialogueRequest, PlayerLevelRequest, TeleportRequest, TeleportResponse, RequestPlayerHealthUpdate, RequestWeatherChange, RequestCurrentWeather, RequestSetWaypoint,
-            RequestRemoveWaypoint, PartyPositionUpdateRequest, PartyMemberDownedRequest, PlayerProfileImageUpdateRequest, RemoveSpellRequest, SetTimeCommandRequest, HealingProximityRequest, PartyFastTravelMarkersRequest, RequestSetSyncMode>;
+            RequestRemoveWaypoint, PartyPositionUpdateRequest, PartyMemberDownedRequest, PlayerProfileImageUpdateRequest, RemoveSpellRequest, SetTimeCommandRequest, HealingProximityRequest, PartyFastTravelMarkersRequest, RequestSetSyncMode, PlayEmoteRequest, CancelEmoteRequest>;
 
         return s_visitor(std::forward<T>(func));
     }

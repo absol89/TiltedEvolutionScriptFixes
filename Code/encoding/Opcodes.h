@@ -69,6 +69,8 @@ enum ClientOpcode : unsigned char
     kRequestHealingProximity,
     kPartyFastTravelMarkersRequest,
     kRequestSetSyncMode,
+    kPlayEmoteRequest,
+    kCancelEmoteRequest,
     kClientOpcodeMax
 };
 
@@ -147,5 +149,7 @@ enum ServerOpcode : unsigned char
     kNotifyPartyFastTravelMarkers,
     kNotifyPlayerSyncMode,
     kNotifyCommandList,
+    kNotifyPlayEmote,
+    kNotifyCancelEmote,
     kServerOpcodeMax
 };

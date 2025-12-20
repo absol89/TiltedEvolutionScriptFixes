@@ -19,6 +19,8 @@ struct PlayerDialogueRequest;
 struct TeleportRequest;
 struct RequestPlayerHealthUpdate;
 struct TeleportResponse;
+struct PlayEmoteRequest;
+struct CancelEmoteRequest;
 struct PlayerLeaveEvent;
 struct Player;
 
@@ -43,6 +45,8 @@ protected:
     void HandlePlayerJoin(const PlayerEnterWorldEvent& acEvent) const noexcept;
     void OnPlayerLeave(const PlayerLeaveEvent& acEvent) noexcept;
     void OnUpdate(const UpdateEvent& acEvent) noexcept;
+    void OnPlayEmoteRequest(const PacketEvent<PlayEmoteRequest>& acMessage) const noexcept;
+    void OnCancelEmoteRequest(const PacketEvent<CancelEmoteRequest>& acMessage) const noexcept;
 
 private:
     struct PendingTeleportCountdown
@@ -67,6 +71,8 @@ private:
     entt::scoped_connection m_playerEnterWorldConnection;
     entt::scoped_connection m_playerLeaveConnection;
     entt::scoped_connection m_updateConnection;
+    entt::scoped_connection m_playEmoteConnection;
+    entt::scoped_connection m_cancelEmoteConnection;
     std::unordered_map<uint32_t, std::unordered_set<uint32_t>> m_pendingTeleportRequests;
     std::unordered_map<uint32_t, PendingTeleportCountdown> m_activeTeleportCountdowns;
 };

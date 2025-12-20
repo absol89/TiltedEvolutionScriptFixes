@@ -23,16 +23,19 @@
 #include <Games/Skyrim/Forms/TESIdleForm.h>
 #include <Games/Skyrim/TESObjectREFR.h>
 #include <PlayerCharacter.h>
+#include <algorithm>
 
 #include <Messages/SendChatMessageRequest.h>
 #include <Messages/TeleportRequest.h>
 #include <Messages/TeleportResponse.h>
 #include <Messages/PlayerProfileImageUpdateRequest.h>
+#include <Messages/PlayEmoteRequest.h>
 
 #include <Events/SetTimeCommandEvent.h>
 #include <Services/SyncModeService.h>
 
 #include <World.h>
+#include <Components.h>
 #include <include/cef_values.h>
 
 extern thread_local bool g_forceAnimation;
@@ -89,6 +92,22 @@ void PlayEmoteInternal(const std::string& acEventName)
         {
             spdlog::warn("Unable to play emote '{}': no usable action found", eventName);
             return;
+        }
+
+        if (auto& transport = World::Get().GetTransport(); transport.IsConnected())
+        {
+            auto view = World::Get().view<FormIdComponent, LocalComponent>();
+            const auto it = std::find_if(
+                std::begin(view), std::end(view),
+                [view, formId = pPlayer->formID](entt::entity entity) { return view.get<FormIdComponent>(entity).Id == formId; });
+
+            if (it != std::end(view))
+            {
+                PlayEmoteRequest request{};
+                request.ServerId = view.get<LocalComponent>(*it).Id;
+                request.EventName = eventName;
+                transport.Send(request);
+            }
         }
 
         const auto& latest = pPlayer->GetExtension()->LatestAnimation;

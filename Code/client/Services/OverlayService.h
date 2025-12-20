@@ -1,6 +1,9 @@
 #pragma once
 
 #include <include/internal/cef_ptr.h>
+#include <chrono>
+#include <string>
+#include <unordered_map>
 
 namespace TiltedPhoques
 {
@@ -30,9 +33,12 @@ struct NotifyTeleportCountdown;
 struct NotifyTeleport;
 struct NotifyPlayerHealthUpdate;
 struct NotifyCommandList;
+struct NotifyPlayEmote;
+struct NotifyCancelEmote;
 enum ChatMessageTypes;
 struct PartyJoinedEvent;
 struct PartyLeftEvent;
+struct Actor;
 
 using TiltedPhoques::OverlayApp;
 
@@ -90,12 +96,21 @@ protected:
     void OnNotifyTeleport(const NotifyTeleport& acMessage) noexcept;
     void OnNotifyPlayerHealthUpdate(const NotifyPlayerHealthUpdate& acMessage) noexcept;
     void OnNotifyCommandList(const NotifyCommandList& acMessage) noexcept;
+    void OnNotifyPlayEmote(const NotifyPlayEmote& acMessage) noexcept;
+    void OnNotifyCancelEmote(const NotifyCancelEmote& acMessage) noexcept;
     void OnPartyJoinedEvent(const PartyJoinedEvent& acEvent) noexcept;
     void OnPartyLeftEvent(const PartyLeftEvent& acEvent) noexcept;
 
 private:
+    struct RemoteEmoteState
+    {
+        std::string EventName;
+        std::chrono::steady_clock::time_point LastPlayed{};
+    };
+
     void RunDebugDataUpdates() noexcept;
     void RunPlayerHealthUpdates() noexcept;
+    void UpdateRemoteEmoteLoops() noexcept;
 
     CefRefPtr<OverlayApp> m_pOverlay{nullptr};
     TiltedPhoques::UniquePtr<D3D11RenderProvider> m_pProvider;
@@ -125,6 +140,10 @@ private:
     entt::scoped_connection m_teleportCountdownConnection;
     entt::scoped_connection m_playerHealthConnection;
     entt::scoped_connection m_commandListConnection;
+    entt::scoped_connection m_playEmoteConnection;
+    entt::scoped_connection m_cancelEmoteConnection;
     entt::scoped_connection m_partyJoinedConnection;
     entt::scoped_connection m_partyLeftConnection;
+
+    std::unordered_map<uint32_t, RemoteEmoteState> m_remoteEmotes;
 };

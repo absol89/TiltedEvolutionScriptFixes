@@ -331,6 +331,8 @@ bool TransportService::IsAllowedOutbound(const ClientMessage& acMessage) const n
         return true;
     // Cosmetic-only: keep remote ghost visuals correct while quest-gated
     case kRequestEquipmentChanges:
+    case kPlayEmoteRequest:
+    case kCancelEmoteRequest:
         return true;
     // Keep sync mode negotiation working
     case kRequestSetSyncMode:
@@ -368,6 +370,8 @@ bool TransportService::IsAllowedInbound(const ServerMessage& acMessage) const no
     case kServerReferencesMoveRequest:
     // Cosmetic-only: keep remote ghost visuals correct while quest-gated
     case kNotifyEquipmentChanges:
+    case kNotifyPlayEmote:
+    case kNotifyCancelEmote:
         return true;
 
     default: break;

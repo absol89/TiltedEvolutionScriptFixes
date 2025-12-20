@@ -28,6 +28,9 @@
 #include <Messages/RequestPlayerHealthUpdate.h>
 #include <Messages/NotifyPlayerHealthUpdate.h>
 #include <Messages/NotifyCommandList.h>
+#include <Messages/NotifyPlayEmote.h>
+#include <Messages/NotifyCancelEmote.h>
+#include <Messages/CancelEmoteRequest.h>
 
 #include <DefaultObjectManager.h>
 #include <Structs/GridCellCoords.h>
@@ -48,6 +51,8 @@
 #include <Services/OverlayClient.h>
 #include <Misc/BSFixedString.h>
 #include <Games/Skyrim/Interface/UI.h>
+#include <Components.h>
+#include <client/Utils.h>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -73,6 +78,25 @@ bool IsAnyMenuOpen() noexcept
         if (pName && (std::strcmp(pName->AsAscii(), "HUD Menu") == 0 || std::strcmp(pName->AsAscii(), "HUDMenu") == 0))
             continue;
 
+        return true;
+    }
+
+    return false;
+}
+
+bool TryGetLocalServerId(uint32_t& aOutId) noexcept
+{
+    auto* pPlayer = PlayerCharacter::Get();
+    if (!pPlayer)
+        return false;
+
+    auto view = World::Get().view<FormIdComponent, LocalComponent>();
+    for (entt::entity entity : view)
+    {
+        if (view.get<FormIdComponent>(entity).Id != pPlayer->formID)
+            continue;
+
+        aOutId = view.get<LocalComponent>(entity).Id;
         return true;
     }
 
@@ -165,6 +189,8 @@ OverlayService::OverlayService(World& aWorld, TransportService& transport, entt:
     m_teleportCountdownConnection = aDispatcher.sink<NotifyTeleportCountdown>().connect<&OverlayService::OnNotifyTeleportCountdown>(this);
     m_playerHealthConnection = aDispatcher.sink<NotifyPlayerHealthUpdate>().connect<&OverlayService::OnNotifyPlayerHealthUpdate>(this);
     m_commandListConnection = aDispatcher.sink<NotifyCommandList>().connect<&OverlayService::OnNotifyCommandList>(this);
+    m_playEmoteConnection = aDispatcher.sink<NotifyPlayEmote>().connect<&OverlayService::OnNotifyPlayEmote>(this);
+    m_cancelEmoteConnection = aDispatcher.sink<NotifyCancelEmote>().connect<&OverlayService::OnNotifyCancelEmote>(this);
     m_partyJoinedConnection = aDispatcher.sink<PartyJoinedEvent>().connect<&OverlayService::OnPartyJoinedEvent>(this);
     m_partyLeftConnection = aDispatcher.sink<PartyLeftEvent>().connect<&OverlayService::OnPartyLeftEvent>(this);
 }
@@ -338,12 +364,14 @@ void OverlayService::OnUpdate(const UpdateEvent&) noexcept
 {
     RunDebugDataUpdates();
     RunPlayerHealthUpdates();
+    UpdateRemoteEmoteLoops();
 
     // Allow cancelling emotes from the keyboard even when the menu is closed.
     const bool cancelRequested = (GetAsyncKeyState(VK_OEM_PERIOD) & 0x8001) != 0;
     const bool allowCancel = g_emoteWheelActive.load() || (!m_active && !IsAnyMenuOpen());
     if (cancelRequested && allowCancel)
     {
+        const bool wasEmoting = g_emoteWheelActive.load();
         if (auto* pPlayer = PlayerCharacter::Get())
         {
             if (auto* pExt = pPlayer->GetExtension())
@@ -358,6 +386,17 @@ void OverlayService::OnUpdate(const UpdateEvent&) noexcept
             g_emoteWheelActive.store(false);
             g_emoteEventName.clear();
             g_emoteStartValid.store(false);
+
+            if (wasEmoting && m_transport.IsConnected())
+            {
+                uint32_t serverId = 0;
+                if (TryGetLocalServerId(serverId))
+                {
+                    CancelEmoteRequest request{};
+                    request.ServerId = serverId;
+                    m_transport.Send(request);
+                }
+            }
 
             // Re-equip current weapons/spells to refresh combat state (prevents stuck hands).
             if (auto* pEquipManager = EquipManager::Get())
@@ -425,6 +464,43 @@ void OverlayService::OnUpdate(const UpdateEvent&) noexcept
                 }
             }
         }
+    }
+}
+
+void OverlayService::UpdateRemoteEmoteLoops() noexcept
+{
+    if (m_remoteEmotes.empty())
+        return;
+
+    static constexpr auto kKeepAlive = std::chrono::seconds(2);
+    const auto now = std::chrono::steady_clock::now();
+
+    for (auto it = m_remoteEmotes.begin(); it != m_remoteEmotes.end();)
+    {
+        if (it->second.EventName.empty() ||
+            it->second.EventName == "IdleForceDefaultState" ||
+            it->second.EventName == "IdleStopInstant")
+        {
+            it = m_remoteEmotes.erase(it);
+            continue;
+        }
+
+        Actor* pActor = Utils::GetByServerId<Actor>(it->first);
+        if (!pActor || pActor == PlayerCharacter::Get())
+        {
+            it = m_remoteEmotes.erase(it);
+            continue;
+        }
+
+        if (now - it->second.LastPlayed > kKeepAlive)
+        {
+            pActor->SetWeaponDrawnEx(false);
+            BSFixedString keepAlive(it->second.EventName.c_str());
+            pActor->SendAnimationEvent(&keepAlive);
+            it->second.LastPlayed = now;
+        }
+
+        ++it;
     }
 }
 
@@ -666,6 +742,49 @@ void OverlayService::OnNotifyCommandList(const NotifyCommandList& acMessage) noe
     auto pArguments = CefListValue::Create();
     pArguments->SetString(0, json);
     m_pOverlay->ExecuteAsync("commandList", pArguments);
+}
+
+void OverlayService::OnNotifyPlayEmote(const NotifyPlayEmote& acMessage) noexcept
+{
+    Actor* pActor = Utils::GetByServerId<Actor>(acMessage.ServerId);
+    if (!pActor)
+    {
+        spdlog::warn("{}: could not find actor server id {:X}", __FUNCTION__, acMessage.ServerId);
+        return;
+    }
+
+    if (pActor == PlayerCharacter::Get())
+        return;
+
+    if (acMessage.EventName.empty())
+        return;
+
+    pActor->SetWeaponDrawnEx(false);
+    BSFixedString eventName(acMessage.EventName.c_str());
+    pActor->SendAnimationEvent(&eventName);
+
+    auto& state = m_remoteEmotes[acMessage.ServerId];
+    state.EventName = acMessage.EventName;
+    state.LastPlayed = std::chrono::steady_clock::now();
+}
+
+void OverlayService::OnNotifyCancelEmote(const NotifyCancelEmote& acMessage) noexcept
+{
+    Actor* pActor = Utils::GetByServerId<Actor>(acMessage.ServerId);
+    if (!pActor)
+    {
+        spdlog::warn("{}: could not find actor server id {:X}", __FUNCTION__, acMessage.ServerId);
+        return;
+    }
+
+    if (pActor == PlayerCharacter::Get())
+        return;
+
+    BSFixedString stopInstant("IdleStopInstant");
+    BSFixedString stopEvent("IdleForceDefaultState");
+    pActor->SendAnimationEvent(&stopInstant);
+    pActor->SendAnimationEvent(&stopEvent);
+    m_remoteEmotes.erase(acMessage.ServerId);
 }
 
 void OverlayService::OnPartyJoinedEvent(const PartyJoinedEvent& acEvent) noexcept
