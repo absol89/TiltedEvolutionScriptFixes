@@ -161,8 +161,7 @@ GS_EXPORT void SetUiLogCallback(void (*aCallback)(const char*))
     {
         if (!logger)
             return;
-        logger->set_level(spdlog::level::trace);
-        logger->flush_on(spdlog::level::trace);
+        logger->flush_on(logger->level());
         logger->sinks().push_back(s_uiSink);
     });
 }

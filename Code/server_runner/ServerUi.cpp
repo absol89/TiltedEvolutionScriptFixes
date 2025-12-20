@@ -28,6 +28,7 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 namespace
 {
 constexpr float kClearColor[4] = {0.08f, 0.09f, 0.11f, 1.0f};
+constexpr const char* kLogLevelOptions[] = {"trace", "debug", "info", "warn", "error", "critical", "off"};
 
 struct LogColor
 {
@@ -86,6 +87,17 @@ TiltedPhoques::String ToLowerCopy(std::string_view text)
     TiltedPhoques::String out(text);
     std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return out;
+}
+
+int FindLogLevelIndex(std::string_view level)
+{
+    TiltedPhoques::String lowered = ToLowerCopy(level);
+    for (int i = 0; i < IM_ARRAYSIZE(kLogLevelOptions); ++i)
+    {
+        if (lowered == kLogLevelOptions[i])
+            return i;
+    }
+    return 2;
 }
 
 bool MatchesFilter(std::string_view value, const TiltedPhoques::String& filterLower)
@@ -390,6 +402,16 @@ void ServerUi::DrawConsoleView(const ImVec2& display)
         ImGui::SameLine();
         if (ImGui::Button("Clear Output"))
             m_logLines.clear();
+        ImGui::SameLine();
+        TiltedPhoques::String logLevelValue;
+        int logLevelIndex = 2;
+        if (m_runner.GetSettingValue("sLogLevel", logLevelValue))
+        logLevelIndex = FindLogLevelIndex(logLevelValue);
+        ImGui::SetNextItemWidth(140.0f);
+        if (ImGui::Combo("Log level", &logLevelIndex, kLogLevelOptions, IM_ARRAYSIZE(kLogLevelOptions)))
+        {
+            ApplySettingValue("sLogLevel", kLogLevelOptions[logLevelIndex]);
+        }
 
         ImGui::BeginChild("LogOutput", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()), true);
         {

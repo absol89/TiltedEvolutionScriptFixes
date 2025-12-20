@@ -48,6 +48,7 @@ struct DediRunner
         TiltedPhoques::String Value;
     };
     void GetSettingsSnapshot(TiltedPhoques::Vector<SettingSnapshot>& aOut);
+    bool GetSettingValue(const TiltedPhoques::String& aName, TiltedPhoques::String& aOut);
     bool SetSettingValue(const TiltedPhoques::String& aName, const TiltedPhoques::String& aValue, TiltedPhoques::String* apError = nullptr);
     void QueueConsoleCommand(const TiltedPhoques::String& acCommand);
     bool IsRunning() const noexcept;

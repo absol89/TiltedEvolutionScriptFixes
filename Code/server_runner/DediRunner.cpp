@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cctype>
 #include <iostream>
+#include <spdlog/spdlog.h>
 #include <base/threading/ThreadUtils.h>
 #include <console/ConsoleUtils.h>
 #include <sstream>
@@ -255,6 +256,33 @@ void DediRunner::GetSettingsSnapshot(TiltedPhoques::Vector<SettingSnapshot>& aOu
         });
 }
 
+bool DediRunner::GetSettingValue(const TiltedPhoques::String& aName, TiltedPhoques::String& aOut)
+{
+    auto* setting = m_console.FindSetting(aName.c_str());
+    if (!setting)
+        return false;
+
+    switch (setting->type)
+    {
+    case Console::SettingBase::Type::kBoolean: aOut = setting->data.as_boolean ? "true" : "false"; break;
+    case Console::SettingBase::Type::kInt: aOut = std::to_string(setting->data.as_int32); break;
+    case Console::SettingBase::Type::kUInt: aOut = std::to_string(setting->data.as_uint32); break;
+    case Console::SettingBase::Type::kInt64: aOut = std::to_string(setting->data.as_int64); break;
+    case Console::SettingBase::Type::kUInt64: aOut = std::to_string(setting->data.as_uint64); break;
+    case Console::SettingBase::Type::kFloat:
+    {
+        std::ostringstream stream;
+        stream << setting->data.as_float;
+        aOut = stream.str();
+        break;
+    }
+    case Console::SettingBase::Type::kString: aOut = setting->c_str(); break;
+    default: aOut.clear(); break;
+    }
+
+    return true;
+}
+
 bool DediRunner::SetSettingValue(const TiltedPhoques::String& aName, const TiltedPhoques::String& aValue, TiltedPhoques::String* apError)
 {
     auto* setting = m_console.FindSetting(aName.c_str());
@@ -307,6 +335,20 @@ bool DediRunner::SetSettingValue(const TiltedPhoques::String& aName, const Tilte
     m_console.MarkDirty();
     if (m_useIni)
         SaveSettingsToIni(m_console, m_SettingsPath);
+
+    if (aName == "sLogLevel")
+    {
+        const auto level = spdlog::level::from_str(aValue.c_str());
+        spdlog::set_level(level);
+        spdlog::apply_all([level](const std::shared_ptr<spdlog::logger>& logger)
+        {
+            if (!logger)
+                return;
+            logger->set_level(level);
+            logger->flush_on(level);
+        });
+    }
+
     return true;
 }
 
