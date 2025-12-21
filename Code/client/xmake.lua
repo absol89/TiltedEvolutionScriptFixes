@@ -15,6 +15,7 @@ target(name)
         if os.isdir(isolationdir) then
             local outdir = target:targetdir() or path.directory(target:targetfile())
             local dest = path.join(outdir, "Isolation")
+            os.mkdir(outdir)
             os.tryrm(dest)
             -- Copy the folder itself into the output dir (avoids Isolation/Isolation nesting).
             os.cp(isolationdir, outdir)
@@ -40,8 +41,8 @@ target(name)
         if os.isdir(isolationdir) then
             local bindir = path.join(target:installdir(), "bin")
             local dest = path.join(bindir, "Isolation")
-            os.tryrm(dest)
             os.mkdir(bindir)
+            os.tryrm(dest)
             -- Copy the folder itself into the bin dir (avoids Isolation/Isolation nesting).
             os.cp(isolationdir, bindir)
         end
