@@ -42,7 +42,7 @@ struct ScriptProperty
         } m_string{nullptr, 0};
     };
 
-    void ParseValue(Buffer::Reader& aReader, int16_t aObjectFormat, TiltedPhoques::Map<uint8_t, uint32_t>& aParentToFormIdPrefix) noexcept;
+    bool ParseValue(Buffer::Reader& aReader, int16_t aObjectFormat, TiltedPhoques::Map<uint8_t, uint32_t>& aParentToFormIdPrefix) noexcept;
     Type GetPropertyType(Type aArrayType) noexcept;
 
     String m_name;

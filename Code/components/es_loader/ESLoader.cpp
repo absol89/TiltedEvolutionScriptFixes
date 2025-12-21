@@ -42,7 +42,7 @@ struct Mo2Context
 
 std::once_flag s_loadOrderOnceFlag;
 ESLoader::PluginCollection s_cachedLoadOrder;
-TiltedPhoques::Map<String, uint8_t> s_cachedMasterFiles;
+TiltedPhoques::Map<String, uint32_t> s_cachedMasterFiles;
 bool s_loadOrderSuccess = false;
 
 fs::path ResolveExecutableDirectory() noexcept
@@ -129,6 +129,59 @@ fs::path NormalizeMo2Path(String value)
 #endif
 
     return fs::path(value);
+}
+
+enum class PluginKind
+{
+    kUnknown,
+    kStandard,
+    kLite,
+};
+
+bool HasEslFlag(const fs::path& aPluginPath) noexcept
+{
+    if (aPluginPath.empty())
+        return false;
+
+    std::ifstream file(aPluginPath, std::ios::binary);
+    if (!file.is_open())
+        return false;
+
+    Record header{};
+    file.read(reinterpret_cast<char*>(&header), sizeof(header));
+    if (!file)
+        return false;
+
+    if (header.GetType() != FormEnum::TES4)
+        return false;
+
+    return (header.GetFlags() & Record::FLAGS::kLightFile) != 0;
+}
+
+PluginKind ResolvePluginKind(const fs::path& aDataRoot, const String& aFilename) noexcept
+{
+    if (aFilename.empty())
+        return PluginKind::kUnknown;
+
+    const char extensionType = static_cast<char>(std::tolower(static_cast<unsigned char>(aFilename.back())));
+    if (extensionType == 'l')
+        return PluginKind::kLite;
+
+    if (extensionType != 'm' && extensionType != 'p')
+        return PluginKind::kUnknown;
+
+    // ESL-flagged .esp/.esm plugins still use light IDs.
+    if (HasEslFlag(aDataRoot / aFilename))
+        return PluginKind::kLite;
+
+    return PluginKind::kStandard;
+}
+
+uint32_t FormIdPrefixFromPlugin(const ESLoader::PluginData& aPlugin) noexcept
+{
+    if (aPlugin.m_isLite)
+        return 0xFE000000u | (static_cast<uint32_t>(aPlugin.m_liteId) << 12);
+    return static_cast<uint32_t>(aPlugin.m_standardId) << 24;
 }
 
 std::optional<Mo2Context> ParseMo2Instance(const fs::path& aRootPath, const fs::path& aIniPath, const char* aForcedProfile)
@@ -306,7 +359,7 @@ std::optional<Mo2Context> DetectMo2Instance()
     return std::nullopt;
 }
 
-bool LoadPluginsTxtFromPath(const fs::path& aPluginsPath, Vector<ESLoader::PluginData>& outOrder)
+bool LoadPluginsTxtFromPath(const fs::path& aPluginsPath, const fs::path& aDataRoot, Vector<ESLoader::PluginData>& outOrder)
 {
     std::ifstream pluginsFile(aPluginsPath.c_str());
     if (!pluginsFile.is_open())
@@ -332,17 +385,15 @@ bool LoadPluginsTxtFromPath(const fs::path& aPluginsPath, Vector<ESLoader::Plugi
 
         ESLoader::PluginData plugin{};
         plugin.m_filename = line;
-        const char extensionType = line.back();
-
-        switch (extensionType)
+        const auto kind = ResolvePluginKind(aDataRoot, line);
+        switch (kind)
         {
-        case 'm':
-        case 'p':
+        case PluginKind::kStandard:
             plugin.m_standardId = standardId++;
             plugin.m_isLite = false;
             outOrder.push_back(plugin);
             break;
-        case 'l':
+        case PluginKind::kLite:
             plugin.m_liteId = liteId++;
             plugin.m_isLite = true;
             outOrder.push_back(plugin);
@@ -355,13 +406,13 @@ bool LoadPluginsTxtFromPath(const fs::path& aPluginsPath, Vector<ESLoader::Plugi
     return !outOrder.empty();
 }
 
-bool LoadPluginsTxtFromLocalAppData(Vector<ESLoader::PluginData>& outOrder)
+bool LoadPluginsTxtFromLocalAppData(const fs::path& aDataRoot, Vector<ESLoader::PluginData>& outOrder)
 {
 #if defined(_WIN32)
     if (char* localAppData = std::getenv("LOCALAPPDATA"))
     {
         const fs::path pluginsPath = fs::path(localAppData) / "Skyrim Special Edition" / "plugins.txt";
-        return LoadPluginsTxtFromPath(pluginsPath, outOrder);
+        return LoadPluginsTxtFromPath(pluginsPath, aDataRoot, outOrder);
     }
 #endif
 
@@ -465,19 +516,18 @@ bool ESLoader::LoadLoadOrderFromDisk()
 
         if (!m_pluginsFile.empty())
         {
-            loaded = LoadPluginsTxtFromPath(m_pluginsFile, m_loadOrder);
+            loaded = LoadPluginsTxtFromPath(m_pluginsFile, m_directory, m_loadOrder);
             usedProfilePlugins = loaded;
         }
 
         if (!loaded)
-            loaded = LoadPluginsTxtFromLocalAppData(m_loadOrder);
+            loaded = LoadPluginsTxtFromLocalAppData(m_directory, m_loadOrder);
 
         if (loaded)
         {
             for (const auto& p : m_loadOrder)
             {
-                if (!p.m_isLite)
-                    m_masterFiles[p.m_filename] = p.m_standardId;
+                m_masterFiles[p.m_filename] = FormIdPrefixFromPlugin(p);
             }
 
             if (usedProfilePlugins)
@@ -498,7 +548,7 @@ bool ESLoader::LoadLoadOrderFromDisk()
             plugin.m_standardId = standardId;
             plugin.m_isLite = false;
             m_loadOrder.push_back(plugin);
-            m_masterFiles[name] = standardId;
+            m_masterFiles[name] = FormIdPrefixFromPlugin(plugin);
             standardId += 1;
         }
         spdlog::info("ESLoader: queued {} base-game plugins (fallback set)", m_loadOrder.size());
@@ -523,25 +573,26 @@ bool ESLoader::LoadLoadOrderFromDisk()
         PluginData plugin;
         plugin.m_filename = line;
 
-        char extensionType = line.back();
+        const auto kind = ResolvePluginKind(m_directory, line);
 
-        switch (extensionType)
+        switch (kind)
         {
-        case 'm':
-        case 'p':
+        case PluginKind::kStandard:
             plugin.m_standardId = standardId;
             plugin.m_isLite = false;
             m_loadOrder.push_back(plugin);
-            m_masterFiles[line] = standardId;
+            m_masterFiles[line] = FormIdPrefixFromPlugin(plugin);
             standardId += 0x01;
             break;
-        case 'l':
+        case PluginKind::kLite:
             plugin.m_liteId = liteId;
             plugin.m_isLite = true;
             m_loadOrder.push_back(plugin);
+            m_masterFiles[line] = FormIdPrefixFromPlugin(plugin);
             liteId += 0x0001;
             break;
-        default: spdlog::error("Extension in loadorder.txt not recognized: {}", line);
+        default:
+            spdlog::error("Extension in loadorder.txt not recognized: {}", line);
         }
     }
 
