@@ -50,6 +50,8 @@ private:
     void ClearGhostStates() noexcept;
     bool ToggleGhostState(entt::entity aEntity, bool aGhost) noexcept;
     bool ApplyGhostToActor(Actor* apActor, bool aGhost) noexcept;
+    void CollectGhostedRemotePlayerServerIds(TiltedPhoques::Set<uint32_t>& aOut) const noexcept;
+    void RefreshRemotePlayers(const TiltedPhoques::Set<uint32_t>& aServerIds) noexcept;
 
     World& m_world;
     entt::dispatcher& m_dispatcher;

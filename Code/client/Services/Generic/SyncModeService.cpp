@@ -138,6 +138,24 @@ void SyncModeService::SetLocalMode(const SyncMode aMode) noexcept
     if (previousMode == aMode)
         return;
 
+    TiltedPhoques::Set<uint32_t> refreshIds;
+    if (previousMode == SyncMode::Ghost && aMode == SyncMode::Normal)
+    {
+        auto view = m_world.view<GhostComponent, PlayerComponent, RemoteComponent>();
+        for (auto entity : view)
+        {
+            const auto& playerComponent = view.get<PlayerComponent>(entity);
+            if (playerComponent.Id == m_localPlayerId)
+                continue;
+
+            const auto it = m_remoteModes.find(playerComponent.Id);
+            if (it != std::end(m_remoteModes) && it->second == SyncMode::Ghost)
+                continue;
+
+            refreshIds.insert(view.get<RemoteComponent>(entity).Id);
+        }
+    }
+
     m_localMode = aMode;
 
     UpdateWorldEncounters();
@@ -154,6 +172,9 @@ void SyncModeService::SetLocalMode(const SyncMode aMode) noexcept
 
     RefreshGhostStates();
     UpdateOverlaySyncStatus();
+
+    if (!refreshIds.empty())
+        RefreshRemotePlayers(refreshIds);
 
     if (previousMode == SyncMode::Ghost && aMode == SyncMode::Normal)
     {
@@ -248,6 +269,31 @@ void SyncModeService::OnPlayerLeft(const NotifyPlayerLeft& acMessage) noexcept
 
 void SyncModeService::OnNotifyPlayerSyncMode(const NotifyPlayerSyncMode& acMessage) noexcept
 {
+    SyncMode previousMode = SyncMode::Normal;
+    entt::entity playerEntity = entt::null;
+    uint32_t refreshServerId = 0;
+    bool wasGhosted = false;
+
+    if (acMessage.PlayerId == m_localPlayerId)
+    {
+        previousMode = m_localMode;
+    }
+    else
+    {
+        if (auto it = m_remoteModes.find(acMessage.PlayerId); it != std::end(m_remoteModes))
+            previousMode = it->second;
+
+        auto view = m_world.view<PlayerComponent, RemoteComponent>();
+        const auto it = std::find_if(std::begin(view), std::end(view),
+            [view, playerId = acMessage.PlayerId](entt::entity e) { return view.get<PlayerComponent>(e).Id == playerId; });
+        if (it != std::end(view))
+        {
+            playerEntity = *it;
+            refreshServerId = view.get<RemoteComponent>(playerEntity).Id;
+            wasGhosted = m_world.any_of<GhostComponent>(playerEntity);
+        }
+    }
+
     if (acMessage.PlayerId == m_localPlayerId)
         m_localMode = acMessage.Mode;
     else
@@ -256,6 +302,16 @@ void SyncModeService::OnNotifyPlayerSyncMode(const NotifyPlayerSyncMode& acMessa
     RefreshGhostStates();
     if (acMessage.PlayerId == m_localPlayerId)
         UpdateOverlaySyncStatus();
+
+    if (acMessage.PlayerId != m_localPlayerId && previousMode != acMessage.Mode && refreshServerId != 0)
+    {
+        const bool isGhosted = m_world.valid(playerEntity) && m_world.any_of<GhostComponent>(playerEntity);
+        if (m_localMode == SyncMode::Normal && previousMode == SyncMode::Ghost && acMessage.Mode == SyncMode::Normal && (wasGhosted || isGhosted))
+        {
+            if (auto* pCharacterService = m_world.ctx().find<CharacterService>(); pCharacterService)
+                pCharacterService->RefreshRemotePlayer(refreshServerId);
+        }
+    }
 }
 
 void SyncModeService::UpdateOverlaySyncStatus() const noexcept
@@ -478,6 +534,32 @@ bool SyncModeService::ApplyGhostToActor(Actor* apActor, const bool aGhost) noexc
     }
 
     return true;
+}
+
+void SyncModeService::CollectGhostedRemotePlayerServerIds(TiltedPhoques::Set<uint32_t>& aOut) const noexcept
+{
+    auto view = m_world.view<GhostComponent, PlayerComponent, RemoteComponent>();
+    for (auto entity : view)
+    {
+        const auto& playerComponent = view.get<PlayerComponent>(entity);
+        if (playerComponent.Id == m_localPlayerId)
+            continue;
+
+        aOut.insert(view.get<RemoteComponent>(entity).Id);
+    }
+}
+
+void SyncModeService::RefreshRemotePlayers(const TiltedPhoques::Set<uint32_t>& aServerIds) noexcept
+{
+    if (aServerIds.empty())
+        return;
+
+    auto* pCharacterService = m_world.ctx().find<CharacterService>();
+    if (!pCharacterService)
+        return;
+
+    for (const auto serverId : aServerIds)
+        pCharacterService->RefreshRemotePlayer(serverId);
 }
 
 void SyncModeService::RequestResync() const noexcept

@@ -811,6 +811,42 @@ void CharacterService::OnRemoveCharacter(const NotifyRemoveCharacter& acMessage)
     }
 }
 
+void CharacterService::RefreshRemotePlayer(const uint32_t aServerId) noexcept
+{
+    if (!m_transport.IsOnline())
+        return;
+
+    auto view = m_world.view<RemoteComponent>();
+    const auto itor = std::find_if(std::begin(view), std::end(view), [id = aServerId, view](entt::entity entity) { return view.get<RemoteComponent>(entity).Id == id; });
+    if (itor == std::end(view))
+        return;
+
+    const auto entity = *itor;
+    if (!m_world.any_of<PlayerComponent>(entity))
+        return;
+
+    if (auto* pFormIdComponent = m_world.try_get<FormIdComponent>(entity))
+    {
+        CancelServerAssignment(entity, pFormIdComponent->Id);
+
+        if (Actor* pActor = Cast<Actor>(TESForm::GetById(pFormIdComponent->Id)); pActor && pActor->GetExtension()->IsRemotePlayer())
+            pActor->Delete();
+    }
+
+    DeleteRemoteEntityComponents(entity);
+
+    if (m_world.all_of<FormIdComponent>(entity))
+        m_world.remove<FormIdComponent>(entity);
+
+    if (m_world.orphan(entity))
+        m_world.destroy(entity);
+
+    RequestRespawn request;
+    request.ActorId = aServerId;
+
+    m_transport.Send(request);
+}
+
 void CharacterService::OnNotifyRespawn(const NotifyRespawn& acMessage) const noexcept
 {
     auto view = m_world.view<FormIdComponent, RemoteComponent>();

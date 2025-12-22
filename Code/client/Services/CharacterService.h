@@ -93,6 +93,7 @@ struct CharacterService : BSTEventSink<TESLoadGameEvent>
     void OnNotifyRelinquishControl(const NotifyRelinquishControl& acMessage) noexcept;
     void OnPartyJoinedEvent(const PartyJoinedEvent& acEvent) noexcept;
     void OnSyncModeChanged(SyncMode aPreviousMode, SyncMode aCurrentMode) noexcept;
+    void RefreshRemotePlayer(uint32_t aServerId) noexcept;
     BSTEventResult OnEvent(const TESLoadGameEvent*, const EventDispatcher<TESLoadGameEvent>*) override;
 
     void ProcessNewEntity(entt::entity aEntity) const noexcept;
