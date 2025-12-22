@@ -74,7 +74,8 @@ void PlayerService::OnConnected(const ConnectedEvent& acEvent) noexcept
     pKillMove->f = 0.f;
 
     TESGlobal* pWorldEncountersEnabled = Cast<TESGlobal>(TESForm::GetById(0xB8EC1));
-    pWorldEncountersEnabled->f = 0.f;
+    if (m_world.GetSyncModeService().GetLocalMode() != SyncMode::Ghost)
+        pWorldEncountersEnabled->f = 0.f;
 }
 
 void PlayerService::OnDisconnected(const DisconnectedEvent& acEvent) noexcept

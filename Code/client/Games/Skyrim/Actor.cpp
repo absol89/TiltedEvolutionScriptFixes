@@ -1590,11 +1590,11 @@ void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
             {
                 apThis->hTarget = 0; // Clear detection target so AI loses interest.
 
-                if (!ownerGhosted && pOwnerActor && !pOwnerActor->GetExtension()->IsRemotePlayer())
+                if (targetGhosted && !ownerGhosted && pOwnerActor && !pOwnerActor->GetExtension()->IsRemotePlayer())
                 {
                     // Ensure local AI drops ghost targets so they don't chase or face them.
-                    pOwnerActor->SetCombatTargetEx(nullptr);
-                    pOwnerActor->StopCombat();
+                    if (IsRemoteGhostActor(pOwnerActor->GetCombatTarget()))
+                        pOwnerActor->SetCombatTargetEx(nullptr);
                 }
                 return;
             }

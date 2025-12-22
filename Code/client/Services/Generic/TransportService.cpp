@@ -337,6 +337,21 @@ bool TransportService::IsAllowedOutbound(const ClientMessage& acMessage) const n
     // Keep sync mode negotiation working
     case kRequestSetSyncMode:
         return true;
+    // Party management + chat while quest-gated
+    case kPartyInviteRequest:
+    case kPartyAcceptInviteRequest:
+    case kPartyLeaveRequest:
+    case kPartyCreateRequest:
+    case kPartyChangeLeaderRequest:
+    case kPartyKickRequest:
+    case kSendChatMessageRequest:
+    // Trade while quest-gated (no world sync)
+    case kTradeInviteRequest:
+    case kTradeInviteResponseRequest:
+    case kTradeOfferUpdateRequest:
+    case kTradeSetReadyRequest:
+    case kTradeCancelRequest:
+        return true;
     default: break;
     }
 
@@ -361,6 +376,16 @@ bool TransportService::IsAllowedInbound(const ServerMessage& acMessage) const no
     case kNotifyPlayerSyncMode:
     case kStringCacheUpdate:
     case kNotifyCommandList:
+    case kNotifyPartyInfo:
+    case kNotifyPartyInvite:
+    case kNotifyPartyJoined:
+    case kNotifyPartyLeft:
+    case kNotifyChatMessageBroadcast:
+    case kNotifyTradeInvite:
+    case kNotifyTradeStarted:
+    case kNotifyTradeState:
+    case kNotifyTradeCancel:
+    case kNotifyTradeComplete:
         return true;
 
     // Bare minimum to render remote players

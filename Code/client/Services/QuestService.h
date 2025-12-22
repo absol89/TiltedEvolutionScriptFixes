@@ -15,7 +15,7 @@ struct TESQuest;
 /**
  * @brief Handles quest sync
  */
-class QuestService final : public BSTEventSink<TESQuestStartStopEvent>, BSTEventSink<TESQuestStageEvent>
+class QuestService final : public BSTEventSink<TESQuestStartStopEvent>, public BSTEventSink<TESQuestStageEvent>, public BSTEventSink<TESLoadGameEvent>
 {
 public:
     QuestService(World&, entt::dispatcher&);
@@ -42,6 +42,7 @@ private:
     // Game quest events
     BSTEventResult OnEvent(const TESQuestStartStopEvent*, const EventDispatcher<TESQuestStartStopEvent>*) override;
     BSTEventResult OnEvent(const TESQuestStageEvent*, const EventDispatcher<TESQuestStageEvent>*) override;
+    BSTEventResult OnEvent(const TESLoadGameEvent*, const EventDispatcher<TESLoadGameEvent>*) override;
 
     // Network quest updates
     void OnQuestUpdate(const NotifyQuestUpdate&) noexcept;

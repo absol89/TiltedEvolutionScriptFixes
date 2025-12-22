@@ -19,6 +19,7 @@
 #include <Messages/RequestDroppedItems.h>
 #include <Messages/RequestCurrentWeather.h>
 #include <Services/OverlayService.h>
+#include <Services/PartyService.h>
 #include <Services/TransportService.h>
 #include <Services/CharacterService.h>
 #include <Systems/ModSystem.h>
@@ -26,6 +27,7 @@
 #include <Games/Memory.h>
 #include <cstring>
 #include <ExtraData/ExtraDataList.h>
+#include <Forms/TESGlobal.h>
 #include <Forms/TESObjectCELL.h>
 #include <Forms/TESWorldSpace.h>
 #include <Games/Overrides.h>
@@ -138,6 +140,8 @@ void SyncModeService::SetLocalMode(const SyncMode aMode) noexcept
 
     m_localMode = aMode;
 
+    UpdateWorldEncounters();
+
     if (auto* pCharacterService = m_world.ctx().find<CharacterService>(); pCharacterService)
         pCharacterService->OnSyncModeChanged(previousMode, m_localMode);
 
@@ -163,6 +167,8 @@ void SyncModeService::OnConnected(const ConnectedEvent& acEvent) noexcept
     m_localPlayerId = acEvent.PlayerId;
     m_remoteModes.clear();
 
+    UpdateWorldEncounters();
+
     if (m_localMode != SyncMode::Normal)
     {
         RequestSetSyncMode request{};
@@ -187,6 +193,7 @@ void SyncModeService::OnDisconnected(const DisconnectedEvent&) noexcept
     m_addedExtraGhost.clear();
     m_originalNpcFlags.clear();
     m_originalRefFlagBits.clear();
+    UpdateWorldEncounters();
     UpdateOverlaySyncStatus();
 }
 
@@ -265,6 +272,22 @@ void SyncModeService::UpdateOverlaySyncStatus() const noexcept
     pArgs->SetString(2, isolated ? "Sync paused" : "");
 
     pOverlay->ExecuteAsync("setSyncStatus", pArgs);
+}
+
+void SyncModeService::UpdateWorldEncounters() noexcept
+{
+    TESGlobal* pWorldEncountersEnabled = Cast<TESGlobal>(TESForm::GetById(0xB8EC1));
+    if (!pWorldEncountersEnabled)
+        return;
+
+    if (m_localMode == SyncMode::Ghost || !m_transport.IsOnline())
+    {
+        pWorldEncountersEnabled->f = 1.f;
+        return;
+    }
+
+    const auto& partyService = m_world.GetPartyService();
+    pWorldEncountersEnabled->f = (partyService.IsInParty() && partyService.IsLeader()) ? 1.f : 0.f;
 }
 
 bool SyncModeService::ShouldGhost(const uint32_t aPlayerId) const noexcept

@@ -43,6 +43,7 @@ private:
     void OnRemoteComponentRemoved(entt::registry& aRegistry, entt::entity aEntity) noexcept;
     void RequestResync() const noexcept;
     void UpdateOverlaySyncStatus() const noexcept;
+    void UpdateWorldEncounters() noexcept;
 
     bool ShouldGhost(uint32_t aPlayerId) const noexcept;
     void RefreshGhostStates() noexcept;

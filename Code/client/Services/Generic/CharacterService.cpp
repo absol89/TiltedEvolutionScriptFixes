@@ -265,11 +265,19 @@ void CharacterService::OnConnected(const ConnectedEvent& acConnectedEvent) const
         // Delete all temporary actors on connect
         if (formIdComponent.Id > 0xFF000000)
         {
-            Actor* pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
-            if (pActor)
-                pActor->Delete();
-
-            continue;
+            // If we are in Quest Isolation (Ghost Mode), do not delete temporary actors.
+            // These are likely local quest NPCs that we need to keep.
+            if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
+            {
+                // Fallthrough to ProcessNewEntity, which will also likely ignore them due to Ghost Mode rules.
+            }
+            else
+            {
+                Actor* pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
+                if (pActor)
+                    pActor->Delete();
+                continue;
+            }
         }
 
         ProcessNewEntity(entity);

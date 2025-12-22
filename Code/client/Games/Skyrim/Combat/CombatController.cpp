@@ -103,10 +103,7 @@ void TP_MAKE_THISCALL(HookUpdateTarget, CombatController)
             apThis->SetTarget(nullptr);
 
             if (Actor* pAttacker = Cast<Actor>(TESObjectREFR::GetByHandle(apThis->attackerHandle)))
-            {
                 pAttacker->SetCombatTargetEx(nullptr);
-                pAttacker->StopCombat();
-            }
         }
     }
 
@@ -120,10 +117,7 @@ void TP_MAKE_THISCALL(HookUpdateTarget, CombatController)
             apThis->SetTarget(nullptr);
 
             if (Actor* pAttacker = Cast<Actor>(TESObjectREFR::GetByHandle(apThis->attackerHandle)))
-            {
                 pAttacker->SetCombatTargetEx(nullptr);
-                pAttacker->StopCombat();
-            }
         }
     }
 }

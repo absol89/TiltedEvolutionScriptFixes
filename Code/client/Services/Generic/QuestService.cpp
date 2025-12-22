@@ -150,6 +150,14 @@ bool RuleTargetsQuest(const GateRule& aRule, TESQuest* apQuest) noexcept
     return true;
 }
 
+bool IsQuestCompleted(const TESQuest* apQuest) noexcept
+{
+    if (!apQuest)
+        return false;
+    const uint16_t completedFlag = static_cast<uint16_t>(TESQuest::Flags::Completed);
+    return (apQuest->flags & completedFlag) != 0;
+}
+
 QuestService::QuestService(World& aWorld, entt::dispatcher& aDispatcher)
     : m_world(aWorld)
 {
@@ -161,6 +169,7 @@ QuestService::QuestService(World& aWorld, entt::dispatcher& aDispatcher)
     auto* pEventList = EventDispatcherManager::Get();
     pEventList->questStartStopEvent.RegisterSink(this);
     pEventList->questStageEvent.RegisterSink(this);
+    pEventList->loadGameEvent.RegisterSink(this);
 }
 
 void QuestService::OnConnected(const ConnectedEvent&) noexcept
@@ -273,6 +282,12 @@ BSTEventResult QuestService::OnEvent(const TESQuestStageEvent* apEvent, const Ev
             });
     }
 
+    return BSTEventResult::kOk;
+}
+
+BSTEventResult QuestService::OnEvent(const TESLoadGameEvent*, const EventDispatcher<TESLoadGameEvent>*)
+{
+    EvaluateGatesFromWorld();
     return BSTEventResult::kOk;
 }
 
@@ -455,7 +470,7 @@ void QuestService::EvaluateGatesFromWorld() noexcept
         if (!RuleTargetsQuest(rule, pQuest))
             continue;
 
-        if (!pQuest || pQuest->IsStopped())
+        if (!pQuest || pQuest->IsStopped() || IsQuestCompleted(pQuest))
             continue;
 
         if (rule.Matches(pQuest->currentStage))
