@@ -58,7 +58,7 @@ void SendSystemMessage(Player* apPlayer, std::string_view aMessage)
 
     NotifyChatMessageBroadcast notify{};
     notify.MessageType = ChatMessageType::kSystemMessage;
-    notify.PlayerName = "Server";
+    notify.PlayerName = "";
     notify.ChatMessage = aMessage.data();
     apPlayer->Send(notify);
 }
@@ -115,6 +115,23 @@ void sendPlayerMessage(const ChatMessageType acType, const String acContent, Pla
     notifyMessage.MessageType = acType;
     notifyMessage.PlayerName = std::regex_replace(aSendingPlayer->GetUsername(), escapeHtml, "");
     notifyMessage.ChatMessage = std::regex_replace(acContent, escapeHtml, "");
+
+    if (auto out = spdlog::get("ConOut"))
+    {
+        const char* label = "Chat";
+        switch (notifyMessage.MessageType)
+        {
+        case kGlobalChat: label = "Global"; break;
+        case kPartyChat: label = "Party"; break;
+        case kLocalChat: label = "Local"; break;
+        case kPlayerDialogue: label = "Dialogue"; break;
+        default: break;
+        }
+        if (!notifyMessage.PlayerName.empty())
+            out->info("[{}] {}: {}", label, notifyMessage.PlayerName.c_str(), notifyMessage.ChatMessage.c_str());
+        else
+            out->info("[{}] {}", label, notifyMessage.ChatMessage.c_str());
+    }
 
     auto character = aSendingPlayer->GetCharacter();
 

@@ -54,6 +54,43 @@ Player* FindPlayerByUsernameInsensitive(World& world, const TiltedPhoques::Strin
 
     return nullptr;
 }
+
+TiltedPhoques::String TrimCopy(const TiltedPhoques::String& value)
+{
+    TiltedPhoques::String trimmed = value;
+    while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.front())))
+        trimmed.erase(trimmed.begin());
+    while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.back())))
+        trimmed.pop_back();
+    return trimmed;
+}
+
+bool ParseBroadcastCommand(const TiltedPhoques::String& command, TiltedPhoques::String& outMessage)
+{
+    const TiltedPhoques::String trimmed = TrimCopy(command);
+    if (trimmed.empty() || trimmed.front() != '/')
+        return false;
+
+    TiltedPhoques::String withoutPrefix = trimmed.substr(1);
+    withoutPrefix = TrimCopy(withoutPrefix);
+    if (withoutPrefix.empty())
+        return false;
+
+    size_t splitPos = withoutPrefix.find_first_of(" \t");
+    TiltedPhoques::String name = splitPos == TiltedPhoques::String::npos ? withoutPrefix : withoutPrefix.substr(0, splitPos);
+    std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (name != "broadcast")
+        return false;
+
+    if (splitPos == TiltedPhoques::String::npos)
+    {
+        outMessage.clear();
+        return true;
+    }
+
+    outMessage = TrimCopy(withoutPrefix.substr(splitPos + 1));
+    return true;
+}
 } // namespace
 
 // -- Cvars --
@@ -996,7 +1033,7 @@ void GameServer::HandleAuthenticationRequest(const ConnectionId_t aConnectionId,
 
         NotifyChatMessageBroadcast joinMessage{};
         joinMessage.MessageType = ChatMessageType::kSystemMessage;
-        joinMessage.PlayerName = "Server";
+        joinMessage.PlayerName = "";
         joinMessage.ChatMessage = fmt::format("{} connected to the server.", pPlayer->GetUsername().c_str());
         SendToPlayers(joinMessage);
 
@@ -1065,11 +1102,37 @@ GameServer::Uptime GameServer::GetUptime() const noexcept
     return {weeks.count(), days.count(), hours.count(), minutes.count()};
 }
 
-bool GameServer::ExecuteConsoleCommand(const String& aCommand) noexcept
+Console::ConsoleRegistry::ExecutionResult GameServer::ExecuteConsoleCommand(const String& aCommand) noexcept
 {
     using exr = Console::ConsoleRegistry::ExecutionResult;
-    const auto result = m_commands.TryExecuteCommand(aCommand);
-    return result != exr::kFailure;
+
+    const TiltedPhoques::String trimmed = TrimCopy(aCommand);
+    if (trimmed.empty())
+        return exr::kFailure;
+
+    if (trimmed.front() != '/')
+    {
+        if (m_pWorld)
+            m_pWorld->GetChatCommandService().BroadcastSystemMessage(trimmed);
+        return exr::kSuccess;
+    }
+
+    TiltedPhoques::String message;
+    if (ParseBroadcastCommand(trimmed, message))
+    {
+        auto out = spdlog::get("ConOut");
+        if (message.empty())
+        {
+            out->error("Usage: /broadcast <message>");
+            return exr::kFailure;
+        }
+
+        if (m_pWorld)
+            m_pWorld->GetChatCommandService().BroadcastSystemMessage(message);
+        return exr::kSuccess;
+    }
+
+    return m_commands.TryExecuteCommand(trimmed);
 }
 
 void GameServer::GetStatusSnapshot(ServerStatusSnapshot& aOutStatus) const

@@ -44,6 +44,7 @@ public:
     TiltedPhoques::Vector<NotifyCommandList::CommandEntry> BuildCommandList(Player* player) const;
 
     void SendSystemMessage(Player* player, std::string_view message) const noexcept;
+    void BroadcastSystemMessage(std::string_view message) const noexcept;
     void SendChatMessage(ChatMessageType type, const TiltedPhoques::String& content, Player* sender) const noexcept;
 
 private:

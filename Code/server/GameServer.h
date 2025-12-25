@@ -4,6 +4,7 @@
 #include <Messages/Message.h>
 #include <World.h>
 #include <common/ServerStatusSnapshot.h>
+#include <console/ConsoleRegistry.h>
 
 using TiltedPhoques::ConnectionId_t;
 using TiltedPhoques::Server;
@@ -74,7 +75,7 @@ struct GameServer final : Server
         int minutes;
     };
     Uptime GetUptime() const noexcept;
-    bool ExecuteConsoleCommand(const String& aCommand) noexcept;
+    Console::ConsoleRegistry::ExecutionResult ExecuteConsoleCommand(const String& aCommand) noexcept;
     void GetStatusSnapshot(ServerStatusSnapshot& aOutStatus) const;
 
     World& GetWorld() const noexcept { return *m_pWorld; }

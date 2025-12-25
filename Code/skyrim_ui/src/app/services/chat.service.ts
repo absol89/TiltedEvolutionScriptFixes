@@ -9,6 +9,7 @@ export enum MessageTypes {
   PLAYER_DIALOGUE = 2,
   PARTY_CHAT = 3,
   LOCAL_CHAT = 4,
+  WHISPER = 5,
 }
 
 export interface ChatMessage {

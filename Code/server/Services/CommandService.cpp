@@ -24,7 +24,7 @@ void SendSystemMessage(Player* apPlayer, std::string_view aMessage) noexcept
 
     NotifyChatMessageBroadcast notify{};
     notify.MessageType = ChatMessageType::kSystemMessage;
-    notify.PlayerName = "Server";
+    notify.PlayerName = "";
     notify.ChatMessage = aMessage.data();
     apPlayer->Send(notify);
 }

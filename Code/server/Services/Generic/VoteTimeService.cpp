@@ -61,7 +61,7 @@ void VoteTimeService::BroadcastSystem(const String& text) const noexcept
 {
     NotifyChatMessageBroadcast msg{};
     msg.MessageType = kSystemMessage;
-    msg.PlayerName = "Server";
+    msg.PlayerName = "";
     msg.ChatMessage = text;
     GameServer::Get()->SendToPlayers(msg);
 }

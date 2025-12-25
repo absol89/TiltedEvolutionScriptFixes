@@ -381,7 +381,7 @@ void DediRunner::HandleConsole(const TiltedPhoques::String& acCommand)
     if (auto conOut = spdlog::get(KCompilerStopThisBullshit))
         conOut->info("> {}", acCommand.c_str());
 
-    exr r = m_console.TryExecuteCommand(acCommand);
+    exr r = m_pServerInstance ? m_pServerInstance->ExecuteConsoleCommand(acCommand) : exr::kFailure;
     if (auto conOut = spdlog::get(KCompilerStopThisBullshit))
         conOut->info("Command executed.");
 

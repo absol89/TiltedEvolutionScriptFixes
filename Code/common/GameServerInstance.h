@@ -1,5 +1,6 @@
 #pragma once
 
+#include <console/ConsoleRegistry.h>
 #include <common/ServerStatusSnapshot.h>
 
 class IGameServerInstance
@@ -16,6 +17,7 @@ public:
 
     // update the server logic
     virtual void Update() = 0;
+    virtual Console::ConsoleRegistry::ExecutionResult ExecuteConsoleCommand(const TiltedPhoques::String& aCommand) = 0;
 
     virtual void GetStatus(ServerStatusSnapshot& aOutStatus) const = 0;
 };

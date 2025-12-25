@@ -65,6 +65,7 @@ struct GameServerInstance final : IGameServerInstance
     bool IsListening() override;
     bool IsRunning() override;
     void Update() override;
+    Console::ConsoleRegistry::ExecutionResult ExecuteConsoleCommand(const TiltedPhoques::String& aCommand) override;
     void GetStatus(ServerStatusSnapshot& aOutStatus) const override;
 
 private:
@@ -95,6 +96,11 @@ bool GameServerInstance::IsRunning()
 void GameServerInstance::Update()
 {
     m_gameServer.Update();
+}
+
+Console::ConsoleRegistry::ExecutionResult GameServerInstance::ExecuteConsoleCommand(const TiltedPhoques::String& aCommand)
+{
+    return m_gameServer.ExecuteConsoleCommand(aCommand);
 }
 
 void GameServerInstance::GetStatus(ServerStatusSnapshot& aOutStatus) const

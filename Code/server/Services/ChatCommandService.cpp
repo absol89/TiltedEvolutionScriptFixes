@@ -20,6 +20,8 @@
 
 namespace
 {
+const std::regex kEscapeHtml{"<[^>]+>\\s+(?=<)|<[^>]+>"};
+
 TiltedPhoques::String ToLowerCopy(const TiltedPhoques::String& text)
 {
     TiltedPhoques::String out = text;
@@ -49,6 +51,26 @@ bool ParseIntArg(const TiltedPhoques::String& text, int& outValue)
     return true;
 }
 
+TiltedPhoques::String SanitizeChatText(const TiltedPhoques::String& text)
+{
+    if (text.empty())
+        return text;
+
+    return std::regex_replace(text, kEscapeHtml, "");
+}
+
+NotifyChatMessageBroadcast BuildChatMessage(ChatMessageType type, std::string_view playerName, std::string_view message)
+{
+    NotifyChatMessageBroadcast notify{};
+    notify.MessageType = type;
+
+    TiltedPhoques::String nameText(playerName.begin(), playerName.end());
+    TiltedPhoques::String messageText(message.begin(), message.end());
+    notify.PlayerName = SanitizeChatText(nameText);
+    notify.ChatMessage = SanitizeChatText(messageText);
+    return notify;
+}
+
 Player* FindPlayerByUsernameInsensitive(World& world, const TiltedPhoques::String& username)
 {
     if (username.empty())
@@ -67,16 +89,28 @@ Player* FindPlayerByUsernameInsensitive(World& world, const TiltedPhoques::Strin
     return nullptr;
 }
 
-TiltedPhoques::String JoinArgs(const TiltedPhoques::Vector<TiltedPhoques::String>& args)
+TiltedPhoques::String JoinArgs(const TiltedPhoques::Vector<TiltedPhoques::String>& args, size_t startIndex = 0)
 {
     TiltedPhoques::String joined;
-    for (size_t i = 0; i < args.size(); ++i)
+    if (startIndex >= args.size())
+        return joined;
+
+    for (size_t i = startIndex; i < args.size(); ++i)
     {
-        if (i > 0)
+        if (i > startIndex)
             joined += ' ';
         joined += args[i];
     }
     return joined;
+}
+
+void SendDirectChat(Player* recipient, ChatMessageType type, std::string_view senderName, std::string_view content)
+{
+    if (!recipient)
+        return;
+
+    const auto notifyMessage = BuildChatMessage(type, senderName, content);
+    recipient->Send(notifyMessage);
 }
 } // namespace
 
@@ -140,6 +174,101 @@ public:
         world.GetChatCommandService().SendChatMessage(kPartyChat, content, player);
         return true;
     }
+};
+
+class MeCommand final : public ChatCommand
+{
+public:
+    const char* GetName() const noexcept override { return "me"; }
+    const char* GetDescription() const noexcept override { return "Emote a message"; }
+
+    bool Execute(World& world, Player* player, const ChatCommandContext& context) const override
+    {
+        const auto content = JoinArgs(context.Args);
+        if (content.empty())
+        {
+            world.GetChatCommandService().SendSystemMessage(player, "Usage: /me <action>");
+            return true;
+        }
+
+        const TiltedPhoques::String message = TiltedPhoques::String("* ") + player->GetUsername() + " " + content;
+        const auto notifyMessage = BuildChatMessage(kGlobalChat, "", message);
+        GameServer::Get()->SendToPlayers(notifyMessage);
+        if (auto out = spdlog::get("ConOut"))
+            out->info("[Emote] {}", notifyMessage.ChatMessage.c_str());
+        return true;
+    }
+};
+
+class BroadcastCommand final : public ChatCommand
+{
+public:
+    const char* GetName() const noexcept override { return "broadcast"; }
+    const char* GetDescription() const noexcept override { return "Broadcast a server message"; }
+    bool RequiresAdmin() const noexcept override { return true; }
+
+    bool Execute(World& world, Player* player, const ChatCommandContext& context) const override
+    {
+        const auto content = JoinArgs(context.Args);
+        if (content.empty())
+        {
+            world.GetChatCommandService().SendSystemMessage(player, "Usage: /broadcast <message>");
+            return true;
+        }
+
+        world.GetChatCommandService().BroadcastSystemMessage(content);
+        return true;
+    }
+};
+
+class DirectMessageCommand final : public ChatCommand
+{
+public:
+    explicit DirectMessageCommand(const char* alias)
+        : m_alias(alias)
+    {
+    }
+
+    const char* GetName() const noexcept override { return m_alias; }
+    const char* GetDescription() const noexcept override { return "Send a private message to a player"; }
+
+    bool Execute(World& world, Player* player, const ChatCommandContext& context) const override
+    {
+        if (context.Args.size() < 2)
+        {
+            const TiltedPhoques::String usage = TiltedPhoques::String("Usage: /") + m_alias + " <player> <message>";
+            world.GetChatCommandService().SendSystemMessage(player, usage.c_str());
+            return true;
+        }
+
+        const auto& targetName = context.Args[0];
+        const auto content = JoinArgs(context.Args, 1);
+        if (content.empty())
+        {
+            const TiltedPhoques::String usage = TiltedPhoques::String("Usage: /") + m_alias + " <player> <message>";
+            world.GetChatCommandService().SendSystemMessage(player, usage.c_str());
+            return true;
+        }
+
+        Player* target = FindPlayerByUsernameInsensitive(world, targetName);
+        if (!target)
+        {
+            world.GetChatCommandService().SendSystemMessage(player, "Message failed: player not found.");
+            return true;
+        }
+
+        const TiltedPhoques::String toMessage = TiltedPhoques::String("You whisper to ") + target->GetUsername() + ": " + content;
+        const TiltedPhoques::String fromMessage = player->GetUsername() + " whispers to you: " + content;
+
+        SendDirectChat(player, kWhisper, "", toMessage);
+        if (target != player)
+            SendDirectChat(target, kWhisper, "", fromMessage);
+
+        return true;
+    }
+
+private:
+    const char* m_alias;
 };
 
 class VoteTimeCommand final : public ChatCommand
@@ -282,6 +411,10 @@ ChatCommandService::ChatCommandService(World& aWorld, entt::dispatcher& aDispatc
     RegisterCommand(TiltedPhoques::CastUnique<ChatCommand>(TiltedPhoques::MakeUnique<HelpCommand>()));
     RegisterCommand(TiltedPhoques::CastUnique<ChatCommand>(TiltedPhoques::MakeUnique<LocalCommand>()));
     RegisterCommand(TiltedPhoques::CastUnique<ChatCommand>(TiltedPhoques::MakeUnique<PartyCommand>()));
+    RegisterCommand(TiltedPhoques::CastUnique<ChatCommand>(TiltedPhoques::MakeUnique<MeCommand>()));
+    RegisterCommand(TiltedPhoques::CastUnique<ChatCommand>(TiltedPhoques::MakeUnique<BroadcastCommand>()));
+    RegisterCommand(TiltedPhoques::CastUnique<ChatCommand>(TiltedPhoques::MakeUnique<DirectMessageCommand>("message")));
+    RegisterCommand(TiltedPhoques::CastUnique<ChatCommand>(TiltedPhoques::MakeUnique<DirectMessageCommand>("whisper")));
     RegisterCommand(TiltedPhoques::CastUnique<ChatCommand>(TiltedPhoques::MakeUnique<VoteTimeCommand>()));
     RegisterCommand(TiltedPhoques::CastUnique<ChatCommand>(TiltedPhoques::MakeUnique<YesCommand>()));
     RegisterCommand(TiltedPhoques::CastUnique<ChatCommand>(TiltedPhoques::MakeUnique<NoCommand>()));
@@ -341,11 +474,16 @@ void ChatCommandService::SendSystemMessage(Player* player, std::string_view mess
     if (!player)
         return;
 
-    NotifyChatMessageBroadcast notify{};
-    notify.MessageType = ChatMessageType::kSystemMessage;
-    notify.PlayerName = "Server";
-    notify.ChatMessage = message.data();
+    const auto notify = BuildChatMessage(ChatMessageType::kSystemMessage, "", message);
     player->Send(notify);
+}
+
+void ChatCommandService::BroadcastSystemMessage(std::string_view message) const noexcept
+{
+    const auto notify = BuildChatMessage(ChatMessageType::kSystemMessage, "", message);
+    GameServer::Get()->SendToPlayers(notify);
+    if (auto out = spdlog::get("ConOut"))
+        out->info("[System] {}", notify.ChatMessage.c_str());
 }
 
 void ChatCommandService::SendChatMessage(ChatMessageType type, const TiltedPhoques::String& content, Player* sender) const noexcept
@@ -353,11 +491,23 @@ void ChatCommandService::SendChatMessage(ChatMessageType type, const TiltedPhoqu
     if (!sender)
         return;
 
-    NotifyChatMessageBroadcast notifyMessage{};
-    std::regex escapeHtml{"<[^>]+>\\s+(?=<)|<[^>]+>"};
-    notifyMessage.MessageType = type;
-    notifyMessage.PlayerName = std::regex_replace(sender->GetUsername(), escapeHtml, "");
-    notifyMessage.ChatMessage = std::regex_replace(content, escapeHtml, "");
+    const auto notifyMessage = BuildChatMessage(type, sender->GetUsername(), content);
+    if (auto out = spdlog::get("ConOut"))
+    {
+        const char* label = "Chat";
+        switch (notifyMessage.MessageType)
+        {
+        case kGlobalChat: label = "Global"; break;
+        case kPartyChat: label = "Party"; break;
+        case kLocalChat: label = "Local"; break;
+        case kPlayerDialogue: label = "Dialogue"; break;
+        default: break;
+        }
+        if (!notifyMessage.PlayerName.empty())
+            out->info("[{}] {}: {}", label, notifyMessage.PlayerName.c_str(), notifyMessage.ChatMessage.c_str());
+        else
+            out->info("[{}] {}", label, notifyMessage.ChatMessage.c_str());
+    }
 
     auto character = sender->GetCharacter();
 

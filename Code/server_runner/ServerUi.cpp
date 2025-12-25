@@ -490,14 +490,12 @@ void ServerUi::DrawConsoleView(const ImVec2& display)
         ImGui::EndChild();
 
         ImGui::SetNextItemWidth(-FLT_MIN);
-        if (ImGui::InputTextWithHint("##CommandInput", "Type a command (/help)", m_commandBuffer, sizeof(m_commandBuffer),
+        if (ImGui::InputTextWithHint("##CommandInput", "Type a command (/help) or server message", m_commandBuffer, sizeof(m_commandBuffer),
                                      ImGuiInputTextFlags_EnterReturnsTrue))
         {
             TiltedPhoques::String command = m_commandBuffer;
             if (!command.empty())
             {
-                if (command[0] != '/')
-                    command = "/" + command;
                 m_runner.QueueConsoleCommand(command);
                 TiltedPhoques::String echo = "> ";
                 echo += command;
