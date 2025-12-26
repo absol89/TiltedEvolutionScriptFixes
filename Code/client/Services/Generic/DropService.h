@@ -5,12 +5,16 @@
 #include <Messages/NotifyActorDrop.h>
 #include <Messages/NotifyDroppedItemPickedUp.h>
 #include <Messages/NotifyDroppedItems.h>
+#include <Messages/NotifyDroppedItemMove.h>
 #include <Messages/RequestActorDrop.h>
 #include <Messages/RequestPickupDroppedItem.h>
 #include <Messages/RequestDroppedItems.h>
+#include <Messages/RequestDroppedItemMove.h>
 #include <Events/CellChangeEvent.h>
 #include <Events/GridCellChangeEvent.h>
 #include <Events/ConnectedEvent.h>
+#include <Events/EventDispatcher.h>
+#include <Games/Events.h>
 #include <Services/Generic/DropStorage.h>
 
 #include <optional>
@@ -27,7 +31,7 @@ struct World;
 struct TransportService;
 struct Actor;
 
-class DropService
+class DropService : public BSTEventSink<TESGrabReleaseEvent>
 {
 public:
     DropService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept;
@@ -41,10 +45,12 @@ private:
     void OnNotifyDrop(const NotifyActorDrop& acMessage) noexcept;
     void OnNotifyPickup(const NotifyDroppedItemPickedUp& acMessage) noexcept;
     void OnNotifyDroppedItems(const NotifyDroppedItems& acMessage) noexcept;
+    void OnNotifyDropMove(const NotifyDroppedItemMove& acMessage) noexcept;
     void OnConnected(const ConnectedEvent& acEvent) noexcept;
     void OnCellChange(const CellChangeEvent& acEvent) noexcept;
     void OnGridCellChange(const GridCellChangeEvent& acEvent) noexcept;
     void OnUpdate(const UpdateEvent& acEvent) noexcept;
+    BSTEventResult OnEvent(const TESGrabReleaseEvent* apEvent, const EventDispatcher<TESGrabReleaseEvent>* apSender) override;
 
     std::optional<uint32_t> ResolveServerId(uint32_t aFormId) const noexcept;
     bool EnsureActorReady(Actor* apActor, const char* apContext) const noexcept;
@@ -64,6 +70,9 @@ private:
     bool TryBindExistingReference(uint64_t aDropId, const DropManager::ServerDropData& acData) noexcept;
     TESObjectREFR* GetReferenceById(const GameId& acReferenceId) noexcept;
     bool HandleUntrackedPickup(const NotifyDroppedItemPickedUp& acMessage) noexcept;
+    void UpdateDropPhysics(const UpdateEvent& acEvent) noexcept;
+    void SendDropMoveRequest(uint64_t aDropId, TESObjectREFR* apReference, bool aForce) noexcept;
+    void SendReferenceMoveRequest(const GameId& acReferenceId, TESObjectREFR* apReference) noexcept;
     void ReconcileCachedDrops(const GameId& acCellId, const GameId& acWorldId, const TiltedPhoques::Vector<uint64_t>& acAuthoritativeDropIds) noexcept;
     void ApplyCreationEngineCellSync(const DropSyncContext& acContext, const TiltedPhoques::Vector<GameId>& acPickedUpRefs) noexcept;
     void ProcessPendingCreationEngineRemovals() noexcept;
@@ -97,6 +106,7 @@ private:
     entt::scoped_connection m_notifyDropConnection;
     entt::scoped_connection m_notifyPickupConnection;
     entt::scoped_connection m_notifyDroppedItemsConnection;
+    entt::scoped_connection m_notifyDropMoveConnection;
     entt::scoped_connection m_connectedEventConnection;
     entt::scoped_connection m_cellChangeConnection;
     entt::scoped_connection m_gridCellChangeConnection;
@@ -130,6 +140,12 @@ private:
     std::unordered_map<uint32_t, DropSyncContext> m_pendingDropSyncs;
     // Tracks the latest spawn epoch processed per server drop to ignore stale notifications
     TiltedPhoques::Map<uint64_t, uint64_t> m_knownSpawnEpochs;
+    TiltedPhoques::Set<uint64_t> m_grabbedDrops;
+    TiltedPhoques::Map<uint64_t, float> m_dropPhysicsCooldowns;
+    TiltedPhoques::Map<uint64_t, float> m_dropMoveSyncTimers;
+    TiltedPhoques::Set<GameId> m_grabbedReferences;
+    TiltedPhoques::Map<GameId, float> m_referencePhysicsCooldowns;
+    TiltedPhoques::Map<GameId, float> m_referenceMoveSyncTimers;
 
     struct PendingCreationEngineRemoval
     {

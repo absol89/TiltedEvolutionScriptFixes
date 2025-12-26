@@ -4,6 +4,7 @@
 #include <Messages/RequestActorDrop.h>
 #include <Messages/RequestPickupDroppedItem.h>
 #include <Messages/RequestDroppedItems.h>
+#include <Messages/RequestDroppedItemMove.h>
 #include <Messages/NotifyDroppedItems.h>
 #include <TiltedCore/Stl.hpp>
 #include <Structs/Guid.h>
@@ -52,6 +53,7 @@ private:
     void OnDropRequest(const PacketEvent<RequestActorDrop>& acMessage) noexcept;
     void OnPickupRequest(const PacketEvent<RequestPickupDroppedItem>& acMessage) noexcept;
     void OnDroppedItemsRequest(const PacketEvent<RequestDroppedItems>& acMessage) noexcept;
+    void OnDropMoveRequest(const PacketEvent<RequestDroppedItemMove>& acMessage) noexcept;
     void OnUpdate(const UpdateEvent& acEvent) noexcept;
     bool InitializeDatabase() noexcept;
     void ShutdownDatabase() noexcept;
@@ -63,6 +65,7 @@ private:
     std::optional<ActiveDrop> FetchDropFromDatabase(uint64_t aDropId) noexcept;
     bool InsertDrop(const ActiveDrop& acDrop, uint64_t& aOutDropId) noexcept;
     bool InsertDropHistory(uint64_t aDropId, std::string_view aAction, uint32_t aPerformedBy, const std::string& acDetails) noexcept;
+    bool UpdateDropLocation(const ActiveDrop& acDrop) noexcept;
     bool MarkDropInactive(uint64_t aDropId) noexcept;
     ActiveDrop* ResolveActiveDrop(uint64_t aDropId) noexcept;
     void TrackActiveDrop(const ActiveDrop& acDrop) noexcept;
@@ -84,6 +87,7 @@ private:
     entt::scoped_connection m_requestDropConnection;
     entt::scoped_connection m_requestPickupConnection;
     entt::scoped_connection m_requestDroppedItemsConnection;
+    entt::scoped_connection m_requestDropMoveConnection;
     entt::scoped_connection m_updateConnection;
 
     TiltedPhoques::Map<uint64_t, ActiveDrop> m_activeDrops;

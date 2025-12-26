@@ -171,6 +171,27 @@ std::optional<ServerDropData> GetServerDrop(uint64_t dropId) noexcept
     return it->second;
 }
 
+bool UpdateServerDropTransform(uint64_t dropId, const NiPoint3& acLocation, const NiPoint3& acRotation, const GameId& acCellId, const GameId& acWorldSpaceId, const GameId& acReferenceId) noexcept
+{
+    if (s_serverDrops.find(dropId) == s_serverDrops.end())
+        return false;
+
+    auto& drop = s_serverDrops[dropId];
+    drop.Location = acLocation;
+    drop.Rotation = acRotation;
+    if (acCellId)
+        drop.CellId = acCellId;
+    if (acWorldSpaceId)
+        drop.WorldSpaceId = acWorldSpaceId;
+    if (acReferenceId)
+        drop.ReferenceId = acReferenceId;
+
+    if (s_pStorageListener)
+        s_pStorageListener->OnServerDropTracked(dropId, drop);
+
+    return true;
+}
+
 std::optional<uint64_t> FindDropBySignature(const GameId& aBaseId, const NiPoint3& aLocation, float aRadiusSq) noexcept
 {
     uint64_t bestDropId = 0;

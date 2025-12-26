@@ -104,6 +104,9 @@ struct TESFurnitureEvent
 
 struct TESGrabReleaseEvent
 {
+    TESObjectREFR* reference;
+    bool grabbed;
+    uint8_t pad9[7]{};
 };
 
 struct TESHitEvent

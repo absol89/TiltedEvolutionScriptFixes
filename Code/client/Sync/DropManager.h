@@ -54,6 +54,7 @@ std::optional<uint64_t> GetDropIdForHandle(uint32_t handleBits) noexcept;
 std::optional<uint32_t> GetHandleForDrop(uint64_t dropId) noexcept;
 std::optional<ServerDropData> GetServerDrop(uint64_t dropId) noexcept;
 std::optional<uint64_t> FindDropBySignature(const GameId& aBaseId, const NiPoint3& aLocation, float aRadiusSq) noexcept;
+bool UpdateServerDropTransform(uint64_t dropId, const NiPoint3& acLocation, const NiPoint3& acRotation, const GameId& acCellId, const GameId& acWorldSpaceId, const GameId& acReferenceId) noexcept;
 
 void RemoveServerDrop(uint64_t dropId) noexcept;
 void SetStorageListener(StorageListener* apListener) noexcept;

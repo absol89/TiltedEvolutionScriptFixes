@@ -7,6 +7,7 @@
 #include <Messages/NotifyActorDrop.h>
 #include <Messages/NotifyDroppedItemPickedUp.h>
 #include <Messages/NotifyDroppedItems.h>
+#include <Messages/NotifyDroppedItemMove.h>
 #include <Messages/NotifyInventoryChanges.h>
 #include <Setting.h>
 #include <TiltedCore/Buffer.hpp>
@@ -339,6 +340,7 @@ DropService::DropService(World& aWorld, entt::dispatcher& aDispatcher)
     m_requestDropConnection = aDispatcher.sink<PacketEvent<RequestActorDrop>>().connect<&DropService::OnDropRequest>(this);
     m_requestPickupConnection = aDispatcher.sink<PacketEvent<RequestPickupDroppedItem>>().connect<&DropService::OnPickupRequest>(this);
     m_requestDroppedItemsConnection = aDispatcher.sink<PacketEvent<RequestDroppedItems>>().connect<&DropService::OnDroppedItemsRequest>(this);
+    m_requestDropMoveConnection = aDispatcher.sink<PacketEvent<RequestDroppedItemMove>>().connect<&DropService::OnDropMoveRequest>(this);
     m_updateConnection = aDispatcher.sink<UpdateEvent>().connect<&DropService::OnUpdate>(this);
 
     if (!InitializeDatabase())
@@ -813,6 +815,91 @@ void DropService::OnDroppedItemsRequest(const PacketEvent<RequestDroppedItems>& 
 
     acMessage.pPlayer->Send(notify);
     spdlog::debug("DropService: sent {} drops and {} creation-engine pickups in response to request {}", notify.Entries.size(), notify.CreationEnginePickedUpReferences.size(), request.RequestId);
+}
+
+void DropService::OnDropMoveRequest(const PacketEvent<RequestDroppedItemMove>& acMessage) noexcept
+{
+    if (!bEnableItemDrops)
+        return;
+
+    const auto& message = acMessage.Packet;
+    if (!message.HasLocation && !message.HasRotation)
+        return;
+
+    NotifyDroppedItemMove notify{};
+    notify.DropId = message.DropId;
+    notify.HasLocation = message.HasLocation;
+    if (notify.HasLocation)
+        notify.Location = message.Location;
+    notify.HasRotation = message.HasRotation;
+    if (notify.HasRotation)
+        notify.Rotation = message.Rotation;
+    notify.CellId = message.CellId;
+    notify.WorldSpaceId = message.WorldSpaceId;
+    notify.ReferenceId = message.ReferenceId;
+
+    if (message.DropId)
+    {
+        ActiveDrop* pDrop = ResolveActiveDrop(message.DropId);
+        if (!pDrop)
+        {
+            spdlog::debug("DropService: move requested for unknown drop {}", message.DropId);
+            return;
+        }
+
+        const GameId previousCell = pDrop->CellId;
+
+        if (message.CellId)
+            pDrop->CellId = message.CellId;
+        if (message.WorldSpaceId)
+            pDrop->WorldSpaceId = message.WorldSpaceId;
+        if (message.ReferenceId)
+            pDrop->ReferenceId = message.ReferenceId;
+
+        if (message.HasLocation)
+        {
+            pDrop->HasLocation = true;
+            pDrop->Location = message.Location;
+        }
+
+        if (message.HasRotation)
+        {
+            pDrop->HasRotation = true;
+            pDrop->Rotation = message.Rotation;
+        }
+
+        if (previousCell != pDrop->CellId)
+        {
+            EraseDropFromIndex(pDrop->DropId, previousCell);
+            IndexDrop(pDrop->DropId, pDrop->CellId);
+        }
+
+        UpdateDropLocation(*pDrop);
+
+        notify.DropId = pDrop->DropId;
+        notify.HasLocation = pDrop->HasLocation;
+        if (notify.HasLocation)
+            notify.Location = pDrop->Location;
+        notify.HasRotation = pDrop->HasRotation;
+        if (notify.HasRotation)
+            notify.Rotation = pDrop->Rotation;
+        notify.CellId = pDrop->CellId;
+        notify.WorldSpaceId = pDrop->WorldSpaceId;
+        notify.ReferenceId = pDrop->ReferenceId;
+    }
+
+    if (auto characterEntity = acMessage.pPlayer->GetCharacter(); characterEntity && m_world.valid(*characterEntity))
+    {
+        if (!GameServer::Get()->SendToPlayersInRange(notify, *characterEntity, acMessage.pPlayer))
+        {
+            spdlog::error("{}: SendToPlayersInRange failed for drop move {}", __FUNCTION__, message.DropId);
+            GameServer::Get()->SendToPlayers(notify, acMessage.pPlayer);
+        }
+    }
+    else
+    {
+        GameServer::Get()->SendToPlayers(notify, acMessage.pPlayer);
+    }
 }
 
 void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept
@@ -1297,6 +1384,65 @@ bool DropService::InsertDropHistory(uint64_t aDropId, std::string_view aAction, 
     }
 
     return true;
+}
+
+bool DropService::UpdateDropLocation(const ActiveDrop& acDrop) noexcept
+{
+    if (!m_pDatabase)
+        return false;
+
+    constexpr const char* cUpdateSql =
+        "UPDATE server_drops SET cell_mod_id = ?2, cell_base_id = ?3, world_mod_id = ?4, world_base_id = ?5, reference_mod_id = ?6, reference_base_id = ?7, has_location = ?8, pos_x = ?9, pos_y = ?10, pos_z = ?11, "
+        "has_rotation = ?12, rot_x = ?13, rot_y = ?14, rot_z = ?15, updated_at = strftime('%s','now') WHERE server_drop_id = ?1 AND is_active = 1;";
+
+    StatementPtr statement = PrepareStatement(m_pDatabase, cUpdateSql);
+    if (!statement)
+    {
+        spdlog::error("DropService: failed to prepare drop location update: {}", sqlite3_errmsg(m_pDatabase));
+        return false;
+    }
+
+    sqlite3_bind_int64(statement.get(), 1, static_cast<sqlite3_int64>(acDrop.DropId));
+    sqlite3_bind_int(statement.get(), 2, static_cast<int>(acDrop.CellId.ModId));
+    sqlite3_bind_int(statement.get(), 3, static_cast<int>(acDrop.CellId.BaseId));
+    sqlite3_bind_int(statement.get(), 4, static_cast<int>(acDrop.WorldSpaceId.ModId));
+    sqlite3_bind_int(statement.get(), 5, static_cast<int>(acDrop.WorldSpaceId.BaseId));
+    sqlite3_bind_int(statement.get(), 6, static_cast<int>(acDrop.ReferenceId.ModId));
+    sqlite3_bind_int(statement.get(), 7, static_cast<int>(acDrop.ReferenceId.BaseId));
+    sqlite3_bind_int(statement.get(), 8, acDrop.HasLocation ? 1 : 0);
+    if (acDrop.HasLocation)
+    {
+        sqlite3_bind_double(statement.get(), 9, acDrop.Location.x);
+        sqlite3_bind_double(statement.get(), 10, acDrop.Location.y);
+        sqlite3_bind_double(statement.get(), 11, acDrop.Location.z);
+    }
+    else
+    {
+        sqlite3_bind_null(statement.get(), 9);
+        sqlite3_bind_null(statement.get(), 10);
+        sqlite3_bind_null(statement.get(), 11);
+    }
+    sqlite3_bind_int(statement.get(), 12, acDrop.HasRotation ? 1 : 0);
+    if (acDrop.HasRotation)
+    {
+        sqlite3_bind_double(statement.get(), 13, acDrop.Rotation.x);
+        sqlite3_bind_double(statement.get(), 14, acDrop.Rotation.y);
+        sqlite3_bind_double(statement.get(), 15, acDrop.Rotation.z);
+    }
+    else
+    {
+        sqlite3_bind_null(statement.get(), 13);
+        sqlite3_bind_null(statement.get(), 14);
+        sqlite3_bind_null(statement.get(), 15);
+    }
+
+    if (sqlite3_step(statement.get()) != SQLITE_DONE)
+    {
+        spdlog::error("DropService: failed to update drop location {}: {}", acDrop.DropId, sqlite3_errmsg(m_pDatabase));
+        return false;
+    }
+
+    return sqlite3_changes(m_pDatabase) > 0;
 }
 
 bool DropService::MarkDropInactive(uint64_t aDropId) noexcept
