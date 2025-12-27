@@ -55,6 +55,7 @@ struct InventoryService
 private:
     void ApplyEquipmentChange(Actor* pActor, const NotifyEquipmentChanges& acMessage) noexcept;
     void ProcessPendingEquipment() noexcept;
+    void ProcessPendingEquipmentChanges() noexcept;
     void ProcessPendingEquipmentRequests() noexcept;
     void ProcessPendingInventoryChanges() noexcept;
     bool SendEquipmentChange(const EquipmentChangeEvent& acEvent) noexcept;
@@ -80,6 +81,7 @@ private:
     void RunNakedNPCBugChecks() noexcept;
 
     bool TryApplyInventoryChange(const NotifyInventoryChanges& acMessage) noexcept;
+    bool TryApplyEquipmentChange(const NotifyEquipmentChanges& acMessage) noexcept;
 
     World& m_world;
     entt::dispatcher& m_dispatcher;
@@ -92,5 +94,6 @@ private:
     entt::scoped_connection m_equipmentChangeConnection;
 
     TiltedPhoques::Vector<EquipmentChangeEvent> m_pendingEquipmentRequests;
+    TiltedPhoques::Vector<NotifyEquipmentChanges> m_pendingEquipmentChanges;
     TiltedPhoques::Vector<NotifyInventoryChanges> m_pendingInventoryChanges;
 };

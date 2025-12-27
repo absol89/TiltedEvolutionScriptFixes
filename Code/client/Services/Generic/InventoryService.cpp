@@ -51,6 +51,7 @@ void InventoryService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
 {
     ProcessPendingInventoryChanges();
     ProcessPendingEquipment();
+    ProcessPendingEquipmentChanges();
     ProcessPendingEquipmentRequests();
     RunWeaponStateUpdates();
     RunNakedNPCBugChecks();
@@ -105,48 +106,11 @@ void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& ac
 
 void InventoryService::OnNotifyEquipmentChanges(const NotifyEquipmentChanges& acMessage) noexcept
 {
-    Actor* pActor = Utils::GetByServerId<Actor>(acMessage.ServerId);
-    if (!pActor)
-    {
-        spdlog::error("{}: could not find actor server id {:X}", __FUNCTION__, acMessage.ServerId);
+    if (TryApplyEquipmentChange(acMessage))
         return;
-    }
 
-    // Quest isolation: only apply equipment changes to remote player ghost actors.
-    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
-    {
-        auto remotePlayerView = m_world.view<RemoteComponent, PlayerComponent, FormIdComponent>();
-        const auto it = std::find_if(remotePlayerView.begin(), remotePlayerView.end(),
-            [remotePlayerView, serverId = acMessage.ServerId](entt::entity e) { return remotePlayerView.get<RemoteComponent>(e).Id == serverId; });
-
-        if (it == remotePlayerView.end())
-            return;
-    }
-
-    const auto readiness = EvaluateActorReadiness(pActor);
-    if (readiness != ActorReadinessStatus::Ready)
-    {
-        auto view = m_world.view<FormIdComponent>();
-        const auto itor = std::find_if(std::begin(view), std::end(view), [formId = pActor->formID, view](entt::entity entity) { return view.get<FormIdComponent>(entity).Id == formId; });
-
-        if (itor != std::end(view))
-        {
-            auto* pPending = m_world.try_get<PendingEquipmentComponent>(*itor);
-            if (!pPending)
-                pPending = &m_world.emplace<PendingEquipmentComponent>(*itor);
-
-            pPending->PendingChanges.push_back(acMessage);
-            spdlog::debug("Queued equipment change for actor {:X} (waiting for {})", pActor->formID, DescribeReadiness(readiness));
-        }
-        else
-        {
-            spdlog::warn("{}: could not queue equipment change, entity not found for form id {:X}", __FUNCTION__, pActor->formID);
-        }
-
-        return;
-    }
-
-    ApplyEquipmentChange(pActor, acMessage);
+    m_pendingEquipmentChanges.push_back(acMessage);
+    spdlog::debug("{}: queued equipment change for server id {:X}", __FUNCTION__, acMessage.ServerId);
 }
 
 void InventoryService::ApplyEquipmentChange(Actor* pActor, const NotifyEquipmentChanges& acMessage) noexcept
@@ -289,6 +253,23 @@ void InventoryService::ProcessPendingInventoryChanges() noexcept
     m_pendingInventoryChanges = std::move(remaining);
 }
 
+void InventoryService::ProcessPendingEquipmentChanges() noexcept
+{
+    if (m_pendingEquipmentChanges.empty())
+        return;
+
+    TiltedPhoques::Vector<NotifyEquipmentChanges> remaining;
+    remaining.reserve(m_pendingEquipmentChanges.size());
+
+    for (const auto& change : m_pendingEquipmentChanges)
+    {
+        if (!TryApplyEquipmentChange(change))
+            remaining.push_back(change);
+    }
+
+    m_pendingEquipmentChanges = std::move(remaining);
+}
+
 void InventoryService::ProcessPendingEquipmentRequests() noexcept
 {
     if (m_pendingEquipmentRequests.empty())
@@ -397,6 +378,48 @@ bool InventoryService::TryApplyInventoryChange(const NotifyInventoryChanges& acM
     }
 
     pObject->AddOrRemoveItem(acMessage.Item);
+    return true;
+}
+
+bool InventoryService::TryApplyEquipmentChange(const NotifyEquipmentChanges& acMessage) noexcept
+{
+    Actor* pActor = Utils::GetByServerId<Actor>(acMessage.ServerId);
+    if (!pActor)
+        return false;
+
+    // Quest isolation: only apply equipment changes to remote player ghost actors.
+    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
+    {
+        auto remotePlayerView = m_world.view<RemoteComponent, PlayerComponent, FormIdComponent>();
+        const auto it = std::find_if(remotePlayerView.begin(), remotePlayerView.end(),
+            [remotePlayerView, serverId = acMessage.ServerId](entt::entity e) { return remotePlayerView.get<RemoteComponent>(e).Id == serverId; });
+
+        if (it == remotePlayerView.end())
+            return true;
+    }
+
+    const auto readiness = EvaluateActorReadiness(pActor);
+    if (readiness != ActorReadinessStatus::Ready)
+    {
+        auto view = m_world.view<FormIdComponent>();
+        const auto itor = std::find_if(std::begin(view), std::end(view), [formId = pActor->formID, view](entt::entity entity) { return view.get<FormIdComponent>(entity).Id == formId; });
+
+        if (itor != std::end(view))
+        {
+            auto* pPending = m_world.try_get<PendingEquipmentComponent>(*itor);
+            if (!pPending)
+                pPending = &m_world.emplace<PendingEquipmentComponent>(*itor);
+
+            pPending->PendingChanges.push_back(acMessage);
+            spdlog::debug("Queued equipment change for actor {:X} (waiting for {})", pActor->formID, DescribeReadiness(readiness));
+            return true;
+        }
+
+        spdlog::warn("{}: could not queue equipment change, entity not found for form id {:X}", __FUNCTION__, pActor->formID);
+        return false;
+    }
+
+    ApplyEquipmentChange(pActor, acMessage);
     return true;
 }
 

@@ -338,6 +338,12 @@ void CharacterService::OnOwnershipTransferEvent(const OwnershipTransferEvent& ac
 
         ownerComponent.SetOwner(pPlayer);
 
+        // Send an authoritative snapshot before ownership changes hands so the new owner has correct visuals.
+        NotifySpawnData notifySpawnData{};
+        notifySpawnData.Id = response.ServerId;
+        notifySpawnData.NewActorData = BuildActorData(acEvent.Entity);
+        pPlayer->Send(notifySpawnData);
+
         pPlayer->Send(response);
 
         foundOwner = true;
@@ -387,7 +393,29 @@ void CharacterService::OnCharacterRemoveEvent(const CharacterRemoveEvent& acEven
 
 void CharacterService::OnOwnershipClaimRequest(const PacketEvent<RequestOwnershipClaim>& acMessage) const noexcept
 {
-    TransferOwnership(acMessage.pPlayer, acMessage.Packet.ServerId, acMessage.Packet.NewActorData);
+    const auto entity = m_world.TryResolveEntity(acMessage.Packet.ServerId);
+    if (!entity)
+    {
+        spdlog::warn("Ownership claim for unknown entity {:X} by player {:X}", acMessage.Packet.ServerId, acMessage.pPlayer->GetConnectionId());
+        return;
+    }
+
+    auto view = m_world.view<OwnerComponent>();
+    const auto it = view.find(*entity);
+    if (it == view.end())
+    {
+        spdlog::warn("Ownership claim missing OwnerComponent for entity {:X} by player {:X}", acMessage.Packet.ServerId, acMessage.pPlayer->GetConnectionId());
+        return;
+    }
+
+    auto& ownerComponent = view.get<OwnerComponent>(*it);
+    if (ownerComponent.GetOwner() != acMessage.pPlayer)
+    {
+        spdlog::warn("Ownership claim denied for {:X}: player {:X} not owner", acMessage.Packet.ServerId, acMessage.pPlayer->GetConnectionId());
+        return;
+    }
+
+    TransferOwnership(acMessage.pPlayer, acMessage.Packet.ServerId, BuildActorData(*entity));
 }
 
 void CharacterService::OnCharacterSpawned(const CharacterSpawnedEvent& acEvent) const noexcept
