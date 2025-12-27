@@ -37,6 +37,8 @@
 #include <ExtraData/ExtraContainerChanges.h>
 #include <Games/Primitives.h>
 
+#include <cmath>
+
 #include <spdlog/spdlog.h>
 #include <TiltedCore/Stl.hpp>
 
@@ -52,6 +54,8 @@ constexpr float kPickupRemovalRadiusSquared = 2500.f * 2500.f;
 constexpr float kMaterializeGraceSeconds = 0.5f;
 constexpr float kDropPhysicsHoldSeconds = 5.0f;
 constexpr float kDropMoveSyncIntervalSeconds = 0.1f;
+constexpr float kDropRotationNetScale = 1000.0f;
+constexpr float kDropRotationLegacyMaxRadians = 6.5f;
 constexpr double kPeriodicPlayerCellSyncSeconds = 5.0;
 constexpr double kDropSyncQueueIntervalSeconds = 0.5;
 constexpr uint32_t kMaxPendingDropRetries = 600;
@@ -96,12 +100,47 @@ NiPoint3 ToPoint(const Vector3_NetQuantize& aVector)
     return NiPoint3(aVector);
 }
 
+float DecodeDropRotationComponent(float aValue) noexcept
+{
+    if (std::fabs(aValue) <= kDropRotationLegacyMaxRadians)
+        return aValue;
+
+    return aValue / kDropRotationNetScale;
+}
+
+NiPoint3 ToDropRotation(const Vector3_NetQuantize& aVector) noexcept
+{
+    NiPoint3 rotation{};
+    rotation.x = DecodeDropRotationComponent(aVector.x);
+    rotation.y = DecodeDropRotationComponent(aVector.y);
+    rotation.z = DecodeDropRotationComponent(aVector.z);
+    return rotation;
+}
+
+float EncodeDropRotationComponent(float aValue) noexcept
+{
+    const float encoded = aValue * kDropRotationNetScale;
+    if (std::fabs(encoded) <= kDropRotationLegacyMaxRadians)
+        return 0.0f;
+
+    return encoded;
+}
+
 Vector3_NetQuantize ToNetVector(const NiPoint3& aVector)
 {
     Vector3_NetQuantize value;
     value.x = aVector.x;
     value.y = aVector.y;
     value.z = aVector.z;
+    return value;
+}
+
+Vector3_NetQuantize ToNetDropRotation(const NiPoint3& aRotation) noexcept
+{
+    Vector3_NetQuantize value;
+    value.x = EncodeDropRotationComponent(aRotation.x);
+    value.y = EncodeDropRotationComponent(aRotation.y);
+    value.z = EncodeDropRotationComponent(aRotation.z);
     return value;
 }
 
@@ -302,7 +341,7 @@ void DropService::OnDropEvent(const DropItemEvent& acEvent) noexcept
     request.HasLocation = true;
     request.Location = ToNetVector(acEvent.Location);
     request.HasRotation = true;
-    request.Rotation = ToNetVector(acEvent.Rotation);
+    request.Rotation = ToNetDropRotation(acEvent.Rotation);
     request.CellId = acEvent.CellId;
     request.WorldSpaceId = acEvent.WorldSpaceId;
     request.ReferenceId = acEvent.ReferenceId;
@@ -352,7 +391,7 @@ void DropService::OnPickupEvent(const PickupDroppedItemEvent& acEvent) noexcept
             request.HasLocation = true;
             request.Location = ToNetVector(dropOpt->Location);
             request.HasRotation = true;
-            request.Rotation = ToNetVector(dropOpt->Rotation);
+            request.Rotation = ToNetDropRotation(dropOpt->Rotation);
             request.CellId = dropOpt->CellId;
             request.WorldSpaceId = dropOpt->WorldSpaceId;
             request.ReferenceId = dropOpt->ReferenceId ? dropOpt->ReferenceId : acEvent.ReferenceId;
@@ -365,7 +404,7 @@ void DropService::OnPickupEvent(const PickupDroppedItemEvent& acEvent) noexcept
                 request.Location = ToNetVector(acEvent.Location);
             request.HasRotation = acEvent.HasRotation;
             if (acEvent.HasRotation)
-                request.Rotation = ToNetVector(acEvent.Rotation);
+                request.Rotation = ToNetDropRotation(acEvent.Rotation);
             request.CellId = acEvent.CellId;
             request.WorldSpaceId = acEvent.WorldSpaceId;
             request.ReferenceId = acEvent.ReferenceId;
@@ -382,7 +421,7 @@ void DropService::OnPickupEvent(const PickupDroppedItemEvent& acEvent) noexcept
 
         request.HasRotation = acEvent.HasRotation;
         if (acEvent.HasRotation)
-            request.Rotation = ToNetVector(acEvent.Rotation);
+            request.Rotation = ToNetDropRotation(acEvent.Rotation);
 
         request.CellId = acEvent.CellId;
         request.WorldSpaceId = acEvent.WorldSpaceId;
@@ -449,7 +488,7 @@ bool DropService::ApplyDrop(const NotifyActorDrop& acMessage) noexcept
         serverData.Location = pPlayer->position;
 
     if (acMessage.HasRotation)
-        serverData.Rotation = ToPoint(acMessage.Rotation);
+        serverData.Rotation = ToDropRotation(acMessage.Rotation);
     else if (pActor)
         serverData.Rotation = pActor->rotation;
     else if (pPlayer)
@@ -645,7 +684,7 @@ void DropService::OnNotifyDropMove(const NotifyDroppedItemMove& acMessage) noexc
             return;
 
         location = acMessage.HasLocation ? ToPoint(acMessage.Location) : dropOpt->Location;
-        rotation = acMessage.HasRotation ? ToPoint(acMessage.Rotation) : dropOpt->Rotation;
+        rotation = acMessage.HasRotation ? ToDropRotation(acMessage.Rotation) : dropOpt->Rotation;
 
         DropManager::UpdateServerDropTransform(acMessage.DropId, location, rotation, acMessage.CellId, acMessage.WorldSpaceId, acMessage.ReferenceId);
 
@@ -664,7 +703,7 @@ void DropService::OnNotifyDropMove(const NotifyDroppedItemMove& acMessage) noexc
             return;
 
         location = acMessage.HasLocation ? ToPoint(acMessage.Location) : pReference->position;
-        rotation = acMessage.HasRotation ? ToPoint(acMessage.Rotation) : pReference->rotation;
+        rotation = acMessage.HasRotation ? ToDropRotation(acMessage.Rotation) : pReference->rotation;
     }
     else
     {
@@ -685,14 +724,14 @@ void DropService::OnNotifyDropMove(const NotifyDroppedItemMove& acMessage) noexc
         const bool locallyActive = m_grabbedDrops.find(acMessage.DropId) != m_grabbedDrops.end() ||
             m_dropPhysicsCooldowns.find(acMessage.DropId) != m_dropPhysicsCooldowns.end();
         if (!locallyActive)
-            SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
+            SetReferenceMotionType(pReference, MotionType::kDynamic, true);
     }
     else if (acMessage.ReferenceId)
     {
         const bool locallyActive = m_grabbedReferences.find(acMessage.ReferenceId) != m_grabbedReferences.end() ||
             m_referencePhysicsCooldowns.find(acMessage.ReferenceId) != m_referencePhysicsCooldowns.end();
         if (!locallyActive)
-            SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
+            SetReferenceMotionType(pReference, MotionType::kDynamic, true);
     }
 }
 
@@ -979,7 +1018,7 @@ void DropService::UpdateDropPhysics(const UpdateEvent& acEvent) noexcept
         }
 
         m_dropMoveSyncTimers.erase(dropId);
-        SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
+        continue;
     }
 
     if (!m_grabbedReferences.empty())
@@ -1103,7 +1142,7 @@ void DropService::SendDropMoveRequest(uint64_t aDropId, TESObjectREFR* apReferen
     request.HasLocation = true;
     request.Location = ToNetVector(location);
     request.HasRotation = true;
-    request.Rotation = ToNetVector(rotation);
+    request.Rotation = ToNetDropRotation(rotation);
     request.CellId = cellId;
     request.WorldSpaceId = worldId;
     request.ReferenceId = referenceId;
@@ -1143,7 +1182,7 @@ void DropService::SendReferenceMoveRequest(const GameId& acReferenceId, TESObjec
     request.HasLocation = true;
     request.Location = ToNetVector(location);
     request.HasRotation = true;
-    request.Rotation = ToNetVector(rotation);
+    request.Rotation = ToNetDropRotation(rotation);
     request.CellId = cellId;
     request.WorldSpaceId = worldId;
     request.ReferenceId = acReferenceId;
@@ -1368,7 +1407,7 @@ void DropService::ProcessDropEntry(const NotifyDroppedItems::Entry& acEntry, boo
     data.ActorFormId = acEntry.ActorFormId;
     data.Item = acEntry.Item;
     data.Location = acEntry.HasLocation ? ToPoint(acEntry.Location) : NiPoint3{};
-    data.Rotation = acEntry.HasRotation ? ToPoint(acEntry.Rotation) : NiPoint3{};
+    data.Rotation = acEntry.HasRotation ? ToDropRotation(acEntry.Rotation) : NiPoint3{};
     data.HandleBits = 0;
     data.CellId = acEntry.CellId;
     data.WorldSpaceId = acEntry.WorldSpaceId;
@@ -1452,7 +1491,7 @@ bool DropService::MaterializeDrop(uint64_t aDropId, const DropManager::ServerDro
             pending.DropMessage.HasLocation = true;
             pending.DropMessage.Location = ToNetVector(acData.Location);
             pending.DropMessage.HasRotation = true;
-            pending.DropMessage.Rotation = ToNetVector(acData.Rotation);
+            pending.DropMessage.Rotation = ToNetDropRotation(acData.Rotation);
             pending.DropMessage.CellId = acData.CellId;
             pending.DropMessage.WorldSpaceId = acData.WorldSpaceId;
             pending.DropMessage.ReferenceId = acData.ReferenceId;
