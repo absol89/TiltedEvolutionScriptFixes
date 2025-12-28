@@ -301,6 +301,7 @@ DropService::DropService(World& aWorld, entt::dispatcher& aDispatcher, Transport
     m_notifyPickupConnection = m_dispatcher.sink<NotifyDroppedItemPickedUp>().connect<&DropService::OnNotifyPickup>(this);
     m_notifyDroppedItemsConnection = m_dispatcher.sink<NotifyDroppedItems>().connect<&DropService::OnNotifyDroppedItems>(this);
     m_notifyDropMoveConnection = m_dispatcher.sink<NotifyDroppedItemMove>().connect<&DropService::OnNotifyDropMove>(this);
+    m_notifyDropPhysicsDisabledConnection = m_dispatcher.sink<NotifyDroppedItemPhysicsDisabled>().connect<&DropService::OnNotifyDropPhysicsDisabled>(this);
     m_connectedEventConnection = m_dispatcher.sink<ConnectedEvent>().connect<&DropService::OnConnected>(this);
     m_cellChangeConnection = m_dispatcher.sink<CellChangeEvent>().connect<&DropService::OnCellChange>(this);
     m_gridCellChangeConnection = m_dispatcher.sink<GridCellChangeEvent>().connect<&DropService::OnGridCellChange>(this);
@@ -524,6 +525,9 @@ bool DropService::ApplyDrop(const NotifyActorDrop& acMessage) noexcept
         return false;
 
     m_localDrops.insert(acMessage.DropId);
+    m_grabbedDrops.erase(acMessage.DropId);
+    m_dropPhysicsCooldowns.erase(acMessage.DropId);
+    m_dropMoveSyncTimers.erase(acMessage.DropId);
     spdlog::debug("DropService: applied drop {} for actor {:X}", acMessage.DropId, serverData.ActorFormId);
     return true;
 }
@@ -724,14 +728,81 @@ void DropService::OnNotifyDropMove(const NotifyDroppedItemMove& acMessage) noexc
         const bool locallyActive = m_grabbedDrops.find(acMessage.DropId) != m_grabbedDrops.end() ||
             m_dropPhysicsCooldowns.find(acMessage.DropId) != m_dropPhysicsCooldowns.end();
         if (!locallyActive)
-            SetReferenceMotionType(pReference, MotionType::kDynamic, true);
+        {
+            // Keep remote drops keyframed so activation stays available.
+            SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
+            // Warp Havok so activation uses the updated collision.
+            pReference->Update3DPosition(true);
+        }
     }
     else if (acMessage.ReferenceId)
     {
         const bool locallyActive = m_grabbedReferences.find(acMessage.ReferenceId) != m_grabbedReferences.end() ||
             m_referencePhysicsCooldowns.find(acMessage.ReferenceId) != m_referencePhysicsCooldowns.end();
         if (!locallyActive)
-            SetReferenceMotionType(pReference, MotionType::kDynamic, true);
+        {
+            // Keep remote references keyframed so activation stays available.
+            SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
+            // Warp Havok so activation uses the updated collision.
+            pReference->Update3DPosition(true);
+        }
+    }
+}
+
+void DropService::OnNotifyDropPhysicsDisabled(const NotifyDroppedItemPhysicsDisabled& acMessage) noexcept
+{
+    if (!m_transport.IsConnected())
+        return;
+
+    if (acMessage.DropId == 0)
+        return;
+
+    const auto dropOpt = DropManager::GetServerDrop(acMessage.DropId);
+    if (!dropOpt)
+        return;
+
+    const NiPoint3 location = acMessage.HasLocation ? ToPoint(acMessage.Location) : dropOpt->Location;
+    const NiPoint3 rotation = acMessage.HasRotation ? ToDropRotation(acMessage.Rotation) : dropOpt->Rotation;
+
+    DropManager::UpdateServerDropTransform(acMessage.DropId, location, rotation, acMessage.CellId, acMessage.WorldSpaceId, acMessage.ReferenceId);
+
+    const auto updatedOpt = DropManager::GetServerDrop(acMessage.DropId);
+    if (!updatedOpt)
+        return;
+
+    const auto& data = *updatedOpt;
+    if (!IsDropCellLoaded(data.CellId, data.WorldSpaceId))
+        return;
+
+    if (const auto handleOpt = DropManager::GetHandleForDrop(acMessage.DropId); handleOpt)
+    {
+        if (TESObjectREFR* pExisting = TESObjectREFR::GetByHandle(*handleOpt))
+        {
+            if (pExisting->IsTemporary())
+                pExisting->Delete();
+            else
+                pExisting->Disable();
+        }
+        DropManager::ClearHandleBinding(acMessage.DropId);
+    }
+
+    if (!SpawnLocalDrop(data, acMessage.DropId))
+        return;
+
+    m_localDrops.insert(acMessage.DropId);
+
+    if (const auto newHandleOpt = DropManager::GetHandleForDrop(acMessage.DropId); newHandleOpt)
+    {
+        if (TESObjectREFR* pNewRef = TESObjectREFR::GetByHandle(*newHandleOpt))
+        {
+            pNewRef->Update3DPosition(true);
+            SetReferenceMotionType(pNewRef, MotionType::kKeyframed, true);
+            pNewRef->Update3DPosition(true);
+            GameId newRefId{};
+            m_world.GetModSystem().GetServerModId(pNewRef->formID, newRefId);
+            if (newRefId)
+                DropManager::SetReferenceForDrop(acMessage.DropId, newRefId);
+        }
     }
 }
 
@@ -818,10 +889,11 @@ void DropService::OnGridCellChange(const GridCellChangeEvent& acEvent) noexcept
 
 void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept
 {
+    const float delta = static_cast<float>(acEvent.Delta);
+
     // Decrease grace timers for materialization gating
     if (!g_materializeGrace.empty())
     {
-        const float delta = static_cast<float>(acEvent.Delta);
         TiltedPhoques::Vector<uint64_t> toErase;
         toErase.reserve(g_materializeGrace.size());
         for (const auto& kv : g_materializeGrace)
@@ -842,6 +914,7 @@ void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept
             g_materializeGrace.erase(id);
         }
     }
+
 
     ProcessPendingCreationEngineRemovals();
 
@@ -909,7 +982,7 @@ void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept
         spdlog::debug("DropService: {} pending drop actions remain", m_pendingActions.size());
 }
 
-BSTEventResult DropService::OnEvent(const TESGrabReleaseEvent* apEvent, const EventDispatcher<TESGrabReleaseEvent>*) 
+BSTEventResult DropService::OnEvent(const TESGrabReleaseEvent* apEvent, const EventDispatcher<TESGrabReleaseEvent>*)
 {
     if (!apEvent || !m_transport.IsConnected())
         return BSTEventResult::kOk;
@@ -1000,6 +1073,7 @@ void DropService::UpdateDropPhysics(const UpdateEvent& acEvent) noexcept
                 m_dropPhysicsCooldowns.erase(cooldownIt);
                 m_dropMoveSyncTimers.erase(dropId);
                 SendDropMoveRequest(dropId, pReference, false);
+                SendDropPhysicsDisabledRequest(dropId, pReference);
                 SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
             }
             else
@@ -1018,6 +1092,7 @@ void DropService::UpdateDropPhysics(const UpdateEvent& acEvent) noexcept
         }
 
         m_dropMoveSyncTimers.erase(dropId);
+        SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
         continue;
     }
 
@@ -1143,6 +1218,50 @@ void DropService::SendDropMoveRequest(uint64_t aDropId, TESObjectREFR* apReferen
     request.Location = ToNetVector(location);
     request.HasRotation = true;
     request.Rotation = ToNetDropRotation(rotation);
+    request.CellId = cellId;
+    request.WorldSpaceId = worldId;
+    request.ReferenceId = referenceId;
+
+    m_transport.Send(request);
+}
+
+void DropService::SendDropPhysicsDisabledRequest(uint64_t aDropId, TESObjectREFR* apReference) noexcept
+{
+    if (!m_transport.IsConnected() || !apReference)
+        return;
+
+    const auto dropOpt = DropManager::GetServerDrop(aDropId);
+    if (!dropOpt)
+        return;
+
+    auto* pPlayer = PlayerCharacter::Get();
+    if (!pPlayer)
+        return;
+
+    const auto serverIdRes = ResolveServerId(pPlayer->formID);
+    if (!serverIdRes)
+        return;
+
+    apReference->Update3DPosition(false);
+
+    auto& modSystem = m_world.GetModSystem();
+    GameId cellId{};
+    GameId worldId{};
+    if (TESObjectCELL* pCell = apReference->GetParentCellEx())
+        modSystem.GetServerModId(pCell->formID, cellId);
+    if (TESWorldSpace* pWorld = apReference->GetWorldSpace())
+        modSystem.GetServerModId(pWorld->formID, worldId);
+
+    GameId referenceId{};
+    modSystem.GetServerModId(apReference->formID, referenceId);
+
+    RequestDroppedItemPhysicsDisabled request{};
+    request.ServerId = *serverIdRes;
+    request.DropId = aDropId;
+    request.HasLocation = true;
+    request.Location = ToNetVector(apReference->position);
+    request.HasRotation = true;
+    request.Rotation = ToNetDropRotation(apReference->rotation);
     request.CellId = cellId;
     request.WorldSpaceId = worldId;
     request.ReferenceId = referenceId;
@@ -1611,6 +1730,8 @@ bool DropService::SpawnLocalDrop(const DropManager::ServerDropData& acData, uint
     extraEntry.ExtraWornLeft = false;
     const uint16_t dropCount = ClampExtraCount(extraEntry.Count);
     ApplyDropExtraData(pReference, extraEntry, dropCount);
+    SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
+    pReference->Update3DPosition(true);
 
     DropManager::BindHandleToServerDrop(aDropId, acData.ActorFormId, handleBits);
 

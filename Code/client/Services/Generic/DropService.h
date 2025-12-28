@@ -6,10 +6,12 @@
 #include <Messages/NotifyDroppedItemPickedUp.h>
 #include <Messages/NotifyDroppedItems.h>
 #include <Messages/NotifyDroppedItemMove.h>
+#include <Messages/NotifyDroppedItemPhysicsDisabled.h>
 #include <Messages/RequestActorDrop.h>
 #include <Messages/RequestPickupDroppedItem.h>
 #include <Messages/RequestDroppedItems.h>
 #include <Messages/RequestDroppedItemMove.h>
+#include <Messages/RequestDroppedItemPhysicsDisabled.h>
 #include <Events/CellChangeEvent.h>
 #include <Events/GridCellChangeEvent.h>
 #include <Events/ConnectedEvent.h>
@@ -46,6 +48,7 @@ private:
     void OnNotifyPickup(const NotifyDroppedItemPickedUp& acMessage) noexcept;
     void OnNotifyDroppedItems(const NotifyDroppedItems& acMessage) noexcept;
     void OnNotifyDropMove(const NotifyDroppedItemMove& acMessage) noexcept;
+    void OnNotifyDropPhysicsDisabled(const NotifyDroppedItemPhysicsDisabled& acMessage) noexcept;
     void OnConnected(const ConnectedEvent& acEvent) noexcept;
     void OnCellChange(const CellChangeEvent& acEvent) noexcept;
     void OnGridCellChange(const GridCellChangeEvent& acEvent) noexcept;
@@ -72,6 +75,7 @@ private:
     bool HandleUntrackedPickup(const NotifyDroppedItemPickedUp& acMessage) noexcept;
     void UpdateDropPhysics(const UpdateEvent& acEvent) noexcept;
     void SendDropMoveRequest(uint64_t aDropId, TESObjectREFR* apReference, bool aForce) noexcept;
+    void SendDropPhysicsDisabledRequest(uint64_t aDropId, TESObjectREFR* apReference) noexcept;
     void SendReferenceMoveRequest(const GameId& acReferenceId, TESObjectREFR* apReference) noexcept;
     void ReconcileCachedDrops(const GameId& acCellId, const GameId& acWorldId, const TiltedPhoques::Vector<uint64_t>& acAuthoritativeDropIds) noexcept;
     void ApplyCreationEngineCellSync(const DropSyncContext& acContext, const TiltedPhoques::Vector<GameId>& acPickedUpRefs) noexcept;
@@ -107,6 +111,7 @@ private:
     entt::scoped_connection m_notifyPickupConnection;
     entt::scoped_connection m_notifyDroppedItemsConnection;
     entt::scoped_connection m_notifyDropMoveConnection;
+    entt::scoped_connection m_notifyDropPhysicsDisabledConnection;
     entt::scoped_connection m_connectedEventConnection;
     entt::scoped_connection m_cellChangeConnection;
     entt::scoped_connection m_gridCellChangeConnection;

@@ -5,6 +5,7 @@
 #include <Messages/RequestPickupDroppedItem.h>
 #include <Messages/RequestDroppedItems.h>
 #include <Messages/RequestDroppedItemMove.h>
+#include <Messages/RequestDroppedItemPhysicsDisabled.h>
 #include <Messages/NotifyDroppedItems.h>
 #include <TiltedCore/Stl.hpp>
 #include <Structs/Guid.h>
@@ -54,6 +55,7 @@ private:
     void OnPickupRequest(const PacketEvent<RequestPickupDroppedItem>& acMessage) noexcept;
     void OnDroppedItemsRequest(const PacketEvent<RequestDroppedItems>& acMessage) noexcept;
     void OnDropMoveRequest(const PacketEvent<RequestDroppedItemMove>& acMessage) noexcept;
+    void OnDropPhysicsDisabledRequest(const PacketEvent<RequestDroppedItemPhysicsDisabled>& acMessage) noexcept;
     void OnUpdate(const UpdateEvent& acEvent) noexcept;
     bool InitializeDatabase() noexcept;
     void ShutdownDatabase() noexcept;
@@ -88,6 +90,7 @@ private:
     entt::scoped_connection m_requestPickupConnection;
     entt::scoped_connection m_requestDroppedItemsConnection;
     entt::scoped_connection m_requestDropMoveConnection;
+    entt::scoped_connection m_requestDropPhysicsDisabledConnection;
     entt::scoped_connection m_updateConnection;
 
     TiltedPhoques::Map<uint64_t, ActiveDrop> m_activeDrops;

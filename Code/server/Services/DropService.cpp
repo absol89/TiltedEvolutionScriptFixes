@@ -8,6 +8,7 @@
 #include <Messages/NotifyDroppedItemPickedUp.h>
 #include <Messages/NotifyDroppedItems.h>
 #include <Messages/NotifyDroppedItemMove.h>
+#include <Messages/NotifyDroppedItemPhysicsDisabled.h>
 #include <Messages/NotifyInventoryChanges.h>
 #include <Setting.h>
 #include <TiltedCore/Buffer.hpp>
@@ -341,6 +342,7 @@ DropService::DropService(World& aWorld, entt::dispatcher& aDispatcher)
     m_requestPickupConnection = aDispatcher.sink<PacketEvent<RequestPickupDroppedItem>>().connect<&DropService::OnPickupRequest>(this);
     m_requestDroppedItemsConnection = aDispatcher.sink<PacketEvent<RequestDroppedItems>>().connect<&DropService::OnDroppedItemsRequest>(this);
     m_requestDropMoveConnection = aDispatcher.sink<PacketEvent<RequestDroppedItemMove>>().connect<&DropService::OnDropMoveRequest>(this);
+    m_requestDropPhysicsDisabledConnection = aDispatcher.sink<PacketEvent<RequestDroppedItemPhysicsDisabled>>().connect<&DropService::OnDropPhysicsDisabledRequest>(this);
     m_updateConnection = aDispatcher.sink<UpdateEvent>().connect<&DropService::OnUpdate>(this);
 
     if (!InitializeDatabase())
@@ -893,6 +895,89 @@ void DropService::OnDropMoveRequest(const PacketEvent<RequestDroppedItemMove>& a
         if (!GameServer::Get()->SendToPlayersInRange(notify, *characterEntity, acMessage.pPlayer))
         {
             spdlog::error("{}: SendToPlayersInRange failed for drop move {}", __FUNCTION__, message.DropId);
+            GameServer::Get()->SendToPlayers(notify, acMessage.pPlayer);
+        }
+    }
+    else
+    {
+        GameServer::Get()->SendToPlayers(notify, acMessage.pPlayer);
+    }
+}
+
+void DropService::OnDropPhysicsDisabledRequest(const PacketEvent<RequestDroppedItemPhysicsDisabled>& acMessage) noexcept
+{
+    if (!bEnableItemDrops)
+        return;
+
+    const auto& message = acMessage.Packet;
+
+    if (!message.DropId)
+        return;
+
+    NotifyDroppedItemPhysicsDisabled notify{};
+    notify.DropId = message.DropId;
+    notify.HasLocation = message.HasLocation;
+    if (notify.HasLocation)
+        notify.Location = message.Location;
+    notify.HasRotation = message.HasRotation;
+    if (notify.HasRotation)
+        notify.Rotation = message.Rotation;
+    notify.CellId = message.CellId;
+    notify.WorldSpaceId = message.WorldSpaceId;
+    notify.ReferenceId = message.ReferenceId;
+
+    ActiveDrop* pDrop = ResolveActiveDrop(message.DropId);
+    if (!pDrop)
+    {
+        spdlog::debug("DropService: physics disabled requested for unknown drop {}", message.DropId);
+        return;
+    }
+
+    const GameId previousCell = pDrop->CellId;
+
+    if (message.CellId)
+        pDrop->CellId = message.CellId;
+    if (message.WorldSpaceId)
+        pDrop->WorldSpaceId = message.WorldSpaceId;
+    if (message.ReferenceId)
+        pDrop->ReferenceId = message.ReferenceId;
+
+    if (message.HasLocation)
+    {
+        pDrop->HasLocation = true;
+        pDrop->Location = message.Location;
+    }
+
+    if (message.HasRotation)
+    {
+        pDrop->HasRotation = true;
+        pDrop->Rotation = message.Rotation;
+    }
+
+    if (previousCell != pDrop->CellId)
+    {
+        EraseDropFromIndex(pDrop->DropId, previousCell);
+        IndexDrop(pDrop->DropId, pDrop->CellId);
+    }
+
+    UpdateDropLocation(*pDrop);
+
+    notify.DropId = pDrop->DropId;
+    notify.HasLocation = pDrop->HasLocation;
+    if (notify.HasLocation)
+        notify.Location = pDrop->Location;
+    notify.HasRotation = pDrop->HasRotation;
+    if (notify.HasRotation)
+        notify.Rotation = pDrop->Rotation;
+    notify.CellId = pDrop->CellId;
+    notify.WorldSpaceId = pDrop->WorldSpaceId;
+    notify.ReferenceId = pDrop->ReferenceId;
+
+    if (auto characterEntity = acMessage.pPlayer->GetCharacter(); characterEntity && m_world.valid(*characterEntity))
+    {
+        if (!GameServer::Get()->SendToPlayersInRange(notify, *characterEntity, acMessage.pPlayer))
+        {
+            spdlog::error("{}: SendToPlayersInRange failed for drop physics disabled {}", __FUNCTION__, message.DropId);
             GameServer::Get()->SendToPlayers(notify, acMessage.pPlayer);
         }
     }
