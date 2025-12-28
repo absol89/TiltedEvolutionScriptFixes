@@ -62,6 +62,13 @@ constexpr uint32_t kMaxPendingDropRetries = 600;
 constexpr uint32_t kMaxPendingPickupRetries = 120;
 TiltedPhoques::Map<uint64_t, float> g_materializeGrace;
 
+bool HasDropLocation(const NiPoint3& aLocation) noexcept
+{
+    return std::abs(aLocation.x) > std::numeric_limits<float>::epsilon() ||
+        std::abs(aLocation.y) > std::numeric_limits<float>::epsilon() ||
+        std::abs(aLocation.z) > std::numeric_limits<float>::epsilon();
+}
+
 enum class MotionType : uint8_t
 {
     kInvalid = 0,
@@ -1536,6 +1543,27 @@ void DropService::ProcessDropEntry(const NotifyDroppedItems::Entry& acEntry, boo
 
     if (const auto handleOpt = DropManager::GetHandleForDrop(acEntry.DropId); handleOpt && TESObjectREFR::GetByHandle(*handleOpt))
     {
+        if (TESObjectREFR* pReference = TESObjectREFR::GetByHandle(*handleOpt))
+        {
+            const bool locallyActive = m_grabbedDrops.find(acEntry.DropId) != m_grabbedDrops.end() ||
+                m_dropPhysicsCooldowns.find(acEntry.DropId) != m_dropPhysicsCooldowns.end();
+            if (!locallyActive && HasDropLocation(data.Location) && IsDropCellLoaded(data.CellId, data.WorldSpaceId))
+            {
+                TESObjectCELL* pCell = nullptr;
+                if (data.CellId)
+                {
+                    const uint32_t cellFormId = m_world.GetModSystem().GetGameId(data.CellId);
+                    if (cellFormId)
+                        pCell = Cast<TESObjectCELL>(TESForm::GetById(cellFormId));
+                }
+                if (!pCell)
+                    pCell = pReference->GetParentCellEx();
+                if (pCell)
+                    pReference->MoveTo(pCell, data.Location);
+                pReference->SetRotation(data.Rotation.x, data.Rotation.y, data.Rotation.z);
+                pReference->Update3DPosition(true);
+            }
+        }
         m_localDrops.insert(acEntry.DropId);
         spdlog::debug("DropService: skip drop {} from sync (already present locally)", acEntry.DropId);
         return;
@@ -1587,7 +1615,7 @@ bool DropService::MaterializeDrop(uint64_t aDropId, const DropManager::ServerDro
         return true;
     }
 
-    const bool hasLocation = std::abs(acData.Location.x) > std::numeric_limits<float>::epsilon() || std::abs(acData.Location.y) > std::numeric_limits<float>::epsilon() || std::abs(acData.Location.z) > std::numeric_limits<float>::epsilon();
+    const bool hasLocation = HasDropLocation(acData.Location);
     if (!hasLocation)
         return false;
 
@@ -1837,6 +1865,25 @@ bool DropService::TryBindExistingReference(uint64_t aDropId, const DropManager::
             DropManager::SetReferenceForDrop(aDropId, referenceId);
 
         m_localDrops.insert(aDropId);
+
+        const bool locallyActive = m_grabbedDrops.find(aDropId) != m_grabbedDrops.end() ||
+            m_dropPhysicsCooldowns.find(aDropId) != m_dropPhysicsCooldowns.end();
+        if (!locallyActive && HasDropLocation(acData.Location) && IsDropCellLoaded(acData.CellId, acData.WorldSpaceId))
+        {
+            TESObjectCELL* pCell = nullptr;
+            if (acData.CellId)
+            {
+                const uint32_t cellFormId = m_world.GetModSystem().GetGameId(acData.CellId);
+                if (cellFormId)
+                    pCell = Cast<TESObjectCELL>(TESForm::GetById(cellFormId));
+            }
+            if (!pCell)
+                pCell = apReference->GetParentCellEx();
+            if (pCell)
+                apReference->MoveTo(pCell, acData.Location);
+            apReference->SetRotation(acData.Rotation.x, acData.Rotation.y, acData.Rotation.z);
+            apReference->Update3DPosition(true);
+        }
 
         spdlog::debug("DropService: rebound existing reference {:X}:{:X} for drop {}", referenceId.ModId, referenceId.BaseId, aDropId);
         return true;
