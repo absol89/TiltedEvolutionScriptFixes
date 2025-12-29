@@ -724,11 +724,11 @@ void DropService::OnNotifyDropMove(const NotifyDroppedItemMove& acMessage) noexc
     if (acMessage.HasLocation)
     {
         if (TESObjectCELL* pCell = pReference->GetParentCellEx())
-            pReference->MoveTo(pCell, location);
+            pReference->SetPosition(location);
     }
 
     if (acMessage.HasRotation)
-        pReference->SetRotation(rotation.x, rotation.y, rotation.z);
+        pReference->SetRotation(rotation);
 
     if (acMessage.DropId != 0)
     {
@@ -1556,13 +1556,16 @@ void DropService::ProcessDropEntry(const NotifyDroppedItems::Entry& acEntry, boo
                     if (cellFormId)
                         pCell = Cast<TESObjectCELL>(TESForm::GetById(cellFormId));
                 }
-                if (!pCell)
-                    pCell = pReference->GetParentCellEx();
-                if (pCell)
-                    pReference->MoveTo(pCell, data.Location);
-                pReference->SetRotation(data.Rotation.x, data.Rotation.y, data.Rotation.z);
-                pReference->Update3DPosition(true);
-            }
+            if (!pCell)
+                pCell = pReference->GetParentCellEx();
+            const auto* pCurrentCell = pReference->GetParentCellEx();
+            if (pCell && (!pCurrentCell || pCell != pCurrentCell))
+                pReference->MoveTo(pCell, data.Location);
+            else if (pCurrentCell)
+                pReference->SetPosition(data.Location);
+            pReference->SetRotation(data.Rotation);
+            pReference->Update3DPosition(true);
+        }
         }
         m_localDrops.insert(acEntry.DropId);
         spdlog::debug("DropService: skip drop {} from sync (already present locally)", acEntry.DropId);
@@ -1879,9 +1882,12 @@ bool DropService::TryBindExistingReference(uint64_t aDropId, const DropManager::
             }
             if (!pCell)
                 pCell = apReference->GetParentCellEx();
-            if (pCell)
+            const auto* pCurrentCell = apReference->GetParentCellEx();
+            if (pCell && (!pCurrentCell || pCell != pCurrentCell))
                 apReference->MoveTo(pCell, acData.Location);
-            apReference->SetRotation(acData.Rotation.x, acData.Rotation.y, acData.Rotation.z);
+            else if (pCurrentCell)
+                apReference->SetPosition(acData.Location);
+            apReference->SetRotation(acData.Rotation);
             apReference->Update3DPosition(true);
         }
 

@@ -146,11 +146,30 @@ ShaderReferenceEffect* TESObjectREFR::ApplyEffectShader(TESEffectShader* apEffec
     return TiltedPhoques::ThisCall(s_applyEffectShader, this, apEffectShader, aDuration, apFacingRef, aFaceTarget, aAttachToCamera, apAttachNode, aInterfaceEffect);
 }
 
+void TESObjectREFR::SetPosition(const NiPoint3& acPosition) noexcept
+{
+    TP_THIS_FUNCTION(TSetPosition, void, TESObjectREFR, const NiPoint3&);
+    POINTER_SKYRIMSE(TSetPosition, s_setPosition, 19790);
+    TiltedPhoques::ThisCall(s_setPosition, this, acPosition);
+}
+
+void TESObjectREFR::SetAngle(const NiPoint3& acAngle) noexcept
+{
+    TP_THIS_FUNCTION(TSetAngle, void, TESObjectREFR, const NiPoint3&);
+    POINTER_SKYRIMSE(TSetAngle, s_setAngle, 19786);
+    TiltedPhoques::ThisCall(s_setAngle, this, acAngle);
+}
+
 void TESObjectREFR::SetRotation(float aX, float aY, float aZ) noexcept
 {
     TiltedPhoques::ThisCall(RealRotateX, this, aX);
     TiltedPhoques::ThisCall(RealRotateY, this, aY);
     TiltedPhoques::ThisCall(RealRotateZ, this, aZ);
+}
+
+void TESObjectREFR::SetRotation(const NiPoint3& acRotation) noexcept
+{
+    SetAngle(acRotation);
 }
 
 using TiltedPhoques::Serialization;
