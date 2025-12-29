@@ -3,6 +3,7 @@
 #include <Structs/Guid.h>
 #include <Structs/Inventory.h>
 #include <Structs/GameId.h>
+#include <Structs/ServerItemType.h>
 #include <Games/Primitives.h>
 #include <optional>
 
@@ -25,6 +26,7 @@ struct ServerDropData
 {
     uint32_t ServerId{};
     uint32_t ActorFormId{};
+    ServerItemType Type{ServerItemType::Dropped};
     Inventory::Entry Item{};
     NiPoint3 Location{};
     NiPoint3 Rotation{};
@@ -51,6 +53,7 @@ void ClearHandleBinding(uint64_t dropId) noexcept;
 void SetReferenceForDrop(uint64_t dropId, const GameId& referenceId) noexcept;
 
 std::optional<uint64_t> GetDropIdForHandle(uint32_t handleBits) noexcept;
+std::optional<uint64_t> GetDropIdForReference(const GameId& referenceId) noexcept;
 std::optional<uint32_t> GetHandleForDrop(uint64_t dropId) noexcept;
 std::optional<ServerDropData> GetServerDrop(uint64_t dropId) noexcept;
 std::optional<uint64_t> FindDropBySignature(const GameId& aBaseId, const NiPoint3& aLocation, float aRadiusSq) noexcept;

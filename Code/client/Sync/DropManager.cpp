@@ -10,6 +10,7 @@ namespace
     TiltedPhoques::Map<Guid, LocalDropData> s_localDrops;
     TiltedPhoques::Map<uint64_t, ServerDropData> s_serverDrops;
     TiltedPhoques::Map<uint32_t, uint64_t> s_handleBindings;
+    TiltedPhoques::Map<GameId, uint64_t> s_referenceBindings;
     StorageListener* s_pStorageListener = nullptr;
 
     void UnbindHandle(uint32_t handleBits) noexcept
@@ -55,9 +56,11 @@ void TrackServerDrop(uint64_t dropId, const ServerDropData& data) noexcept
     ServerDropData merged = data;
 
     const bool existed = s_serverDrops.find(dropId) != std::end(s_serverDrops);
+    GameId previousReference{};
     if (existed)
     {
         auto& current = s_serverDrops[dropId];
+        previousReference = current.ReferenceId;
         if (!merged.ServerId)
             merged.ServerId = current.ServerId;
         if (!merged.HandleBits)
@@ -70,18 +73,24 @@ void TrackServerDrop(uint64_t dropId, const ServerDropData& data) noexcept
             merged.CellId = current.CellId;
         if (!merged.WorldSpaceId && current.WorldSpaceId)
             merged.WorldSpaceId = current.WorldSpaceId;
+        if (merged.Type == ServerItemType::Dropped && current.Type == ServerItemType::CreationEngine)
+            merged.Type = current.Type;
     }
 
     s_serverDrops[dropId] = merged;
     if (merged.HandleBits)
         BindHandle(merged.HandleBits, dropId);
+    if (previousReference && previousReference != merged.ReferenceId)
+        s_referenceBindings.erase(previousReference);
+    if (merged.ReferenceId)
+        s_referenceBindings[merged.ReferenceId] = dropId;
 
     if (s_pStorageListener)
         s_pStorageListener->OnServerDropTracked(dropId, merged);
 
     auto logLevel = existed ? spdlog::level::debug : spdlog::level::info;
-    spdlog::log(logLevel, "DropManager: tracked drop {} server {:X} actor {:X} item {:X}:{:X} loc ({:.2f}, {:.2f}, {:.2f}) handle {:X}", dropId, merged.ServerId, merged.ActorFormId, merged.Item.BaseId.ModId,
-                merged.Item.BaseId.BaseId, merged.Location.x, merged.Location.y, merged.Location.z, merged.HandleBits);
+    spdlog::log(logLevel, "DropManager: tracked drop {} server {:X} actor {:X} item {:X}:{:X} type {} loc ({:.2f}, {:.2f}, {:.2f}) handle {:X}", dropId, merged.ServerId, merged.ActorFormId,
+                merged.Item.BaseId.ModId, merged.Item.BaseId.BaseId, merged.Type == ServerItemType::CreationEngine ? "ce" : "drop", merged.Location.x, merged.Location.y, merged.Location.z, merged.HandleBits);
 }
 
 bool BindHandleToServerDrop(uint64_t dropId, uint32_t actorFormId, uint32_t handleBits) noexcept
@@ -133,7 +142,11 @@ void SetReferenceForDrop(uint64_t dropId, const GameId& referenceId) noexcept
     if (drop.ReferenceId == referenceId)
         return;
 
+    if (drop.ReferenceId)
+        s_referenceBindings.erase(drop.ReferenceId);
+
     drop.ReferenceId = referenceId;
+    s_referenceBindings[referenceId] = dropId;
     if (s_pStorageListener)
         s_pStorageListener->OnServerDropTracked(dropId, drop);
 }
@@ -148,6 +161,18 @@ std::optional<uint64_t> GetDropIdForHandle(uint32_t handleBits) noexcept
         return std::nullopt;
 
     return handleIt->second;
+}
+
+std::optional<uint64_t> GetDropIdForReference(const GameId& referenceId) noexcept
+{
+    if (!referenceId)
+        return std::nullopt;
+
+    const auto it = s_referenceBindings.find(referenceId);
+    if (it == s_referenceBindings.end())
+        return std::nullopt;
+
+    return it->second;
 }
 
 std::optional<uint32_t> GetHandleForDrop(uint64_t dropId) noexcept
@@ -177,6 +202,7 @@ bool UpdateServerDropTransform(uint64_t dropId, const NiPoint3& acLocation, cons
         return false;
 
     auto& drop = s_serverDrops[dropId];
+    const GameId previousReference = drop.ReferenceId;
     drop.Location = acLocation;
     drop.Rotation = acRotation;
     if (acCellId)
@@ -184,7 +210,15 @@ bool UpdateServerDropTransform(uint64_t dropId, const NiPoint3& acLocation, cons
     if (acWorldSpaceId)
         drop.WorldSpaceId = acWorldSpaceId;
     if (acReferenceId)
+    {
         drop.ReferenceId = acReferenceId;
+        if (previousReference != drop.ReferenceId)
+        {
+            if (previousReference)
+                s_referenceBindings.erase(previousReference);
+            s_referenceBindings[drop.ReferenceId] = dropId;
+        }
+    }
 
     if (s_pStorageListener)
         s_pStorageListener->OnServerDropTracked(dropId, drop);
@@ -230,6 +264,8 @@ void RemoveServerDrop(uint64_t dropId) noexcept
         return;
 
     UnbindHandle(it->second.HandleBits);
+    if (it->second.ReferenceId)
+        s_referenceBindings.erase(it->second.ReferenceId);
     s_serverDrops.erase(it);
     if (s_pStorageListener)
         s_pStorageListener->OnServerDropRemoved(dropId);

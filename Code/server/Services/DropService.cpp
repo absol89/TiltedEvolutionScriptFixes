@@ -184,6 +184,7 @@ constexpr const char* kCreateDropsTableSql = R"SQL(
         actor_form_id INTEGER NOT NULL,
         origin_player_id INTEGER NOT NULL,
         client_drop_id BLOB NULL,
+        item_type INTEGER NOT NULL DEFAULT 0,
         item_mod_id INTEGER NOT NULL,
         item_base_id INTEGER NOT NULL,
         count INTEGER NOT NULL CHECK(count > 0),
@@ -747,6 +748,18 @@ void DropService::OnPickupRequest(const PacketEvent<RequestPickupDroppedItem>& a
         return;
     }
     ActiveDrop dropCopy = *pDrop;
+    if (dropCopy.Type == ServerItemType::CreationEngine)
+    {
+        const GameId pickupRef = message.ReferenceId ? message.ReferenceId : dropCopy.ReferenceId;
+        if (pickupRef && dropCopy.CellId && m_pCreationEngineDatabase)
+        {
+            if (!RecordCreationEnginePickup(pickupRef, dropCopy.CellId, dropCopy.WorldSpaceId, pPicker->GetId()) &&
+                !IsCreationEnginePickupRecorded(pickupRef))
+            {
+                spdlog::warn("DropService: failed to record creation engine pickup for drop {}", dropCopy.DropId);
+            }
+        }
+    }
     RemoveActiveDrop(pDrop->DropId);
 
     NotifyDroppedItemPickedUp notify{};
@@ -779,8 +792,102 @@ void DropService::OnDroppedItemsRequest(const PacketEvent<RequestDroppedItems>& 
     const auto& request = acMessage.Packet;
     NotifyDroppedItems notify{};
     notify.RequestId = request.RequestId;
-    spdlog::debug("DropService: drop sync request {} from player {:X}, all={}, cell {:X}:{:X}", request.RequestId, acMessage.GetSender()->GetConnectionId(), request.RequestAll,
-                  request.HasCellFilter ? request.CellId.ModId : 0, request.HasCellFilter ? request.CellId.BaseId : 0);
+    spdlog::debug("DropService: drop sync request {} from player {:X}, all={}, cell {:X}:{:X}, discoveries={}", request.RequestId, acMessage.GetSender()->GetConnectionId(), request.RequestAll,
+                  request.HasCellFilter ? request.CellId.ModId : 0, request.HasCellFilter ? request.CellId.BaseId : 0, request.Discoveries.size());
+
+    if (!request.Discoveries.empty())
+    {
+        const bool useTransaction = BeginTransaction();
+        bool hadFailure = false;
+
+        for (const auto& entry : request.Discoveries)
+        {
+            if (!entry.ReferenceId || !entry.Item.BaseId || !entry.CellId)
+                continue;
+
+            if (IsCreationEnginePickupRecorded(entry.ReferenceId))
+                continue;
+
+            const auto existingIt = m_referenceDropIndex.find(entry.ReferenceId);
+            if (existingIt != m_referenceDropIndex.end())
+            {
+                ActiveDrop* pExisting = ResolveActiveDrop(existingIt->second);
+                if (!pExisting || pExisting->Type != ServerItemType::CreationEngine)
+                    continue;
+
+                const GameId previousCell = pExisting->CellId;
+                pExisting->CellId = entry.CellId;
+                pExisting->WorldSpaceId = entry.WorldSpaceId;
+                if (entry.HasLocation)
+                {
+                    pExisting->HasLocation = true;
+                    pExisting->Location = entry.Location;
+                }
+                if (entry.HasRotation)
+                {
+                    pExisting->HasRotation = true;
+                    pExisting->Rotation = entry.Rotation;
+                }
+
+                if (previousCell != pExisting->CellId)
+                {
+                    EraseDropFromIndex(pExisting->DropId, previousCell);
+                    IndexDrop(pExisting->DropId, pExisting->CellId);
+                }
+
+                if (!UpdateDropLocation(*pExisting) && useTransaction)
+                    hadFailure = true;
+
+                continue;
+            }
+
+            ActiveDrop drop{};
+            drop.ServerId = 0;
+            drop.ActorFormId = 0;
+            drop.OriginPlayerId = acMessage.GetSender()->GetConnectionId();
+            drop.Type = ServerItemType::CreationEngine;
+            drop.DropEntry = entry.Item;
+            drop.PickupEntry = entry.Item;
+            if (drop.PickupEntry.Count == 0)
+                drop.PickupEntry.Count = 1;
+            drop.CellId = entry.CellId;
+            drop.WorldSpaceId = entry.WorldSpaceId;
+            drop.ReferenceId = entry.ReferenceId;
+            drop.HasLocation = entry.HasLocation;
+            if (entry.HasLocation)
+                drop.Location = entry.Location;
+            drop.HasRotation = entry.HasRotation;
+            if (entry.HasRotation)
+                drop.Rotation = entry.Rotation;
+
+            uint64_t dropId = 0;
+            if (!InsertDrop(drop, dropId))
+            {
+                spdlog::warn("DropService: failed to insert creation-engine item ref {:X}:{:X}", entry.ReferenceId.ModId, entry.ReferenceId.BaseId);
+                if (useTransaction)
+                    hadFailure = true;
+                continue;
+            }
+
+            drop.DropId = dropId;
+            drop.Version = 1;
+            drop.SpawnEpoch = drop.Version;
+            TrackActiveDrop(drop);
+        }
+
+        if (useTransaction)
+        {
+            if (!hadFailure)
+                hadFailure = !CommitTransaction();
+
+            if (hadFailure)
+            {
+                RollbackTransaction();
+                LoadPersistedDrops();
+                spdlog::warn("DropService: discovery transaction rolled back");
+            }
+        }
+    }
 
     auto appendEntry = [&](const ActiveDrop& acDrop) {
         if (!request.RequestAll)
@@ -855,6 +962,7 @@ void DropService::OnDropMoveRequest(const PacketEvent<RequestDroppedItemMove>& a
             pDrop->CellId = message.CellId;
         if (message.WorldSpaceId)
             pDrop->WorldSpaceId = message.WorldSpaceId;
+        const GameId previousRef = pDrop->ReferenceId;
         if (message.ReferenceId)
             pDrop->ReferenceId = message.ReferenceId;
 
@@ -869,6 +977,11 @@ void DropService::OnDropMoveRequest(const PacketEvent<RequestDroppedItemMove>& a
             pDrop->HasRotation = true;
             pDrop->Rotation = message.Rotation;
         }
+
+        if (previousRef && previousRef != pDrop->ReferenceId)
+            m_referenceDropIndex.erase(previousRef);
+        if (pDrop->ReferenceId)
+            m_referenceDropIndex[pDrop->ReferenceId] = pDrop->DropId;
 
         if (previousCell != pDrop->CellId)
         {
@@ -939,6 +1052,7 @@ void DropService::OnDropPhysicsDisabledRequest(const PacketEvent<RequestDroppedI
         pDrop->CellId = message.CellId;
     if (message.WorldSpaceId)
         pDrop->WorldSpaceId = message.WorldSpaceId;
+    const GameId previousRef = pDrop->ReferenceId;
     if (message.ReferenceId)
         pDrop->ReferenceId = message.ReferenceId;
 
@@ -953,6 +1067,11 @@ void DropService::OnDropPhysicsDisabledRequest(const PacketEvent<RequestDroppedI
         pDrop->HasRotation = true;
         pDrop->Rotation = message.Rotation;
     }
+
+    if (previousRef && previousRef != pDrop->ReferenceId)
+        m_referenceDropIndex.erase(previousRef);
+    if (pDrop->ReferenceId)
+        m_referenceDropIndex[pDrop->ReferenceId] = pDrop->DropId;
 
     if (previousCell != pDrop->CellId)
     {
@@ -1036,12 +1155,12 @@ bool DropService::InitializeDatabase() noexcept
         return false;
     }
 
+    if (!EnsureColumnExists(m_pDatabase, "ALTER TABLE server_drops ADD COLUMN item_type INTEGER NOT NULL DEFAULT 0;"))
+        return false;
     if (!EnsureColumnExists(m_pDatabase, "ALTER TABLE server_drops ADD COLUMN reference_mod_id INTEGER NOT NULL DEFAULT 0;"))
         return false;
     if (!EnsureColumnExists(m_pDatabase, "ALTER TABLE server_drops ADD COLUMN reference_base_id INTEGER NOT NULL DEFAULT 0;"))
         return false;
-
-    MigrateLegacyDrops();
 
     return true;
 }
@@ -1176,10 +1295,11 @@ void DropService::LoadPersistedDrops() noexcept
 
     m_activeDrops.clear();
     m_cellDropIndex.clear();
+    m_referenceDropIndex.clear();
 
     constexpr const char* cSelectSql =
-        "SELECT server_drop_id, server_id, actor_form_id, origin_player_id, client_drop_id, item_mod_id, item_base_id, count, cell_mod_id, cell_base_id, world_mod_id, world_base_id, reference_mod_id, reference_base_id, "
-        "has_location, pos_x, pos_y, pos_z, has_rotation, rot_x, rot_y, rot_z, version, item_blob "
+        "SELECT server_drop_id, server_id, actor_form_id, origin_player_id, client_drop_id, item_type, item_mod_id, item_base_id, count, cell_mod_id, cell_base_id, world_mod_id, world_base_id, reference_mod_id, "
+        "reference_base_id, has_location, pos_x, pos_y, pos_z, has_rotation, rot_x, rot_y, rot_z, version, item_blob "
         "FROM server_drops WHERE is_active = 1;";
 
     StatementPtr statement = PrepareStatement(m_pDatabase, cSelectSql);
@@ -1198,33 +1318,35 @@ void DropService::LoadPersistedDrops() noexcept
         drop.ActorFormId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 2));
         drop.OriginPlayerId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 3));
         drop.ClientDropId = GuidFromColumn(statement.get(), 4);
-        drop.CellId.ModId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 8));
-        drop.CellId.BaseId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 9));
-        drop.WorldSpaceId.ModId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 10));
-        drop.WorldSpaceId.BaseId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 11));
-        drop.ReferenceId.ModId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 12));
-        drop.ReferenceId.BaseId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 13));
+        const auto typeValue = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 5));
+        drop.Type = typeValue == static_cast<uint32_t>(ServerItemType::CreationEngine) ? ServerItemType::CreationEngine : ServerItemType::Dropped;
+        drop.CellId.ModId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 9));
+        drop.CellId.BaseId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 10));
+        drop.WorldSpaceId.ModId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 11));
+        drop.WorldSpaceId.BaseId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 12));
+        drop.ReferenceId.ModId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 13));
+        drop.ReferenceId.BaseId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 14));
 
-        drop.HasLocation = sqlite3_column_int(statement.get(), 14) != 0;
+        drop.HasLocation = sqlite3_column_int(statement.get(), 15) != 0;
         if (drop.HasLocation)
         {
-            drop.Location.x = static_cast<float>(sqlite3_column_double(statement.get(), 15));
-            drop.Location.y = static_cast<float>(sqlite3_column_double(statement.get(), 16));
-            drop.Location.z = static_cast<float>(sqlite3_column_double(statement.get(), 17));
+            drop.Location.x = static_cast<float>(sqlite3_column_double(statement.get(), 16));
+            drop.Location.y = static_cast<float>(sqlite3_column_double(statement.get(), 17));
+            drop.Location.z = static_cast<float>(sqlite3_column_double(statement.get(), 18));
         }
 
-        drop.HasRotation = sqlite3_column_int(statement.get(), 18) != 0;
+        drop.HasRotation = sqlite3_column_int(statement.get(), 19) != 0;
         if (drop.HasRotation)
         {
-            drop.Rotation.x = static_cast<float>(sqlite3_column_double(statement.get(), 19));
-            drop.Rotation.y = static_cast<float>(sqlite3_column_double(statement.get(), 20));
-            drop.Rotation.z = static_cast<float>(sqlite3_column_double(statement.get(), 21));
+            drop.Rotation.x = static_cast<float>(sqlite3_column_double(statement.get(), 20));
+            drop.Rotation.y = static_cast<float>(sqlite3_column_double(statement.get(), 21));
+            drop.Rotation.z = static_cast<float>(sqlite3_column_double(statement.get(), 22));
         }
 
-        drop.Version = static_cast<uint64_t>(sqlite3_column_int64(statement.get(), 22));
+        drop.Version = static_cast<uint64_t>(sqlite3_column_int64(statement.get(), 23));
 
-        const void* pBlob = sqlite3_column_blob(statement.get(), 23);
-        const int blobSize = sqlite3_column_bytes(statement.get(), 23);
+        const void* pBlob = sqlite3_column_blob(statement.get(), 24);
+        const int blobSize = sqlite3_column_bytes(statement.get(), 24);
         drop.DropEntry = DeserializeEntryBlob(pBlob, blobSize);
         drop.PickupEntry = drop.DropEntry;
         if (drop.PickupEntry.Count < 0)
@@ -1244,6 +1366,7 @@ NotifyDroppedItems::Entry DropService::MakeNotifyEntry(const ActiveDrop& acDrop)
     entry.DropId = acDrop.DropId;
     entry.ServerId = acDrop.ServerId;
     entry.ActorFormId = acDrop.ActorFormId;
+    entry.Type = acDrop.Type;
     entry.Item = acDrop.DropEntry;
     entry.HasLocation = acDrop.HasLocation;
     if (entry.HasLocation)
@@ -1320,8 +1443,8 @@ std::optional<DropService::ActiveDrop> DropService::FetchDropFromDatabase(uint64
         return std::nullopt;
 
     constexpr const char* cSelectSql =
-        "SELECT server_drop_id, server_id, actor_form_id, origin_player_id, client_drop_id, item_mod_id, item_base_id, count, cell_mod_id, cell_base_id, world_mod_id, world_base_id, reference_mod_id, reference_base_id, "
-        "has_location, pos_x, pos_y, pos_z, has_rotation, rot_x, rot_y, rot_z, version, item_blob "
+        "SELECT server_drop_id, server_id, actor_form_id, origin_player_id, client_drop_id, item_type, item_mod_id, item_base_id, count, cell_mod_id, cell_base_id, world_mod_id, world_base_id, reference_mod_id, "
+        "reference_base_id, has_location, pos_x, pos_y, pos_z, has_rotation, rot_x, rot_y, rot_z, version, item_blob "
         "FROM server_drops WHERE server_drop_id = ?1 AND is_active = 1;";
 
     StatementPtr statement = PrepareStatement(m_pDatabase, cSelectSql);
@@ -1342,30 +1465,32 @@ std::optional<DropService::ActiveDrop> DropService::FetchDropFromDatabase(uint64
     drop.ActorFormId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 2));
     drop.OriginPlayerId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 3));
     drop.ClientDropId = GuidFromColumn(statement.get(), 4);
-    drop.CellId.ModId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 8));
-    drop.CellId.BaseId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 9));
-    drop.WorldSpaceId.ModId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 10));
-    drop.WorldSpaceId.BaseId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 11));
-    drop.ReferenceId.ModId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 12));
-    drop.ReferenceId.BaseId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 13));
-    drop.HasLocation = sqlite3_column_int(statement.get(), 14) != 0;
+    const auto typeValue = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 5));
+    drop.Type = typeValue == static_cast<uint32_t>(ServerItemType::CreationEngine) ? ServerItemType::CreationEngine : ServerItemType::Dropped;
+    drop.CellId.ModId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 9));
+    drop.CellId.BaseId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 10));
+    drop.WorldSpaceId.ModId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 11));
+    drop.WorldSpaceId.BaseId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 12));
+    drop.ReferenceId.ModId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 13));
+    drop.ReferenceId.BaseId = static_cast<uint32_t>(sqlite3_column_int64(statement.get(), 14));
+    drop.HasLocation = sqlite3_column_int(statement.get(), 15) != 0;
     if (drop.HasLocation)
     {
-        drop.Location.x = static_cast<float>(sqlite3_column_double(statement.get(), 15));
-        drop.Location.y = static_cast<float>(sqlite3_column_double(statement.get(), 16));
-        drop.Location.z = static_cast<float>(sqlite3_column_double(statement.get(), 17));
+        drop.Location.x = static_cast<float>(sqlite3_column_double(statement.get(), 16));
+        drop.Location.y = static_cast<float>(sqlite3_column_double(statement.get(), 17));
+        drop.Location.z = static_cast<float>(sqlite3_column_double(statement.get(), 18));
     }
-    drop.HasRotation = sqlite3_column_int(statement.get(), 18) != 0;
+    drop.HasRotation = sqlite3_column_int(statement.get(), 19) != 0;
     if (drop.HasRotation)
     {
-        drop.Rotation.x = static_cast<float>(sqlite3_column_double(statement.get(), 19));
-        drop.Rotation.y = static_cast<float>(sqlite3_column_double(statement.get(), 20));
-        drop.Rotation.z = static_cast<float>(sqlite3_column_double(statement.get(), 21));
+        drop.Rotation.x = static_cast<float>(sqlite3_column_double(statement.get(), 20));
+        drop.Rotation.y = static_cast<float>(sqlite3_column_double(statement.get(), 21));
+        drop.Rotation.z = static_cast<float>(sqlite3_column_double(statement.get(), 22));
     }
-    drop.Version = static_cast<uint64_t>(sqlite3_column_int64(statement.get(), 22));
+    drop.Version = static_cast<uint64_t>(sqlite3_column_int64(statement.get(), 23));
     drop.SpawnEpoch = drop.Version;
-    const void* pBlob = sqlite3_column_blob(statement.get(), 23);
-    const int blobSize = sqlite3_column_bytes(statement.get(), 23);
+    const void* pBlob = sqlite3_column_blob(statement.get(), 24);
+    const int blobSize = sqlite3_column_bytes(statement.get(), 24);
     drop.DropEntry = DeserializeEntryBlob(pBlob, blobSize);
     drop.PickupEntry = drop.DropEntry;
     if (drop.PickupEntry.Count < 0)
@@ -1380,9 +1505,9 @@ bool DropService::InsertDrop(const ActiveDrop& acDrop, uint64_t& aOutDropId) noe
         return false;
 
     constexpr const char* cInsertSql =
-        "INSERT INTO server_drops(server_id, actor_form_id, origin_player_id, client_drop_id, item_mod_id, item_base_id, count, cell_mod_id, cell_base_id, world_mod_id, world_base_id, reference_mod_id, "
+        "INSERT INTO server_drops(server_id, actor_form_id, origin_player_id, client_drop_id, item_type, item_mod_id, item_base_id, count, cell_mod_id, cell_base_id, world_mod_id, world_base_id, reference_mod_id, "
         "reference_base_id, has_location, pos_x, pos_y, pos_z, has_rotation, rot_x, rot_y, rot_z, version, item_blob) "
-        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23);";
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24);";
 
     StatementPtr statement = PrepareStatement(m_pDatabase, cInsertSql);
     if (!statement)
@@ -1395,44 +1520,45 @@ bool DropService::InsertDrop(const ActiveDrop& acDrop, uint64_t& aOutDropId) noe
     sqlite3_bind_int(statement.get(), 2, static_cast<int>(acDrop.ActorFormId));
     sqlite3_bind_int(statement.get(), 3, static_cast<int>(acDrop.OriginPlayerId));
     BindGuid(statement.get(), 4, acDrop.ClientDropId);
-    sqlite3_bind_int(statement.get(), 5, static_cast<int>(acDrop.PickupEntry.BaseId.ModId));
-    sqlite3_bind_int(statement.get(), 6, static_cast<int>(acDrop.PickupEntry.BaseId.BaseId));
-    sqlite3_bind_int(statement.get(), 7, static_cast<int>(acDrop.PickupEntry.Count));
-    sqlite3_bind_int(statement.get(), 8, static_cast<int>(acDrop.CellId.ModId));
-    sqlite3_bind_int(statement.get(), 9, static_cast<int>(acDrop.CellId.BaseId));
-    sqlite3_bind_int(statement.get(), 10, static_cast<int>(acDrop.WorldSpaceId.ModId));
-    sqlite3_bind_int(statement.get(), 11, static_cast<int>(acDrop.WorldSpaceId.BaseId));
-    sqlite3_bind_int(statement.get(), 12, static_cast<int>(acDrop.ReferenceId.ModId));
-    sqlite3_bind_int(statement.get(), 13, static_cast<int>(acDrop.ReferenceId.BaseId));
-    sqlite3_bind_int(statement.get(), 14, acDrop.HasLocation ? 1 : 0);
+    sqlite3_bind_int(statement.get(), 5, static_cast<int>(acDrop.Type));
+    sqlite3_bind_int(statement.get(), 6, static_cast<int>(acDrop.PickupEntry.BaseId.ModId));
+    sqlite3_bind_int(statement.get(), 7, static_cast<int>(acDrop.PickupEntry.BaseId.BaseId));
+    sqlite3_bind_int(statement.get(), 8, static_cast<int>(acDrop.PickupEntry.Count));
+    sqlite3_bind_int(statement.get(), 9, static_cast<int>(acDrop.CellId.ModId));
+    sqlite3_bind_int(statement.get(), 10, static_cast<int>(acDrop.CellId.BaseId));
+    sqlite3_bind_int(statement.get(), 11, static_cast<int>(acDrop.WorldSpaceId.ModId));
+    sqlite3_bind_int(statement.get(), 12, static_cast<int>(acDrop.WorldSpaceId.BaseId));
+    sqlite3_bind_int(statement.get(), 13, static_cast<int>(acDrop.ReferenceId.ModId));
+    sqlite3_bind_int(statement.get(), 14, static_cast<int>(acDrop.ReferenceId.BaseId));
+    sqlite3_bind_int(statement.get(), 15, acDrop.HasLocation ? 1 : 0);
     if (acDrop.HasLocation)
     {
-        sqlite3_bind_double(statement.get(), 15, acDrop.Location.x);
-        sqlite3_bind_double(statement.get(), 16, acDrop.Location.y);
-        sqlite3_bind_double(statement.get(), 17, acDrop.Location.z);
+        sqlite3_bind_double(statement.get(), 16, acDrop.Location.x);
+        sqlite3_bind_double(statement.get(), 17, acDrop.Location.y);
+        sqlite3_bind_double(statement.get(), 18, acDrop.Location.z);
     }
     else
     {
-        sqlite3_bind_null(statement.get(), 15);
         sqlite3_bind_null(statement.get(), 16);
         sqlite3_bind_null(statement.get(), 17);
+        sqlite3_bind_null(statement.get(), 18);
     }
-    sqlite3_bind_int(statement.get(), 18, acDrop.HasRotation ? 1 : 0);
+    sqlite3_bind_int(statement.get(), 19, acDrop.HasRotation ? 1 : 0);
     if (acDrop.HasRotation)
     {
-        sqlite3_bind_double(statement.get(), 19, acDrop.Rotation.x);
-        sqlite3_bind_double(statement.get(), 20, acDrop.Rotation.y);
-        sqlite3_bind_double(statement.get(), 21, acDrop.Rotation.z);
+        sqlite3_bind_double(statement.get(), 20, acDrop.Rotation.x);
+        sqlite3_bind_double(statement.get(), 21, acDrop.Rotation.y);
+        sqlite3_bind_double(statement.get(), 22, acDrop.Rotation.z);
     }
     else
     {
-        sqlite3_bind_null(statement.get(), 19);
         sqlite3_bind_null(statement.get(), 20);
         sqlite3_bind_null(statement.get(), 21);
+        sqlite3_bind_null(statement.get(), 22);
     }
-    sqlite3_bind_int(statement.get(), 22, static_cast<int>(acDrop.Version));
+    sqlite3_bind_int(statement.get(), 23, static_cast<int>(acDrop.Version));
     const std::string dropBlob = SerializeEntryBlob(acDrop.DropEntry);
-    sqlite3_bind_blob(statement.get(), 23, dropBlob.data(), static_cast<int>(dropBlob.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_blob(statement.get(), 24, dropBlob.data(), static_cast<int>(dropBlob.size()), SQLITE_TRANSIENT);
 
     if (sqlite3_step(statement.get()) != SQLITE_DONE)
     {
@@ -1759,8 +1885,16 @@ DropService::ActiveDrop* DropService::ResolveActiveDrop(uint64_t aDropId) noexce
 
 void DropService::TrackActiveDrop(const ActiveDrop& acDrop) noexcept
 {
+    if (const auto it = m_activeDrops.find(acDrop.DropId); it != m_activeDrops.end())
+    {
+        if (it->second.ReferenceId && it->second.ReferenceId != acDrop.ReferenceId)
+            m_referenceDropIndex.erase(it->second.ReferenceId);
+    }
+
     m_activeDrops[acDrop.DropId] = acDrop;
     IndexDrop(acDrop.DropId, acDrop.CellId);
+    if (acDrop.ReferenceId)
+        m_referenceDropIndex[acDrop.ReferenceId] = acDrop.DropId;
 }
 
 void DropService::RemoveActiveDrop(uint64_t aDropId) noexcept
@@ -1770,6 +1904,8 @@ void DropService::RemoveActiveDrop(uint64_t aDropId) noexcept
         return;
 
     EraseDropFromIndex(aDropId, it->second.CellId);
+    if (it->second.ReferenceId)
+        m_referenceDropIndex.erase(it->second.ReferenceId);
     m_activeDrops.erase(it);
 }
 
@@ -1933,135 +2069,6 @@ void DropService::HandleUntrackedPickupRequest(const PacketEvent<RequestPickupDr
 void DropService::BroadcastPickup(const NotifyDroppedItemPickedUp& acMessage) const noexcept
 {
     GameServer::Get()->SendToPlayers(acMessage, nullptr);
-}
-
-void DropService::MigrateLegacyDrops() noexcept
-{
-    if (!m_pDatabase)
-        return;
-
-    constexpr const char* cLegacyCheck = "SELECT name FROM sqlite_master WHERE type='table' AND name='dropped_items';";
-    StatementPtr legacyCheck = PrepareStatement(m_pDatabase, cLegacyCheck);
-    if (!legacyCheck)
-        return;
-
-    if (sqlite3_step(legacyCheck.get()) != SQLITE_ROW)
-        return;
-
-    constexpr const char* cCountSql = "SELECT COUNT(1) FROM server_drops;";
-    StatementPtr countStatement = PrepareStatement(m_pDatabase, cCountSql);
-    if (countStatement && sqlite3_step(countStatement.get()) == SQLITE_ROW)
-    {
-        if (sqlite3_column_int64(countStatement.get(), 0) > 0)
-        {
-            spdlog::info("DropService: skipping legacy drop migration (server_drops already populated)");
-            return;
-        }
-    }
-
-    constexpr const char* cSelectSql =
-        "SELECT drop_id, server_id, actor_form_id, cell_mod_id, cell_base_id, world_mod_id, world_base_id, has_location, pos_x, pos_y, pos_z, has_rotation, rot_x, rot_y, rot_z, item_blob "
-        "FROM dropped_items;";
-
-    StatementPtr selectStatement = PrepareStatement(m_pDatabase, cSelectSql);
-    if (!selectStatement)
-    {
-        spdlog::error("DropService: failed to prepare legacy drop select: {}", sqlite3_errmsg(m_pDatabase));
-        return;
-    }
-
-    uint32_t migratedCount = 0;
-    while (sqlite3_step(selectStatement.get()) == SQLITE_ROW)
-    {
-        ActiveDrop drop{};
-        drop.DropId = static_cast<uint64_t>(sqlite3_column_int64(selectStatement.get(), 0));
-        drop.ServerId = static_cast<uint32_t>(sqlite3_column_int64(selectStatement.get(), 1));
-        drop.ActorFormId = static_cast<uint32_t>(sqlite3_column_int64(selectStatement.get(), 2));
-        drop.OriginPlayerId = 0;
-        drop.ClientDropId.Clear();
-        drop.CellId.ModId = static_cast<uint32_t>(sqlite3_column_int64(selectStatement.get(), 3));
-        drop.CellId.BaseId = static_cast<uint32_t>(sqlite3_column_int64(selectStatement.get(), 4));
-        drop.WorldSpaceId.ModId = static_cast<uint32_t>(sqlite3_column_int64(selectStatement.get(), 5));
-        drop.WorldSpaceId.BaseId = static_cast<uint32_t>(sqlite3_column_int64(selectStatement.get(), 6));
-        drop.HasLocation = sqlite3_column_int(selectStatement.get(), 7) != 0;
-        if (drop.HasLocation)
-        {
-            drop.Location.x = static_cast<float>(sqlite3_column_double(selectStatement.get(), 8));
-            drop.Location.y = static_cast<float>(sqlite3_column_double(selectStatement.get(), 9));
-            drop.Location.z = static_cast<float>(sqlite3_column_double(selectStatement.get(), 10));
-        }
-        drop.HasRotation = sqlite3_column_int(selectStatement.get(), 11) != 0;
-        if (drop.HasRotation)
-        {
-            drop.Rotation.x = static_cast<float>(sqlite3_column_double(selectStatement.get(), 12));
-            drop.Rotation.y = static_cast<float>(sqlite3_column_double(selectStatement.get(), 13));
-            drop.Rotation.z = static_cast<float>(sqlite3_column_double(selectStatement.get(), 14));
-        }
-
-        const void* pBlob = sqlite3_column_blob(selectStatement.get(), 15);
-        const int blobSize = sqlite3_column_bytes(selectStatement.get(), 15);
-        drop.DropEntry = DeserializeEntryBlob(pBlob, blobSize);
-        drop.PickupEntry = drop.DropEntry;
-        if (drop.PickupEntry.Count < 0)
-            drop.PickupEntry.Count = -drop.PickupEntry.Count;
-
-        constexpr const char* cInsertSql =
-            "INSERT OR IGNORE INTO server_drops(server_drop_id, server_id, actor_form_id, origin_player_id, client_drop_id, item_mod_id, item_base_id, count, cell_mod_id, cell_base_id, world_mod_id, world_base_id, "
-            "reference_mod_id, reference_base_id, has_location, pos_x, pos_y, pos_z, has_rotation, rot_x, rot_y, rot_z, version, item_blob) "
-            "VALUES (?1, ?2, ?3, 0, NULL, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, 0, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, 1, ?19);";
-
-        StatementPtr insertStatement = PrepareStatement(m_pDatabase, cInsertSql);
-        if (!insertStatement)
-        {
-            spdlog::error("DropService: failed to prepare legacy drop insert: {}", sqlite3_errmsg(m_pDatabase));
-            return;
-        }
-
-        sqlite3_bind_int64(insertStatement.get(), 1, static_cast<sqlite3_int64>(drop.DropId));
-        sqlite3_bind_int(insertStatement.get(), 2, static_cast<int>(drop.ServerId));
-        sqlite3_bind_int(insertStatement.get(), 3, static_cast<int>(drop.ActorFormId));
-        sqlite3_bind_int(insertStatement.get(), 4, static_cast<int>(drop.PickupEntry.BaseId.ModId));
-        sqlite3_bind_int(insertStatement.get(), 5, static_cast<int>(drop.PickupEntry.BaseId.BaseId));
-        sqlite3_bind_int(insertStatement.get(), 6, static_cast<int>(drop.PickupEntry.Count));
-        sqlite3_bind_int(insertStatement.get(), 7, static_cast<int>(drop.CellId.ModId));
-        sqlite3_bind_int(insertStatement.get(), 8, static_cast<int>(drop.CellId.BaseId));
-        sqlite3_bind_int(insertStatement.get(), 9, static_cast<int>(drop.WorldSpaceId.ModId));
-        sqlite3_bind_int(insertStatement.get(), 10, static_cast<int>(drop.WorldSpaceId.BaseId));
-        sqlite3_bind_int(insertStatement.get(), 11, drop.HasLocation ? 1 : 0);
-        if (drop.HasLocation)
-        {
-            sqlite3_bind_double(insertStatement.get(), 12, drop.Location.x);
-            sqlite3_bind_double(insertStatement.get(), 13, drop.Location.y);
-            sqlite3_bind_double(insertStatement.get(), 14, drop.Location.z);
-        }
-        else
-        {
-            sqlite3_bind_null(insertStatement.get(), 12);
-            sqlite3_bind_null(insertStatement.get(), 13);
-            sqlite3_bind_null(insertStatement.get(), 14);
-        }
-        sqlite3_bind_int(insertStatement.get(), 15, drop.HasRotation ? 1 : 0);
-        if (drop.HasRotation)
-        {
-            sqlite3_bind_double(insertStatement.get(), 16, drop.Rotation.x);
-            sqlite3_bind_double(insertStatement.get(), 17, drop.Rotation.y);
-            sqlite3_bind_double(insertStatement.get(), 18, drop.Rotation.z);
-        }
-        else
-        {
-            sqlite3_bind_null(insertStatement.get(), 16);
-            sqlite3_bind_null(insertStatement.get(), 17);
-            sqlite3_bind_null(insertStatement.get(), 18);
-        }
-        const std::string blob = SerializeEntryBlob(drop.DropEntry);
-        sqlite3_bind_blob(insertStatement.get(), 19, blob.data(), static_cast<int>(blob.size()), SQLITE_TRANSIENT);
-
-        if (sqlite3_step(insertStatement.get()) == SQLITE_DONE)
-            ++migratedCount;
-    }
-
-    if (migratedCount > 0)
-        spdlog::info("DropService: migrated {} legacy drops into server_drops", migratedCount);
 }
 
 void DropService::CleanupExpiredDrops() noexcept

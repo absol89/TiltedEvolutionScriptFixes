@@ -2,6 +2,7 @@
 
 #include <Structs/Inventory.h>
 #include <Structs/GameId.h>
+#include <Structs/ServerItemType.h>
 #include <Games/Primitives.h>
 #include <TiltedCore/Stl.hpp>
 
@@ -12,6 +13,7 @@ namespace CoSaveStorage
 struct Entry
 {
     uint64_t DropId{};
+    ServerItemType Type{ServerItemType::Dropped};
     uint32_t ServerId{};
     GameId CellId{};
     GameId WorldSpaceId{};

@@ -140,6 +140,7 @@ void DropStorage::OnServerDropTracked(uint64_t aDropId, const DropManager::Serve
 
     CachedDrop drop{};
     drop.DropId = aDropId;
+    drop.Type = acData.Type;
     drop.ServerId = acData.ServerId;
     drop.CellId = acData.CellId;
     drop.WorldSpaceId = acData.WorldSpaceId;
@@ -152,6 +153,8 @@ void DropStorage::OnServerDropTracked(uint64_t aDropId, const DropManager::Serve
     if (auto it = m_cachedDrops.find(aDropId); it != m_cachedDrops.end())
     {
         drop.RefFormId = it->second.RefFormId;
+        if (drop.Type == ServerItemType::Dropped)
+            drop.Type = it->second.Type;
         if (drop.LastSeenTimestamp == 0)
             drop.LastSeenTimestamp = it->second.LastSeenTimestamp;
     }

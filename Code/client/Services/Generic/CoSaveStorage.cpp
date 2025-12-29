@@ -11,7 +11,7 @@
 namespace
 {
 constexpr uint32_t kCoSaveMagic = 'T' | ('S' << 8) | ('C' << 16) | ('O' << 24);
-constexpr uint32_t kCoSaveVersion = 2;
+constexpr uint32_t kCoSaveVersion = 3;
 } // namespace
 
 namespace CoSaveStorage
@@ -48,6 +48,7 @@ bool Load(const std::filesystem::path& aPath, TiltedPhoques::Map<uint64_t, Entry
         {
             Entry entry{};
             input.read(reinterpret_cast<char*>(&entry.DropId), sizeof(entry.DropId));
+            entry.Type = ServerItemType::Dropped;
             input.read(reinterpret_cast<char*>(&entry.ServerId), sizeof(entry.ServerId));
 
             input.read(reinterpret_cast<char*>(&entry.CellId.ModId), sizeof(entry.CellId.ModId));
@@ -107,6 +108,19 @@ bool Load(const std::filesystem::path& aPath, TiltedPhoques::Map<uint64_t, Entry
         Entry entry{};
         if (!readBytes(&entry.DropId, sizeof(entry.DropId)))
             continue;
+
+        if (version >= 3)
+        {
+            uint8_t typeValue = 0;
+            if (!readBytes(&typeValue, sizeof(typeValue)))
+                continue;
+            entry.Type = typeValue == static_cast<uint8_t>(ServerItemType::CreationEngine) ? ServerItemType::CreationEngine : ServerItemType::Dropped;
+        }
+        else
+        {
+            entry.Type = ServerItemType::Dropped;
+        }
+
         if (!readBytes(&entry.ServerId, sizeof(entry.ServerId)))
             continue;
         if (!readBytes(&entry.CellId.ModId, sizeof(entry.CellId.ModId)))
@@ -181,6 +195,8 @@ bool Save(const std::filesystem::path& aPath, const TiltedPhoques::Map<uint64_t,
         };
 
         append(&entry.DropId, sizeof(entry.DropId));
+        const uint8_t typeValue = static_cast<uint8_t>(entry.Type);
+        append(&typeValue, sizeof(typeValue));
         append(&entry.ServerId, sizeof(entry.ServerId));
         append(&entry.CellId.ModId, sizeof(entry.CellId.ModId));
         append(&entry.CellId.BaseId, sizeof(entry.CellId.BaseId));

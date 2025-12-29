@@ -62,8 +62,8 @@ private:
     bool ApplyDrop(const NotifyActorDrop& acMessage) noexcept;
     bool ApplyPickup(const NotifyDroppedItemPickedUp& acMessage) noexcept;
     bool EnsureStorageReady() noexcept;
-    uint32_t SendDropSyncRequest(bool aRequestAll, bool aHasCellFilter, const GameId& acCellId, bool aHasWorldFilter, const GameId& acWorldId) noexcept;
-    void QueueDropSync(const GameId& acCellId, const GameId& acWorldId) noexcept;
+    uint32_t SendDropSyncRequest(bool aRequestAll, bool aHasCellFilter, const GameId& acCellId, bool aHasWorldFilter, const GameId& acWorldId, TiltedPhoques::Vector<RequestDroppedItems::DiscoveryEntry> aDiscoveries) noexcept;
+    void QueueDropSync(const GameId& acCellId, const GameId& acWorldId, bool aIncludeDiscovery) noexcept;
     void QueueLoadedExteriorCells(const GameId& acWorldId) noexcept;
     void HandleDropSyncResponse(const NotifyDroppedItems& acMessage) noexcept;
     void ProcessDropEntry(const NotifyDroppedItems::Entry& acEntry, bool aForceMaterialize) noexcept;
@@ -84,7 +84,8 @@ private:
     void ProcessPendingCreationEngineRemovals() noexcept;
     GameId GetPlayerCellId() noexcept;
     GameId GetPlayerWorldId() noexcept;
-    void RequestCellSync() noexcept;
+    void RequestCellSync(bool aIncludeDiscovery) noexcept;
+    TiltedPhoques::Vector<RequestDroppedItems::DiscoveryEntry> BuildDiscoveryEntries(const GameId& acCellId, const GameId& acWorldId) noexcept;
     void ForgetLocalDrop(uint64_t aDropId) noexcept;
     bool IsPickupRelevant(const NotifyDroppedItemPickedUp& acMessage) noexcept;
     bool IsDropCellLoaded(const GameId& acCellId, const GameId& acWorldId) noexcept;
@@ -130,6 +131,7 @@ private:
     {
         GameId CellId{};
         GameId WorldSpaceId{};
+        bool IncludeDiscovery{false};
     };
 
     std::deque<QueuedDropSync> m_dropSyncQueue{};

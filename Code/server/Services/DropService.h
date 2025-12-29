@@ -9,6 +9,7 @@
 #include <Messages/NotifyDroppedItems.h>
 #include <TiltedCore/Stl.hpp>
 #include <Structs/Guid.h>
+#include <Structs/ServerItemType.h>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -37,6 +38,7 @@ private:
         uint32_t ServerId{};
         uint32_t ActorFormId{};
         uint32_t OriginPlayerId{};
+        ServerItemType Type{ServerItemType::Dropped};
         Inventory::Entry DropEntry{};
         Inventory::Entry PickupEntry{};
         bool HasLocation{false};
@@ -77,7 +79,6 @@ private:
     NotifyDroppedItems::Entry MakeNotifyEntry(const ActiveDrop& acDrop) const noexcept;
     void HandleUntrackedPickupRequest(const PacketEvent<RequestPickupDroppedItem>& acMessage) noexcept;
     void BroadcastPickup(const NotifyDroppedItemPickedUp& acMessage) const noexcept;
-    void MigrateLegacyDrops() noexcept;
     void CleanupExpiredDrops() noexcept;
     bool InitializeCreationEngineDatabase() noexcept;
     void ShutdownCreationEngineDatabase() noexcept;
@@ -95,6 +96,7 @@ private:
 
     TiltedPhoques::Map<uint64_t, ActiveDrop> m_activeDrops;
     TiltedPhoques::Map<GameId, TiltedPhoques::Vector<uint64_t>> m_cellDropIndex;
+    TiltedPhoques::Map<GameId, uint64_t> m_referenceDropIndex;
     sqlite3* m_pDatabase{nullptr};
     std::filesystem::path m_databasePath;
     sqlite3* m_pCreationEngineDatabase{nullptr};

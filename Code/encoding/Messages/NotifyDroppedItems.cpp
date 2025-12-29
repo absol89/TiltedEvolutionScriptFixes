@@ -10,6 +10,7 @@ void NotifyDroppedItems::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) co
         Serialization::WriteVarInt(aWriter, entry.DropId);
         Serialization::WriteVarInt(aWriter, entry.ServerId);
         Serialization::WriteVarInt(aWriter, entry.ActorFormId);
+        Serialization::WriteVarInt(aWriter, static_cast<uint8_t>(entry.Type));
         Serialization::WriteVarInt(aWriter, entry.SpawnEpoch);
         entry.Item.Serialize(aWriter);
 
@@ -46,6 +47,8 @@ void NotifyDroppedItems::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) 
         entry.DropId = Serialization::ReadVarInt(aReader);
         entry.ServerId = Serialization::ReadVarInt(aReader);
         entry.ActorFormId = Serialization::ReadVarInt(aReader);
+        const auto typeValue = Serialization::ReadVarInt(aReader);
+        entry.Type = typeValue == static_cast<uint64_t>(ServerItemType::CreationEngine) ? ServerItemType::CreationEngine : ServerItemType::Dropped;
         entry.SpawnEpoch = Serialization::ReadVarInt(aReader);
         entry.Item.Deserialize(aReader);
 

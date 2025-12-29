@@ -57,7 +57,6 @@ constexpr float kMaterializeGraceSeconds = 0.5f;
 constexpr float kDropPhysicsHoldSeconds = 5.0f;
 constexpr float kDropMoveSyncIntervalSeconds = 0.1f;
 constexpr float kDropRotationNetScale = 1000.0f;
-constexpr float kDropRotationLegacyMaxRadians = 6.5f;
 constexpr double kPeriodicPlayerCellSyncSeconds = 5.0;
 constexpr double kDropSyncQueueIntervalSeconds = 0.5;
 constexpr uint32_t kMaxPendingDropRetries = 600;
@@ -69,6 +68,43 @@ bool HasDropLocation(const NiPoint3& aLocation) noexcept
     return std::abs(aLocation.x) > std::numeric_limits<float>::epsilon() ||
         std::abs(aLocation.y) > std::numeric_limits<float>::epsilon() ||
         std::abs(aLocation.z) > std::numeric_limits<float>::epsilon();
+}
+
+bool IsServerItemFormType(FormType aType) noexcept
+{
+    switch (aType)
+    {
+    case FormType::Weapon:
+    case FormType::Armor:
+    case FormType::Ammo:
+    case FormType::Ingredient:
+    case FormType::Alchemy:
+    case FormType::Book:
+    case FormType::Scroll:
+    case FormType::Note:
+    case FormType::SoulGem:
+    case FormType::KeyMaster:
+    case FormType::Light:
+    case FormType::Misc:
+    case FormType::Apparatus:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool IsEligibleServerItemRef(TESObjectREFR* apReference) noexcept
+{
+    if (!apReference || !apReference->baseForm)
+        return false;
+
+    if (apReference->IsTemporary())
+        return false;
+
+    if (apReference->IsDisabled())
+        return false;
+
+    return IsServerItemFormType(apReference->baseForm->formType);
 }
 
 enum class MotionType : uint8_t
@@ -109,30 +145,13 @@ NiPoint3 ToPoint(const Vector3_NetQuantize& aVector)
     return NiPoint3(aVector);
 }
 
-float DecodeDropRotationComponent(float aValue) noexcept
-{
-    if (std::fabs(aValue) <= kDropRotationLegacyMaxRadians)
-        return aValue;
-
-    return aValue / kDropRotationNetScale;
-}
-
 NiPoint3 ToDropRotation(const Vector3_NetQuantize& aVector) noexcept
 {
     NiPoint3 rotation{};
-    rotation.x = DecodeDropRotationComponent(aVector.x);
-    rotation.y = DecodeDropRotationComponent(aVector.y);
-    rotation.z = DecodeDropRotationComponent(aVector.z);
+    rotation.x = aVector.x / kDropRotationNetScale;
+    rotation.y = aVector.y / kDropRotationNetScale;
+    rotation.z = aVector.z / kDropRotationNetScale;
     return rotation;
-}
-
-float EncodeDropRotationComponent(float aValue) noexcept
-{
-    const float encoded = aValue * kDropRotationNetScale;
-    if (std::fabs(encoded) <= kDropRotationLegacyMaxRadians)
-        return 0.0f;
-
-    return encoded;
 }
 
 Vector3_NetQuantize ToNetVector(const NiPoint3& aVector)
@@ -147,9 +166,9 @@ Vector3_NetQuantize ToNetVector(const NiPoint3& aVector)
 Vector3_NetQuantize ToNetDropRotation(const NiPoint3& aRotation) noexcept
 {
     Vector3_NetQuantize value;
-    value.x = EncodeDropRotationComponent(aRotation.x);
-    value.y = EncodeDropRotationComponent(aRotation.y);
-    value.z = EncodeDropRotationComponent(aRotation.z);
+    value.x = aRotation.x * kDropRotationNetScale;
+    value.y = aRotation.y * kDropRotationNetScale;
+    value.z = aRotation.z * kDropRotationNetScale;
     return value;
 }
 
@@ -539,6 +558,7 @@ bool DropService::ApplyDrop(const NotifyActorDrop& acMessage) noexcept
     DropManager::ServerDropData serverData{};
     serverData.ServerId = acMessage.ServerId;
     serverData.ActorFormId = acMessage.ActorFormId ? acMessage.ActorFormId : (pActor ? pActor->formID : 0);
+    serverData.Type = ServerItemType::Dropped;
     serverData.CellId = acMessage.CellId;
     serverData.WorldSpaceId = acMessage.WorldSpaceId;
     serverData.ReferenceId = acMessage.ReferenceId;
@@ -761,13 +781,38 @@ void DropService::OnNotifyDropMove(const NotifyDroppedItemMove& acMessage) noexc
 
         DropManager::UpdateServerDropTransform(acMessage.DropId, location, rotation, acMessage.CellId, acMessage.WorldSpaceId, acMessage.ReferenceId);
 
-        const auto handleOpt = DropManager::GetHandleForDrop(acMessage.DropId);
-        if (!handleOpt)
+        const auto updatedOpt = DropManager::GetServerDrop(acMessage.DropId);
+        if (!updatedOpt)
             return;
 
-        pReference = TESObjectREFR::GetByHandle(*handleOpt);
+        if (const auto handleOpt = DropManager::GetHandleForDrop(acMessage.DropId); handleOpt)
+            pReference = TESObjectREFR::GetByHandle(*handleOpt);
+
+        if (!pReference && updatedOpt->ReferenceId)
+        {
+            pReference = GetReferenceById(updatedOpt->ReferenceId);
+            if (pReference)
+            {
+                auto handle = pReference->GetHandle();
+                if (handle && handle.handle.iBits != 0)
+                    DropManager::BindHandleToServerDrop(acMessage.DropId, updatedOpt->ActorFormId, handle.handle.iBits);
+            }
+        }
+
+        if (!pReference && updatedOpt->Type == ServerItemType::CreationEngine)
+        {
+            DropManager::ServerDropData rebound = *updatedOpt;
+            rebound.Location = location;
+            rebound.Rotation = rotation;
+            TryBindExistingReference(acMessage.DropId, rebound);
+            if (const auto handleOpt = DropManager::GetHandleForDrop(acMessage.DropId); handleOpt)
+                pReference = TESObjectREFR::GetByHandle(*handleOpt);
+        }
+
         if (!pReference)
             return;
+
+        m_localDrops.insert(acMessage.DropId);
     }
     else if (acMessage.ReferenceId)
     {
@@ -840,6 +885,57 @@ void DropService::OnNotifyDropPhysicsDisabled(const NotifyDroppedItemPhysicsDisa
         return;
 
     const auto& data = *updatedOpt;
+    if (data.Type == ServerItemType::CreationEngine)
+    {
+        TESObjectREFR* pReference = nullptr;
+        if (const auto handleOpt = DropManager::GetHandleForDrop(acMessage.DropId); handleOpt)
+            pReference = TESObjectREFR::GetByHandle(*handleOpt);
+
+        if (!pReference && data.ReferenceId)
+        {
+            pReference = GetReferenceById(data.ReferenceId);
+            if (pReference)
+            {
+                auto handle = pReference->GetHandle();
+                if (handle && handle.handle.iBits != 0)
+                    DropManager::BindHandleToServerDrop(acMessage.DropId, data.ActorFormId, handle.handle.iBits);
+            }
+        }
+
+        if (!pReference)
+        {
+            DropManager::ServerDropData rebound = data;
+            rebound.Location = location;
+            rebound.Rotation = rotation;
+            TryBindExistingReference(acMessage.DropId, rebound);
+            if (const auto handleOpt = DropManager::GetHandleForDrop(acMessage.DropId); handleOpt)
+                pReference = TESObjectREFR::GetByHandle(*handleOpt);
+        }
+
+        if (!pReference)
+            return;
+
+        if (acMessage.HasLocation)
+        {
+            if (TESObjectCELL* pCell = pReference->GetParentCellEx())
+                pReference->SetPosition(location);
+        }
+
+        if (acMessage.HasRotation)
+            pReference->SetRotation(rotation);
+
+        const bool locallyActive = m_grabbedDrops.find(acMessage.DropId) != m_grabbedDrops.end() ||
+            m_dropPhysicsCooldowns.find(acMessage.DropId) != m_dropPhysicsCooldowns.end();
+        if (!locallyActive)
+        {
+            SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
+            pReference->Update3DPosition(true);
+        }
+
+        m_localDrops.insert(acMessage.DropId);
+        return;
+    }
+
     if (!IsDropCellLoaded(data.CellId, data.WorldSpaceId))
         return;
 
@@ -890,7 +986,7 @@ void DropService::OnConnected(const ConnectedEvent&) noexcept
     m_dropSyncWorldSpace = GetPlayerWorldId();
     m_dropSyncQueueAccumulator = 0.0;
     m_periodicPlayerCellSyncAccumulator = 0.0;
-    RequestCellSync();
+    RequestCellSync(true);
 
     if (m_dropSyncWorldSpace)
         QueueLoadedExteriorCells(m_dropSyncWorldSpace);
@@ -910,7 +1006,7 @@ void DropService::OnCellChange(const CellChangeEvent& acEvent) noexcept
 
     m_periodicPlayerCellSyncAccumulator = 0.0;
 
-    QueueDropSync(acEvent.CellId, acEvent.WorldSpaceId);
+    QueueDropSync(acEvent.CellId, acEvent.WorldSpaceId, true);
 }
 
 void DropService::OnGridCellChange(const GridCellChangeEvent& acEvent) noexcept
@@ -952,7 +1048,7 @@ void DropService::OnGridCellChange(const GridCellChangeEvent& acEvent) noexcept
     {
         if (!cellId)
             continue;
-        QueueDropSync(cellId, worldId);
+        QueueDropSync(cellId, worldId, true);
     }
 }
 
@@ -994,7 +1090,7 @@ void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept
         if (m_periodicPlayerCellSyncAccumulator >= kPeriodicPlayerCellSyncSeconds)
         {
             m_periodicPlayerCellSyncAccumulator = 0.0;
-            RequestCellSync();
+            RequestCellSync(false);
         }
 
         m_dropSyncQueueAccumulator += acEvent.Delta;
@@ -1004,7 +1100,8 @@ void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept
             const auto next = m_dropSyncQueue.front();
             m_dropSyncQueue.pop_front();
             m_dropSyncQueuedCells.erase(next.CellId);
-            SendDropSyncRequest(false, true, next.CellId, static_cast<bool>(next.WorldSpaceId), next.WorldSpaceId);
+            auto discoveries = next.IncludeDiscovery ? BuildDiscoveryEntries(next.CellId, next.WorldSpaceId) : TiltedPhoques::Vector<RequestDroppedItems::DiscoveryEntry>{};
+            SendDropSyncRequest(false, true, next.CellId, static_cast<bool>(next.WorldSpaceId), next.WorldSpaceId, std::move(discoveries));
         }
     }
 
@@ -1435,7 +1532,7 @@ bool DropService::EnsureStorageReady() noexcept
     return ready;
 }
 
-uint32_t DropService::SendDropSyncRequest(bool aRequestAll, bool aHasCellFilter, const GameId& acCellId, bool aHasWorldFilter, const GameId& acWorldId) noexcept
+uint32_t DropService::SendDropSyncRequest(bool aRequestAll, bool aHasCellFilter, const GameId& acCellId, bool aHasWorldFilter, const GameId& acWorldId, TiltedPhoques::Vector<RequestDroppedItems::DiscoveryEntry> aDiscoveries) noexcept
 {
     if (!m_transport.IsConnected())
         return 0;
@@ -1452,6 +1549,7 @@ uint32_t DropService::SendDropSyncRequest(bool aRequestAll, bool aHasCellFilter,
     request.HasWorldSpaceFilter = aHasWorldFilter;
     if (aHasWorldFilter)
         request.WorldSpaceId = acWorldId;
+    request.Discoveries = std::move(aDiscoveries);
 
     m_transport.Send(request);
 
@@ -1469,17 +1567,31 @@ uint32_t DropService::SendDropSyncRequest(bool aRequestAll, bool aHasCellFilter,
     return request.RequestId;
 }
 
-void DropService::QueueDropSync(const GameId& acCellId, const GameId& acWorldId) noexcept
+void DropService::QueueDropSync(const GameId& acCellId, const GameId& acWorldId, bool aIncludeDiscovery) noexcept
 {
     if (!acCellId)
         return;
 
     if (m_dropSyncQueuedCells.find(acCellId) != std::end(m_dropSyncQueuedCells))
+    {
+        if (aIncludeDiscovery)
+        {
+            for (auto& queued : m_dropSyncQueue)
+            {
+                if (queued.CellId == acCellId)
+                {
+                    queued.IncludeDiscovery = true;
+                    break;
+                }
+            }
+        }
         return;
+    }
 
     QueuedDropSync queued{};
     queued.CellId = acCellId;
     queued.WorldSpaceId = acWorldId;
+    queued.IncludeDiscovery = aIncludeDiscovery;
 
     m_dropSyncQueue.push_back(queued);
     m_dropSyncQueuedCells.insert(acCellId);
@@ -1509,7 +1621,7 @@ void DropService::QueueLoadedExteriorCells(const GameId& acWorldId) noexcept
         if (!m_world.GetModSystem().GetServerModId(pCell->formID, cellId) || !cellId)
             continue;
 
-        QueueDropSync(cellId, acWorldId);
+        QueueDropSync(cellId, acWorldId, true);
     }
 }
 
@@ -1596,6 +1708,7 @@ void DropService::ProcessDropEntry(const NotifyDroppedItems::Entry& acEntry, boo
     DropManager::ServerDropData data{};
     data.ServerId = acEntry.ServerId;
     data.ActorFormId = acEntry.ActorFormId;
+    data.Type = acEntry.Type;
     data.Item = acEntry.Item;
     data.Location = acEntry.HasLocation ? ToPoint(acEntry.Location) : NiPoint3{};
     data.Rotation = acEntry.HasRotation ? ToDropRotation(acEntry.Rotation) : NiPoint3{};
@@ -1639,6 +1752,12 @@ void DropService::ProcessDropEntry(const NotifyDroppedItems::Entry& acEntry, boo
 
     if (!MaterializeDrop(acEntry.DropId, data, aForceMaterialize))
     {
+        if (data.Type == ServerItemType::CreationEngine)
+        {
+            spdlog::debug("DropService: creation-engine item {} missing locally, deferring bind", acEntry.DropId);
+            return;
+        }
+
         if (!aForceMaterialize && g_materializeGrace.find(acEntry.DropId) == std::end(g_materializeGrace))
             g_materializeGrace[acEntry.DropId] = kMaterializeGraceSeconds;
 
@@ -1676,6 +1795,9 @@ bool DropService::MaterializeDrop(uint64_t aDropId, const DropManager::ServerDro
 
     if (TryBindExistingReference(aDropId, acData))
         return true;
+
+    if (acData.Type == ServerItemType::CreationEngine)
+        return false;
 
     if (m_materializingDrops.find(aDropId) != std::end(m_materializingDrops))
     {
@@ -1956,6 +2078,12 @@ bool DropService::TryBindExistingReference(uint64_t aDropId, const DropManager::
             apReference->Update3DPosition(true);
         }
 
+        if (!locallyActive)
+        {
+            SetReferenceMotionType(apReference, MotionType::kKeyframed, true);
+            apReference->Update3DPosition(true);
+        }
+
         spdlog::debug("DropService: rebound existing reference {:X}:{:X} for drop {}", referenceId.ModId, referenceId.BaseId, aDropId);
         return true;
     };
@@ -2176,14 +2304,90 @@ bool DropService::IsDropCellLoaded(const GameId& acCellId, const GameId& acWorld
     return false;
 }
 
-void DropService::RequestCellSync() noexcept
+void DropService::RequestCellSync(bool aIncludeDiscovery) noexcept
 {
     const GameId cellId = GetPlayerCellId();
     if (!cellId)
         return;
 
     const GameId worldId = GetPlayerWorldId();
-    QueueDropSync(cellId, worldId);
+    QueueDropSync(cellId, worldId, aIncludeDiscovery);
+}
+
+TiltedPhoques::Vector<RequestDroppedItems::DiscoveryEntry> DropService::BuildDiscoveryEntries(const GameId& acCellId, const GameId& acWorldId) noexcept
+{
+    TiltedPhoques::Vector<RequestDroppedItems::DiscoveryEntry> entries;
+    if (!acCellId)
+        return entries;
+
+    const uint32_t cellFormId = m_world.GetModSystem().GetGameId(acCellId);
+    if (!cellFormId)
+        return entries;
+
+    TESObjectCELL* pCell = Cast<TESObjectCELL>(TESForm::GetById(cellFormId));
+    if (!pCell)
+        return entries;
+
+    TiltedPhoques::Vector<FormType> formTypes = {
+        FormType::Weapon,
+        FormType::Armor,
+        FormType::Ammo,
+        FormType::Ingredient,
+        FormType::Alchemy,
+        FormType::Book,
+        FormType::Scroll,
+        FormType::Note,
+        FormType::SoulGem,
+        FormType::KeyMaster,
+        FormType::Light,
+        FormType::Misc,
+        FormType::Apparatus
+    };
+
+    const auto references = pCell->GetRefsByFormTypes(formTypes);
+    entries.reserve(references.size());
+
+    for (TESObjectREFR* pRef : references)
+    {
+        if (!IsEligibleServerItemRef(pRef))
+            continue;
+
+        GameId referenceId{};
+        m_world.GetModSystem().GetServerModId(pRef->formID, referenceId);
+        if (!referenceId)
+            continue;
+
+        if (DropManager::GetDropIdForReference(referenceId))
+            continue;
+
+        if (m_dropStorage.FindDropIdByRefFormId(pRef->formID, acCellId, acWorldId))
+            continue;
+
+        RequestDroppedItems::DiscoveryEntry entry{};
+        entry.ReferenceId = referenceId;
+        entry.CellId = acCellId;
+        entry.WorldSpaceId = acWorldId;
+        entry.HasLocation = true;
+        entry.Location = ToNetVector(pRef->position);
+        entry.HasRotation = true;
+        entry.Rotation = ToNetDropRotation(pRef->rotation);
+
+        entry.Item.Count = 1;
+        m_world.GetModSystem().GetServerModId(pRef->baseForm->formID, entry.Item.BaseId);
+        if (!entry.Item.BaseId)
+            continue;
+
+        TESObjectREFR::GetItemFromExtraData(entry.Item, pRef->GetExtraDataList());
+        if (entry.Item.Count == 0)
+            entry.Item.Count = 1;
+
+        entries.push_back(std::move(entry));
+    }
+
+    if (!entries.empty())
+        spdlog::debug("DropService: queued {} creation-engine discoveries for cell {:X}:{:X}", entries.size(), acCellId.ModId, acCellId.BaseId);
+
+    return entries;
 }
 
 void DropService::ForgetLocalDrop(uint64_t aDropId) noexcept
