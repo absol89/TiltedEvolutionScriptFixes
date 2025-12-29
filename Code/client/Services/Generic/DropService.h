@@ -152,9 +152,11 @@ private:
     TiltedPhoques::Set<uint64_t> m_grabbedDrops;
     TiltedPhoques::Map<uint64_t, float> m_dropPhysicsCooldowns;
     TiltedPhoques::Map<uint64_t, float> m_dropMoveSyncTimers;
+    TiltedPhoques::Map<uint64_t, float> m_dropPhysicsDisableSuppressions;
     TiltedPhoques::Set<GameId> m_grabbedReferences;
     TiltedPhoques::Map<GameId, float> m_referencePhysicsCooldowns;
     TiltedPhoques::Map<GameId, float> m_referenceMoveSyncTimers;
+    double m_grabEventSuppressionRemaining{0.0};
 
     struct PendingCreationEngineRemoval
     {

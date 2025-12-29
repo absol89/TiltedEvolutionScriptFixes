@@ -59,6 +59,8 @@ constexpr float kDropMoveSyncIntervalSeconds = 0.1f;
 constexpr float kDropRotationNetScale = 1000.0f;
 constexpr double kPeriodicPlayerCellSyncSeconds = 5.0;
 constexpr double kDropSyncQueueIntervalSeconds = 0.5;
+constexpr double kGrabEventSuppressSeconds = 2.0;
+constexpr float kDropPhysicsDisableSuppressSeconds = 1.0f;
 constexpr uint32_t kMaxPendingDropRetries = 600;
 constexpr uint32_t kMaxPendingPickupRetries = 120;
 TiltedPhoques::Map<uint64_t, float> g_materializeGrace;
@@ -87,6 +89,7 @@ bool IsServerItemFormType(FormType aType) noexcept
     case FormType::Light:
     case FormType::Misc:
     case FormType::Apparatus:
+    case FormType::LeveledItem:
         return true;
     default:
         return false;
@@ -96,9 +99,6 @@ bool IsServerItemFormType(FormType aType) noexcept
 bool IsEligibleServerItemRef(TESObjectREFR* apReference) noexcept
 {
     if (!apReference || !apReference->baseForm)
-        return false;
-
-    if (apReference->IsTemporary())
         return false;
 
     if (apReference->IsDisabled())
@@ -395,6 +395,7 @@ BSTEventResult DropService::OnEvent(const TESLoadGameEvent*, const EventDispatch
     m_grabbedDrops.clear();
     m_dropPhysicsCooldowns.clear();
     m_dropMoveSyncTimers.clear();
+    m_dropPhysicsDisableSuppressions.clear();
     m_grabbedReferences.clear();
     m_referencePhysicsCooldowns.clear();
     m_referenceMoveSyncTimers.clear();
@@ -403,6 +404,7 @@ BSTEventResult DropService::OnEvent(const TESLoadGameEvent*, const EventDispatch
     m_dropSyncQueueAccumulator = 0.0;
     m_periodicPlayerCellSyncAccumulator = 0.0;
     m_nextDropSyncRequestId = 1;
+    m_grabEventSuppressionRemaining = kGrabEventSuppressSeconds;
 
     m_dropStorage.OnLoadGameReset();
     m_cachedUsername.clear();
@@ -885,6 +887,7 @@ void DropService::OnNotifyDropPhysicsDisabled(const NotifyDroppedItemPhysicsDisa
         return;
 
     const auto& data = *updatedOpt;
+    const bool suppress = m_dropPhysicsDisableSuppressions.erase(acMessage.DropId) > 0;
     if (data.Type == ServerItemType::CreationEngine)
     {
         TESObjectREFR* pReference = nullptr;
@@ -915,6 +918,14 @@ void DropService::OnNotifyDropPhysicsDisabled(const NotifyDroppedItemPhysicsDisa
         if (!pReference)
             return;
 
+        if (suppress)
+        {
+            SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
+            pReference->Update3DPosition(true);
+            m_localDrops.insert(acMessage.DropId);
+            return;
+        }
+
         if (acMessage.HasLocation)
         {
             if (TESObjectCELL* pCell = pReference->GetParentCellEx())
@@ -943,6 +954,14 @@ void DropService::OnNotifyDropPhysicsDisabled(const NotifyDroppedItemPhysicsDisa
     {
         if (TESObjectREFR* pExisting = TESObjectREFR::GetByHandle(*handleOpt))
         {
+            if (suppress)
+            {
+                SetReferenceMotionType(pExisting, MotionType::kKeyframed, true);
+                pExisting->Update3DPosition(true);
+                m_localDrops.insert(acMessage.DropId);
+                return;
+            }
+
             if (pExisting->IsTemporary())
                 pExisting->Delete();
             else
@@ -980,12 +999,14 @@ void DropService::OnConnected(const ConnectedEvent&) noexcept
     m_grabbedDrops.clear();
     m_dropPhysicsCooldowns.clear();
     m_dropMoveSyncTimers.clear();
+    m_dropPhysicsDisableSuppressions.clear();
     m_grabbedReferences.clear();
     m_referencePhysicsCooldowns.clear();
     m_referenceMoveSyncTimers.clear();
     m_dropSyncWorldSpace = GetPlayerWorldId();
     m_dropSyncQueueAccumulator = 0.0;
     m_periodicPlayerCellSyncAccumulator = 0.0;
+    m_grabEventSuppressionRemaining = kGrabEventSuppressSeconds;
     RequestCellSync(true);
 
     if (m_dropSyncWorldSpace)
@@ -995,6 +1016,14 @@ void DropService::OnConnected(const ConnectedEvent&) noexcept
 void DropService::OnCellChange(const CellChangeEvent& acEvent) noexcept
 {
     m_pendingCreationEngineRemovals.clear();
+    m_grabEventSuppressionRemaining = kGrabEventSuppressSeconds;
+    m_grabbedDrops.clear();
+    m_dropPhysicsCooldowns.clear();
+    m_dropMoveSyncTimers.clear();
+    m_dropPhysicsDisableSuppressions.clear();
+    m_grabbedReferences.clear();
+    m_referencePhysicsCooldowns.clear();
+    m_referenceMoveSyncTimers.clear();
 
     if (m_dropSyncWorldSpace != acEvent.WorldSpaceId)
     {
@@ -1055,6 +1084,25 @@ void DropService::OnGridCellChange(const GridCellChangeEvent& acEvent) noexcept
 void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept
 {
     const float delta = static_cast<float>(acEvent.Delta);
+    if (m_grabEventSuppressionRemaining > 0.0)
+    {
+        m_grabEventSuppressionRemaining = std::max(0.0, m_grabEventSuppressionRemaining - acEvent.Delta);
+    }
+    if (!m_dropPhysicsDisableSuppressions.empty())
+    {
+        TiltedPhoques::Vector<uint64_t> toErase;
+        toErase.reserve(m_dropPhysicsDisableSuppressions.size());
+        for (const auto& entry : m_dropPhysicsDisableSuppressions)
+        {
+            const float remaining = entry.second - delta;
+            if (remaining <= 0.f)
+                toErase.push_back(entry.first);
+            else
+                m_dropPhysicsDisableSuppressions[entry.first] = remaining;
+        }
+        for (const auto id : toErase)
+            m_dropPhysicsDisableSuppressions.erase(id);
+    }
 
     // Decrease grace timers for materialization gating
     if (!g_materializeGrace.empty())
@@ -1151,7 +1199,7 @@ void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept
 
 BSTEventResult DropService::OnEvent(const TESGrabReleaseEvent* apEvent, const EventDispatcher<TESGrabReleaseEvent>*)
 {
-    if (!apEvent || !m_transport.IsConnected())
+    if (!apEvent || !m_transport.IsConnected() || m_grabEventSuppressionRemaining > 0.0)
         return BSTEventResult::kOk;
 
     TESObjectREFR* pReference = apEvent->reference;
@@ -1161,6 +1209,12 @@ BSTEventResult DropService::OnEvent(const TESGrabReleaseEvent* apEvent, const Ev
     const auto handle = pReference->GetHandle();
     if (!handle)
         return BSTEventResult::kOk;
+
+    TESObjectREFR* pResolved = TESObjectREFR::GetByHandle(handle.handle.iBits);
+    if (!pResolved)
+        return BSTEventResult::kOk;
+
+    pReference = pResolved;
 
     const auto dropIdOpt = DropManager::GetDropIdForHandle(handle.handle.iBits);
     if (!dropIdOpt)
@@ -1390,6 +1444,7 @@ void DropService::SendDropMoveRequest(uint64_t aDropId, TESObjectREFR* apReferen
     request.ReferenceId = referenceId;
 
     m_transport.Send(request);
+    m_dropPhysicsDisableSuppressions[aDropId] = kDropPhysicsDisableSuppressSeconds;
 }
 
 void DropService::SendDropPhysicsDisabledRequest(uint64_t aDropId, TESObjectREFR* apReference) noexcept
@@ -2341,7 +2396,8 @@ TiltedPhoques::Vector<RequestDroppedItems::DiscoveryEntry> DropService::BuildDis
         FormType::KeyMaster,
         FormType::Light,
         FormType::Misc,
-        FormType::Apparatus
+        FormType::Apparatus,
+        FormType::LeveledItem
     };
 
     const auto references = pCell->GetRefsByFormTypes(formTypes);
