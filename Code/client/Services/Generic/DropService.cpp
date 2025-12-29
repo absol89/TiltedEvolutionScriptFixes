@@ -20,6 +20,7 @@
 
 #include <Games/Overrides.h>
 #include <Games/TES.h>
+#include <Games/SaveGameUtils.h>
 
 #include <Actor.h>
 #include <Games/ActorExtension.h>
@@ -46,6 +47,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <filesystem>
 
 namespace
 {
@@ -315,10 +317,12 @@ DropService::DropService(World& aWorld, entt::dispatcher& aDispatcher, Transport
     m_updateConnection = m_dispatcher.sink<UpdateEvent>().connect<&DropService::OnUpdate>(this);
 
     DropManager::SetStorageListener(&m_dropStorage);
-    EnsureStorageReady();
 
     if (auto* pDispatcher = EventDispatcherManager::Get())
+    {
         pDispatcher->grabReleaseEvent.RegisterSink(this);
+        pDispatcher->loadGameEvent.RegisterSink(this);
+    }
 }
 
 DropService::~DropService()
@@ -326,7 +330,65 @@ DropService::~DropService()
     DropManager::SetStorageListener(nullptr);
 
     if (auto* pDispatcher = EventDispatcherManager::Get())
+    {
         pDispatcher->grabReleaseEvent.UnRegisterSink(this);
+        pDispatcher->loadGameEvent.UnRegisterSink(this);
+    }
+}
+
+void DropService::OnSaveGame(const char* apFileName) noexcept
+{
+    spdlog::info("DropService: OnSaveGame called (file='{}')", apFileName ? apFileName : "");
+    EnsureStorageReady();
+    if (m_dropStorage.FlushIfDirty())
+        return;
+
+    if (!apFileName || apFileName[0] == '\0')
+    {
+        const auto fallbackPath = SaveGameUtils::GetCurrentSavePath();
+        if (!fallbackPath.empty())
+            m_dropStorage.FlushToPath(fallbackPath);
+        return;
+    }
+
+    const std::filesystem::path savePath(apFileName);
+    if (savePath.has_parent_path() || savePath.has_root_path())
+    {
+        m_dropStorage.FlushToPath(savePath);
+        return;
+    }
+
+    const auto fallbackPath = SaveGameUtils::GetCurrentSavePath();
+    if (!fallbackPath.empty())
+        m_dropStorage.FlushToPath(fallbackPath);
+}
+
+BSTEventResult DropService::OnEvent(const TESLoadGameEvent*, const EventDispatcher<TESLoadGameEvent>*)
+{
+    spdlog::info("DropService: LoadGame event received");
+    m_pendingActions.clear();
+    m_pendingDropSyncs.clear();
+    m_dropSyncQueue.clear();
+    m_dropSyncQueuedCells.clear();
+    m_materializingDrops.clear();
+    m_localDrops.clear();
+    m_knownSpawnEpochs.clear();
+    m_grabbedDrops.clear();
+    m_dropPhysicsCooldowns.clear();
+    m_dropMoveSyncTimers.clear();
+    m_grabbedReferences.clear();
+    m_referencePhysicsCooldowns.clear();
+    m_referenceMoveSyncTimers.clear();
+    m_pendingCreationEngineRemovals.clear();
+    m_dropSyncWorldSpace = {};
+    m_dropSyncQueueAccumulator = 0.0;
+    m_periodicPlayerCellSyncAccumulator = 0.0;
+    m_nextDropSyncRequestId = 1;
+
+    m_dropStorage.OnLoadGameReset();
+    m_cachedUsername.clear();
+
+    return BSTEventResult::kOk;
 }
 
 void DropService::OnDropEvent(const DropItemEvent& acEvent) noexcept
@@ -989,6 +1051,7 @@ void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept
         spdlog::debug("DropService: {} pending drop actions remain", m_pendingActions.size());
 }
 
+
 BSTEventResult DropService::OnEvent(const TESGrabReleaseEvent* apEvent, const EventDispatcher<TESGrabReleaseEvent>*)
 {
     if (!apEvent || !m_transport.IsConnected())
@@ -1367,7 +1430,9 @@ bool DropService::EnsureStorageReady() noexcept
         m_dropStorage.SetActiveUser(username);
     }
 
-    return m_dropStorage.EnsureInitialized();
+    const bool ready = m_dropStorage.EnsureInitialized();
+    spdlog::info("DropService: storage ready={} (user='{}')", ready ? "true" : "false", username);
+    return ready;
 }
 
 uint32_t DropService::SendDropSyncRequest(bool aRequestAll, bool aHasCellFilter, const GameId& acCellId, bool aHasWorldFilter, const GameId& acWorldId) noexcept

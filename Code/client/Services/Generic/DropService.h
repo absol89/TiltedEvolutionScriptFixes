@@ -33,11 +33,12 @@ struct World;
 struct TransportService;
 struct Actor;
 
-class DropService : public BSTEventSink<TESGrabReleaseEvent>
+class DropService : public BSTEventSink<TESGrabReleaseEvent>, public BSTEventSink<TESLoadGameEvent>
 {
 public:
     DropService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept;
     ~DropService();
+    void OnSaveGame(const char* apFileName) noexcept;
 
 private:
     struct DropSyncContext;
@@ -54,6 +55,7 @@ private:
     void OnGridCellChange(const GridCellChangeEvent& acEvent) noexcept;
     void OnUpdate(const UpdateEvent& acEvent) noexcept;
     BSTEventResult OnEvent(const TESGrabReleaseEvent* apEvent, const EventDispatcher<TESGrabReleaseEvent>* apSender) override;
+    BSTEventResult OnEvent(const TESLoadGameEvent* apEvent, const EventDispatcher<TESLoadGameEvent>* apSender) override;
 
     std::optional<uint32_t> ResolveServerId(uint32_t aFormId) const noexcept;
     bool EnsureActorReady(Actor* apActor, const char* apContext) const noexcept;
