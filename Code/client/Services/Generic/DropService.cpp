@@ -768,26 +768,33 @@ void DropService::OnNotifyDropMove(const NotifyDroppedItemMove& acMessage) noexc
     if (!m_transport.IsConnected())
         return;
 
+    uint64_t resolvedDropId = acMessage.DropId;
+    if (resolvedDropId == 0 && acMessage.ReferenceId)
+    {
+        if (const auto mappedDropId = DropManager::GetDropIdForReference(acMessage.ReferenceId))
+            resolvedDropId = *mappedDropId;
+    }
+
     TESObjectREFR* pReference = nullptr;
     NiPoint3 location{};
     NiPoint3 rotation{};
 
-    if (acMessage.DropId != 0)
+    if (resolvedDropId != 0)
     {
-        const auto dropOpt = DropManager::GetServerDrop(acMessage.DropId);
+        const auto dropOpt = DropManager::GetServerDrop(resolvedDropId);
         if (!dropOpt)
             return;
 
         location = acMessage.HasLocation ? ToPoint(acMessage.Location) : dropOpt->Location;
         rotation = acMessage.HasRotation ? ToDropRotation(acMessage.Rotation) : dropOpt->Rotation;
 
-        DropManager::UpdateServerDropTransform(acMessage.DropId, location, rotation, acMessage.CellId, acMessage.WorldSpaceId, acMessage.ReferenceId);
+        DropManager::UpdateServerDropTransform(resolvedDropId, location, rotation, acMessage.CellId, acMessage.WorldSpaceId, acMessage.ReferenceId);
 
-        const auto updatedOpt = DropManager::GetServerDrop(acMessage.DropId);
+        const auto updatedOpt = DropManager::GetServerDrop(resolvedDropId);
         if (!updatedOpt)
             return;
 
-        if (const auto handleOpt = DropManager::GetHandleForDrop(acMessage.DropId); handleOpt)
+        if (const auto handleOpt = DropManager::GetHandleForDrop(resolvedDropId); handleOpt)
             pReference = TESObjectREFR::GetByHandle(*handleOpt);
 
         if (!pReference && updatedOpt->ReferenceId)
@@ -797,7 +804,7 @@ void DropService::OnNotifyDropMove(const NotifyDroppedItemMove& acMessage) noexc
             {
                 auto handle = pReference->GetHandle();
                 if (handle && handle.handle.iBits != 0)
-                    DropManager::BindHandleToServerDrop(acMessage.DropId, updatedOpt->ActorFormId, handle.handle.iBits);
+                    DropManager::BindHandleToServerDrop(resolvedDropId, updatedOpt->ActorFormId, handle.handle.iBits);
             }
         }
 
@@ -806,15 +813,18 @@ void DropService::OnNotifyDropMove(const NotifyDroppedItemMove& acMessage) noexc
             DropManager::ServerDropData rebound = *updatedOpt;
             rebound.Location = location;
             rebound.Rotation = rotation;
-            TryBindExistingReference(acMessage.DropId, rebound);
-            if (const auto handleOpt = DropManager::GetHandleForDrop(acMessage.DropId); handleOpt)
+            TryBindExistingReference(resolvedDropId, rebound);
+            if (const auto handleOpt = DropManager::GetHandleForDrop(resolvedDropId); handleOpt)
                 pReference = TESObjectREFR::GetByHandle(*handleOpt);
         }
 
         if (!pReference)
             return;
 
-        m_localDrops.insert(acMessage.DropId);
+        m_localDrops.insert(resolvedDropId);
+
+        if (IsDropLocallyActive(resolvedDropId, updatedOpt->ReferenceId))
+            return;
     }
     else if (acMessage.ReferenceId)
     {
@@ -824,6 +834,9 @@ void DropService::OnNotifyDropMove(const NotifyDroppedItemMove& acMessage) noexc
 
         location = acMessage.HasLocation ? ToPoint(acMessage.Location) : pReference->position;
         rotation = acMessage.HasRotation ? ToDropRotation(acMessage.Rotation) : pReference->rotation;
+
+        if (IsDropLocallyActive(0, acMessage.ReferenceId))
+            return;
     }
     else
     {
@@ -839,30 +852,10 @@ void DropService::OnNotifyDropMove(const NotifyDroppedItemMove& acMessage) noexc
     if (acMessage.HasRotation)
         pReference->SetRotation(rotation);
 
-    if (acMessage.DropId != 0)
-    {
-        const bool locallyActive = m_grabbedDrops.find(acMessage.DropId) != m_grabbedDrops.end() ||
-            m_dropPhysicsCooldowns.find(acMessage.DropId) != m_dropPhysicsCooldowns.end();
-        if (!locallyActive)
-        {
-            // Keep remote drops keyframed so activation stays available.
-            SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
-            // Warp Havok so activation uses the updated collision.
-            pReference->Update3DPosition(true);
-        }
-    }
-    else if (acMessage.ReferenceId)
-    {
-        const bool locallyActive = m_grabbedReferences.find(acMessage.ReferenceId) != m_grabbedReferences.end() ||
-            m_referencePhysicsCooldowns.find(acMessage.ReferenceId) != m_referencePhysicsCooldowns.end();
-        if (!locallyActive)
-        {
-            // Keep remote references keyframed so activation stays available.
-            SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
-            // Warp Havok so activation uses the updated collision.
-            pReference->Update3DPosition(true);
-        }
-    }
+    // Keep remote drops keyframed so activation stays available.
+    SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
+    // Warp Havok so activation uses the updated collision.
+    pReference->Update3DPosition(true);
 }
 
 void DropService::OnNotifyDropPhysicsDisabled(const NotifyDroppedItemPhysicsDisabled& acMessage) noexcept
@@ -888,6 +881,11 @@ void DropService::OnNotifyDropPhysicsDisabled(const NotifyDroppedItemPhysicsDisa
 
     const auto& data = *updatedOpt;
     const bool suppress = m_dropPhysicsDisableSuppressions.erase(acMessage.DropId) > 0;
+    if (IsDropLocallyActive(acMessage.DropId, data.ReferenceId))
+    {
+        m_localDrops.insert(acMessage.DropId);
+        return;
+    }
     if (data.Type == ServerItemType::CreationEngine)
     {
         TESObjectREFR* pReference = nullptr;
@@ -935,8 +933,7 @@ void DropService::OnNotifyDropPhysicsDisabled(const NotifyDroppedItemPhysicsDisa
         if (acMessage.HasRotation)
             pReference->SetRotation(rotation);
 
-        const bool locallyActive = m_grabbedDrops.find(acMessage.DropId) != m_grabbedDrops.end() ||
-            m_dropPhysicsCooldowns.find(acMessage.DropId) != m_dropPhysicsCooldowns.end();
+        const bool locallyActive = IsDropLocallyActive(acMessage.DropId, data.ReferenceId);
         if (!locallyActive)
         {
             SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
@@ -1216,15 +1213,26 @@ BSTEventResult DropService::OnEvent(const TESGrabReleaseEvent* apEvent, const Ev
 
     pReference = pResolved;
 
-    const auto dropIdOpt = DropManager::GetDropIdForHandle(handle.handle.iBits);
+    auto dropIdOpt = DropManager::GetDropIdForHandle(handle.handle.iBits);
+    GameId referenceId{};
     if (!dropIdOpt)
     {
         auto& modSystem = m_world.GetModSystem();
-        GameId referenceId{};
         modSystem.GetServerModId(pReference->formID, referenceId);
         if (!referenceId)
             return BSTEventResult::kOk;
 
+        if (const auto mappedDropId = DropManager::GetDropIdForReference(referenceId))
+        {
+            dropIdOpt = mappedDropId;
+            if (const auto dropOpt = DropManager::GetServerDrop(*mappedDropId); dropOpt)
+                DropManager::BindHandleToServerDrop(*mappedDropId, dropOpt->ActorFormId, handle.handle.iBits);
+            m_localDrops.insert(*mappedDropId);
+        }
+    }
+
+    if (!dropIdOpt)
+    {
         if (apEvent->grabbed)
         {
             m_grabbedReferences.insert(referenceId);
@@ -1241,6 +1249,19 @@ BSTEventResult DropService::OnEvent(const TESGrabReleaseEvent* apEvent, const Ev
         return BSTEventResult::kOk;
     }
 
+    if (!referenceId)
+    {
+        auto& modSystem = m_world.GetModSystem();
+        modSystem.GetServerModId(pReference->formID, referenceId);
+    }
+    if (referenceId)
+    {
+        m_grabbedReferences.erase(referenceId);
+        m_referencePhysicsCooldowns.erase(referenceId);
+        m_referenceMoveSyncTimers.erase(referenceId);
+    }
+
+    m_localDrops.insert(*dropIdOpt);
     if (apEvent->grabbed)
     {
         m_grabbedDrops.insert(*dropIdOpt);
@@ -1778,8 +1799,7 @@ void DropService::ProcessDropEntry(const NotifyDroppedItems::Entry& acEntry, boo
     {
         if (TESObjectREFR* pReference = TESObjectREFR::GetByHandle(*handleOpt))
         {
-            const bool locallyActive = m_grabbedDrops.find(acEntry.DropId) != m_grabbedDrops.end() ||
-                m_dropPhysicsCooldowns.find(acEntry.DropId) != m_dropPhysicsCooldowns.end();
+            const bool locallyActive = IsDropLocallyActive(acEntry.DropId, data.ReferenceId);
             if (!locallyActive && HasDropLocation(data.Location) && IsDropCellLoaded(data.CellId, data.WorldSpaceId))
             {
                 TESObjectCELL* pCell = nullptr;
@@ -2111,8 +2131,7 @@ bool DropService::TryBindExistingReference(uint64_t aDropId, const DropManager::
 
         m_localDrops.insert(aDropId);
 
-        const bool locallyActive = m_grabbedDrops.find(aDropId) != m_grabbedDrops.end() ||
-            m_dropPhysicsCooldowns.find(aDropId) != m_dropPhysicsCooldowns.end();
+        const bool locallyActive = IsDropLocallyActive(aDropId, referenceId);
         if (!locallyActive && HasDropLocation(acData.Location) && IsDropCellLoaded(acData.CellId, acData.WorldSpaceId))
         {
             TESObjectCELL* pCell = nullptr;
@@ -2353,6 +2372,27 @@ bool DropService::IsDropCellLoaded(const GameId& acCellId, const GameId& acWorld
     {
         TESObjectCELL* pCell = pTes->cells->arr[i];
         if (pCell && pCell->formID == cellFormId)
+            return true;
+    }
+
+    return false;
+}
+
+bool DropService::IsDropLocallyActive(uint64_t aDropId, const GameId& acReferenceId) const noexcept
+{
+    if (aDropId != 0)
+    {
+        if (m_grabbedDrops.find(aDropId) != m_grabbedDrops.end())
+            return true;
+        if (m_dropPhysicsCooldowns.find(aDropId) != m_dropPhysicsCooldowns.end())
+            return true;
+    }
+
+    if (acReferenceId)
+    {
+        if (m_grabbedReferences.find(acReferenceId) != m_grabbedReferences.end())
+            return true;
+        if (m_referencePhysicsCooldowns.find(acReferenceId) != m_referencePhysicsCooldowns.end())
             return true;
     }
 

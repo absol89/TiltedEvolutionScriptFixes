@@ -89,6 +89,7 @@ private:
     void ForgetLocalDrop(uint64_t aDropId) noexcept;
     bool IsPickupRelevant(const NotifyDroppedItemPickedUp& acMessage) noexcept;
     bool IsDropCellLoaded(const GameId& acCellId, const GameId& acWorldId) noexcept;
+    bool IsDropLocallyActive(uint64_t aDropId, const GameId& acReferenceId) const noexcept;
 
     enum class PendingType
     {

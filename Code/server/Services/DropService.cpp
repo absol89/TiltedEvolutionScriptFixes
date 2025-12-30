@@ -935,8 +935,15 @@ void DropService::OnDropMoveRequest(const PacketEvent<RequestDroppedItemMove>& a
     if (!message.HasLocation && !message.HasRotation)
         return;
 
+    uint64_t resolvedDropId = message.DropId;
+    if (!resolvedDropId && message.ReferenceId)
+    {
+        if (const auto it = m_referenceDropIndex.find(message.ReferenceId); it != m_referenceDropIndex.end())
+            resolvedDropId = it->second;
+    }
+
     NotifyDroppedItemMove notify{};
-    notify.DropId = message.DropId;
+    notify.DropId = resolvedDropId;
     notify.HasLocation = message.HasLocation;
     if (notify.HasLocation)
         notify.Location = message.Location;
@@ -947,67 +954,75 @@ void DropService::OnDropMoveRequest(const PacketEvent<RequestDroppedItemMove>& a
     notify.WorldSpaceId = message.WorldSpaceId;
     notify.ReferenceId = message.ReferenceId;
 
-    if (message.DropId)
+    if (resolvedDropId)
     {
-        ActiveDrop* pDrop = ResolveActiveDrop(message.DropId);
+        ActiveDrop* pDrop = ResolveActiveDrop(resolvedDropId);
         if (!pDrop)
         {
-            spdlog::debug("DropService: move requested for unknown drop {}", message.DropId);
-            return;
+            if (message.DropId)
+            {
+                spdlog::debug("DropService: move requested for unknown drop {}", message.DropId);
+                return;
+            }
+
+            resolvedDropId = 0;
+            notify.DropId = 0;
         }
-
-        const GameId previousCell = pDrop->CellId;
-
-        if (message.CellId)
-            pDrop->CellId = message.CellId;
-        if (message.WorldSpaceId)
-            pDrop->WorldSpaceId = message.WorldSpaceId;
-        const GameId previousRef = pDrop->ReferenceId;
-        if (message.ReferenceId)
-            pDrop->ReferenceId = message.ReferenceId;
-
-        if (message.HasLocation)
+        else
         {
-            pDrop->HasLocation = true;
-            pDrop->Location = message.Location;
+            const GameId previousCell = pDrop->CellId;
+
+            if (message.CellId)
+                pDrop->CellId = message.CellId;
+            if (message.WorldSpaceId)
+                pDrop->WorldSpaceId = message.WorldSpaceId;
+            const GameId previousRef = pDrop->ReferenceId;
+            if (message.ReferenceId)
+                pDrop->ReferenceId = message.ReferenceId;
+
+            if (message.HasLocation)
+            {
+                pDrop->HasLocation = true;
+                pDrop->Location = message.Location;
+            }
+
+            if (message.HasRotation)
+            {
+                pDrop->HasRotation = true;
+                pDrop->Rotation = message.Rotation;
+            }
+
+            if (previousRef && previousRef != pDrop->ReferenceId)
+                m_referenceDropIndex.erase(previousRef);
+            if (pDrop->ReferenceId)
+                m_referenceDropIndex[pDrop->ReferenceId] = pDrop->DropId;
+
+            if (previousCell != pDrop->CellId)
+            {
+                EraseDropFromIndex(pDrop->DropId, previousCell);
+                IndexDrop(pDrop->DropId, pDrop->CellId);
+            }
+
+            UpdateDropLocation(*pDrop);
+
+            notify.DropId = pDrop->DropId;
+            notify.HasLocation = pDrop->HasLocation;
+            if (notify.HasLocation)
+                notify.Location = pDrop->Location;
+            notify.HasRotation = pDrop->HasRotation;
+            if (notify.HasRotation)
+                notify.Rotation = pDrop->Rotation;
+            notify.CellId = pDrop->CellId;
+            notify.WorldSpaceId = pDrop->WorldSpaceId;
+            notify.ReferenceId = pDrop->ReferenceId;
         }
-
-        if (message.HasRotation)
-        {
-            pDrop->HasRotation = true;
-            pDrop->Rotation = message.Rotation;
-        }
-
-        if (previousRef && previousRef != pDrop->ReferenceId)
-            m_referenceDropIndex.erase(previousRef);
-        if (pDrop->ReferenceId)
-            m_referenceDropIndex[pDrop->ReferenceId] = pDrop->DropId;
-
-        if (previousCell != pDrop->CellId)
-        {
-            EraseDropFromIndex(pDrop->DropId, previousCell);
-            IndexDrop(pDrop->DropId, pDrop->CellId);
-        }
-
-        UpdateDropLocation(*pDrop);
-
-        notify.DropId = pDrop->DropId;
-        notify.HasLocation = pDrop->HasLocation;
-        if (notify.HasLocation)
-            notify.Location = pDrop->Location;
-        notify.HasRotation = pDrop->HasRotation;
-        if (notify.HasRotation)
-            notify.Rotation = pDrop->Rotation;
-        notify.CellId = pDrop->CellId;
-        notify.WorldSpaceId = pDrop->WorldSpaceId;
-        notify.ReferenceId = pDrop->ReferenceId;
     }
 
     if (auto characterEntity = acMessage.pPlayer->GetCharacter(); characterEntity && m_world.valid(*characterEntity))
     {
         if (!GameServer::Get()->SendToPlayersInRange(notify, *characterEntity, acMessage.pPlayer))
         {
-            spdlog::error("{}: SendToPlayersInRange failed for drop move {}", __FUNCTION__, message.DropId);
+            spdlog::error("{}: SendToPlayersInRange failed for drop move {}", __FUNCTION__, notify.DropId);
             GameServer::Get()->SendToPlayers(notify, acMessage.pPlayer);
         }
     }
@@ -1024,11 +1039,18 @@ void DropService::OnDropPhysicsDisabledRequest(const PacketEvent<RequestDroppedI
 
     const auto& message = acMessage.Packet;
 
-    if (!message.DropId)
+    uint64_t resolvedDropId = message.DropId;
+    if (!resolvedDropId && message.ReferenceId)
+    {
+        if (const auto it = m_referenceDropIndex.find(message.ReferenceId); it != m_referenceDropIndex.end())
+            resolvedDropId = it->second;
+    }
+
+    if (!resolvedDropId)
         return;
 
     NotifyDroppedItemPhysicsDisabled notify{};
-    notify.DropId = message.DropId;
+    notify.DropId = resolvedDropId;
     notify.HasLocation = message.HasLocation;
     if (notify.HasLocation)
         notify.Location = message.Location;
@@ -1039,10 +1061,10 @@ void DropService::OnDropPhysicsDisabledRequest(const PacketEvent<RequestDroppedI
     notify.WorldSpaceId = message.WorldSpaceId;
     notify.ReferenceId = message.ReferenceId;
 
-    ActiveDrop* pDrop = ResolveActiveDrop(message.DropId);
+    ActiveDrop* pDrop = ResolveActiveDrop(resolvedDropId);
     if (!pDrop)
     {
-        spdlog::debug("DropService: physics disabled requested for unknown drop {}", message.DropId);
+        spdlog::debug("DropService: physics disabled requested for unknown drop {}", resolvedDropId);
         return;
     }
 
@@ -1096,7 +1118,7 @@ void DropService::OnDropPhysicsDisabledRequest(const PacketEvent<RequestDroppedI
     {
         if (!GameServer::Get()->SendToPlayersInRange(notify, *characterEntity, acMessage.pPlayer))
         {
-            spdlog::error("{}: SendToPlayersInRange failed for drop physics disabled {}", __FUNCTION__, message.DropId);
+            spdlog::error("{}: SendToPlayersInRange failed for drop physics disabled {}", __FUNCTION__, resolvedDropId);
             GameServer::Get()->SendToPlayers(notify, acMessage.pPlayer);
         }
     }
