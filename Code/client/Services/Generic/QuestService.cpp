@@ -119,8 +119,17 @@ using Quest = TESQuest; // Alias for PAPYRUS_FUNCTION namespace string "Quest"
 
 static TESQuest* FindQuestByNameId(const String& name)
 {
-    auto& questRegistry = ModManager::Get()->quests;
-    auto it = std::find_if(questRegistry.begin(), questRegistry.end(), [name](auto* it) { return std::strcmp(it->idName.AsAscii(), name.c_str()) == 0; });
+    auto* pModManager = ModManager::Get();
+    if (!pModManager)
+        return nullptr;
+
+    auto& questRegistry = pModManager->quests;
+    auto it = std::find_if(questRegistry.begin(), questRegistry.end(), [&name](auto* quest) {
+        if (!quest)
+            return false;
+        const char* idName = quest->idName.AsAscii();
+        return idName && std::strcmp(idName, name.c_str()) == 0;
+    });
 
     return it != questRegistry.end() ? *it : nullptr;
 }
@@ -143,7 +152,8 @@ bool RuleTargetsQuest(const GateRule& aRule, TESQuest* apQuest) noexcept
 
     if (!aRule.IdName.empty())
     {
-        if (std::strcmp(apQuest->idName.AsAscii(), aRule.IdName.c_str()) != 0)
+        const char* idName = apQuest->idName.AsAscii();
+        if (!idName || std::strcmp(idName, aRule.IdName.c_str()) != 0)
             return false;
     }
 
@@ -287,7 +297,8 @@ BSTEventResult QuestService::OnEvent(const TESQuestStageEvent* apEvent, const Ev
 
 BSTEventResult QuestService::OnEvent(const TESLoadGameEvent*, const EventDispatcher<TESLoadGameEvent>*)
 {
-    EvaluateGatesFromWorld();
+    m_initialGateScan = false;
+    m_gateRescanTimer = 0.0;
     return BSTEventResult::kOk;
 }
 
@@ -429,9 +440,18 @@ bool QuestService::IsNonSyncableQuest(TESQuest* apQuest)
 
 void QuestService::DebugDumpQuests()
 {
-    auto& quests = ModManager::Get()->quests;
+    auto* pModManager = ModManager::Get();
+    if (!pModManager)
+        return;
+
+    auto& quests = pModManager->quests;
     for (TESQuest* pQuest : quests)
-        spdlog::info("{:X}|{}|{}|{}", pQuest->formID, (uint8_t)pQuest->type, pQuest->priority, pQuest->idName.AsAscii());
+    {
+        if (!pQuest)
+            continue;
+        const char* idName = pQuest->idName.AsAscii();
+        spdlog::info("{:X}|{}|{}|{}", pQuest->formID, (uint8_t)pQuest->type, pQuest->priority, idName ? idName : "");
+    }
 }
 
 void QuestService::EvaluateGateForQuest(uint32_t aFormId, uint16_t aStage) noexcept
