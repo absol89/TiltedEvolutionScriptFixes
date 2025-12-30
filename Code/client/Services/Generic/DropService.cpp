@@ -89,6 +89,7 @@ bool IsServerItemFormType(FormType aType) noexcept
     case FormType::Light:
     case FormType::Misc:
     case FormType::Apparatus:
+    case FormType::MovableStatic:
     case FormType::LeveledItem:
         return true;
     default:
@@ -2437,6 +2438,7 @@ TiltedPhoques::Vector<RequestDroppedItems::DiscoveryEntry> DropService::BuildDis
         FormType::Light,
         FormType::Misc,
         FormType::Apparatus,
+        FormType::MovableStatic,
         FormType::LeveledItem
     };
 

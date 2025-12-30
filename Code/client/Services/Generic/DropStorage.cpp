@@ -41,12 +41,13 @@ bool DropStorage::EnsureInitialized() noexcept
     if (!m_initialized || newPath != m_storagePath)
     {
         m_storagePath = newPath;
-        if (!m_storagePath.empty() && m_cachedDrops.empty())
+        m_cachedDrops.clear();
+        m_dirty = false;
+        if (!m_storagePath.empty())
         {
             EnsureDirectories(m_storagePath.parent_path());
             Load();
         }
-
         m_initialized = true;
     }
 
