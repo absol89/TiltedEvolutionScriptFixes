@@ -1214,26 +1214,74 @@ BSTEventResult DropService::OnEvent(const TESGrabReleaseEvent* apEvent, const Ev
 
     pReference = pResolved;
 
-    auto dropIdOpt = DropManager::GetDropIdForHandle(handle.handle.iBits);
     GameId referenceId{};
-    if (!dropIdOpt)
-    {
-        auto& modSystem = m_world.GetModSystem();
-        modSystem.GetServerModId(pReference->formID, referenceId);
-        if (!referenceId)
-            return BSTEventResult::kOk;
+    auto& modSystem = m_world.GetModSystem();
+    modSystem.GetServerModId(pReference->formID, referenceId);
 
+    const uint32_t handleBits = handle.handle.iBits;
+    auto bindDrop = [&](uint64_t dropId) -> bool {
+        const auto dropOpt = DropManager::GetServerDrop(dropId);
+        if (!dropOpt)
+            return false;
+
+        if (const auto existingHandleOpt = DropManager::GetHandleForDrop(dropId); existingHandleOpt)
+        {
+            if (*existingHandleOpt != handleBits)
+            {
+                if (TESObjectREFR::GetByHandle(*existingHandleOpt))
+                    return false;
+
+                DropManager::ClearHandleBinding(dropId);
+            }
+        }
+
+        if (!DropManager::BindHandleToServerDrop(dropId, dropOpt->ActorFormId, handleBits))
+            return false;
+
+        if (referenceId)
+            DropManager::SetReferenceForDrop(dropId, referenceId);
+
+        m_localDrops.insert(dropId);
+        return true;
+    };
+
+    auto dropIdOpt = DropManager::GetDropIdForHandle(handleBits);
+    if (dropIdOpt)
+    {
+        if (referenceId)
+            DropManager::SetReferenceForDrop(*dropIdOpt, referenceId);
+        m_localDrops.insert(*dropIdOpt);
+    }
+
+    if (!dropIdOpt && referenceId)
+    {
         if (const auto mappedDropId = DropManager::GetDropIdForReference(referenceId))
         {
-            dropIdOpt = mappedDropId;
-            if (const auto dropOpt = DropManager::GetServerDrop(*mappedDropId); dropOpt)
-                DropManager::BindHandleToServerDrop(*mappedDropId, dropOpt->ActorFormId, handle.handle.iBits);
-            m_localDrops.insert(*mappedDropId);
+            if (bindDrop(*mappedDropId))
+                dropIdOpt = mappedDropId;
+        }
+    }
+
+    if (!dropIdOpt && pReference->baseForm && IsServerItemFormType(pReference->baseForm->formType))
+    {
+        GameId baseId{};
+        modSystem.GetServerModId(pReference->baseForm->formID, baseId);
+        if (baseId)
+        {
+            pReference->Update3DPosition(false);
+            if (const auto matchedDropId = DropManager::FindDropBySignature(baseId, pReference->position, kDropSearchRadiusSquared))
+            {
+                if (bindDrop(*matchedDropId))
+                    dropIdOpt = matchedDropId;
+            }
         }
     }
 
     if (!dropIdOpt)
     {
+        if (!referenceId)
+            return BSTEventResult::kOk;
+
         if (apEvent->grabbed)
         {
             m_grabbedReferences.insert(referenceId);
@@ -1252,7 +1300,6 @@ BSTEventResult DropService::OnEvent(const TESGrabReleaseEvent* apEvent, const Ev
 
     if (!referenceId)
     {
-        auto& modSystem = m_world.GetModSystem();
         modSystem.GetServerModId(pReference->formID, referenceId);
     }
     if (referenceId)
@@ -1318,6 +1365,7 @@ void DropService::UpdateDropPhysics(const UpdateEvent& acEvent) noexcept
                 SendDropMoveRequest(dropId, pReference, false);
                 SendDropPhysicsDisabledRequest(dropId, pReference);
                 SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
+                pReference->Update3DPosition(true);
             }
             else
             {
@@ -1402,6 +1450,7 @@ void DropService::UpdateDropPhysics(const UpdateEvent& acEvent) noexcept
         {
             SendReferenceMoveRequest(referenceId, pReference);
             SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
+            pReference->Update3DPosition(true);
         }
     }
 }
@@ -2131,6 +2180,23 @@ bool DropService::TryBindExistingReference(uint64_t aDropId, const DropManager::
             DropManager::SetReferenceForDrop(aDropId, referenceId);
 
         m_localDrops.insert(aDropId);
+
+        if (referenceId)
+        {
+            if (m_grabbedReferences.erase(referenceId) > 0)
+            {
+                m_referenceMoveSyncTimers.erase(referenceId);
+                m_grabbedDrops.insert(aDropId);
+            }
+
+            if (const auto cooldownIt = m_referencePhysicsCooldowns.find(referenceId); cooldownIt != m_referencePhysicsCooldowns.end())
+            {
+                const float remaining = cooldownIt->second;
+                m_referencePhysicsCooldowns.erase(cooldownIt);
+                m_referenceMoveSyncTimers.erase(referenceId);
+                m_dropPhysicsCooldowns[aDropId] = remaining;
+            }
+        }
 
         const bool locallyActive = IsDropLocallyActive(aDropId, referenceId);
         if (!locallyActive && HasDropLocation(acData.Location) && IsDropCellLoaded(acData.CellId, acData.WorldSpaceId))

@@ -100,6 +100,8 @@ bool BindHandleToServerDrop(uint64_t dropId, uint32_t actorFormId, uint32_t hand
         return false;
 
     auto& drop = dropIt.value();
+    if (drop.HandleBits != 0 && drop.HandleBits != handleBits)
+        UnbindHandle(drop.HandleBits);
     drop.ActorFormId = actorFormId;
     drop.HandleBits = handleBits;
     BindHandle(handleBits, dropId);
