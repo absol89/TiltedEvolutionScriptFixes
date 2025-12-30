@@ -14,6 +14,7 @@
 #include <queue>
 #include <array>
 
+struct Actor;
 struct World;
 struct TransportService;
 struct SpellItem;
@@ -237,7 +238,8 @@ struct MagicService
     void StopHealerUi() noexcept;
     void ApplyHealerCostModifiers(Actor* apCaster) noexcept;
     void ClearHealerCostModifiers(Actor* apCaster) noexcept;
-    [[nodiscard]] bool HasDownedPartyMemberInRange(float aRange) const noexcept;
+    [[nodiscard]] bool HasDownedPartyMemberInRange(float aRange) noexcept;
+    [[nodiscard]] Actor* FindActorByServerId(uint32_t aServerId) const noexcept;
     [[nodiscard]] std::string ResolvePlayerName(uint32_t aServerId) const;
     [[nodiscard]] std::optional<uint32_t> GetLocalServerId() const noexcept;
     bool SendHealingProximityPing(uint32_t aSpellFormId) noexcept;

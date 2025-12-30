@@ -976,19 +976,97 @@ void MagicService::StopHealerUi() noexcept
     m_healerChannelState.LastUpdate = {};
 }
 
-bool MagicService::HasDownedPartyMemberInRange(float aRange) const noexcept
+Actor* MagicService::FindActorByServerId(uint32_t aServerId) const noexcept
+{
+    auto localView = m_world.view<FormIdComponent, LocalComponent>();
+    for (auto entity : localView)
+    {
+        const auto& localComponent = localView.get<LocalComponent>(entity);
+        if (localComponent.Id != aServerId)
+            continue;
+
+        const auto& formIdComponent = localView.get<FormIdComponent>(entity);
+        return Cast<Actor>(TESForm::GetById(formIdComponent.Id));
+    }
+
+    auto remoteView = m_world.view<FormIdComponent, RemoteComponent>();
+    for (auto entity : remoteView)
+    {
+        const auto& remoteComponent = remoteView.get<RemoteComponent>(entity);
+        if (remoteComponent.Id != aServerId)
+            continue;
+
+        const auto& formIdComponent = remoteView.get<FormIdComponent>(entity);
+        return Cast<Actor>(TESForm::GetById(formIdComponent.Id));
+    }
+
+    return nullptr;
+}
+
+bool MagicService::HasDownedPartyMemberInRange(float aRange) noexcept
 {
     if (m_downedPartyMembers.empty())
+    {
+        // Fall back to live actor state if we missed a downed notification.
+        const auto& partyMembers = m_world.GetPartyService().GetPartyMembers();
+        if (partyMembers.empty())
+            return false;
+
+        PlayerCharacter* pLocalPlayer = PlayerCharacter::Get();
+        if (!pLocalPlayer)
+            return false;
+
+        const float rangeSquared = aRange * aRange;
+        auto remoteView = m_world.view<FormIdComponent, PlayerComponent, RemoteComponent>();
+        for (auto entity : remoteView)
+        {
+            const auto& playerComponent = remoteView.get<PlayerComponent>(entity);
+            if (std::find(partyMembers.begin(), partyMembers.end(), playerComponent.Id) == partyMembers.end())
+                continue;
+
+            const auto& formIdComponent = remoteView.get<FormIdComponent>(entity);
+            Actor* pRemotePlayer = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
+            if (!pRemotePlayer || !pRemotePlayer->actorState.IsBleedingOut())
+                continue;
+
+            const float dx = pLocalPlayer->position.x - pRemotePlayer->position.x;
+            const float dy = pLocalPlayer->position.y - pRemotePlayer->position.y;
+            const float dz = pLocalPlayer->position.z - pRemotePlayer->position.z;
+            const float distanceSquared = dx * dx + dy * dy + dz * dz;
+            if (distanceSquared > rangeSquared)
+                continue;
+
+            DownedMemberInfo info{};
+            info.PlayerId = playerComponent.Id;
+            info.PositionX = pRemotePlayer->position.x;
+            info.PositionY = pRemotePlayer->position.y;
+            info.PositionZ = pRemotePlayer->position.z;
+            m_downedPartyMembers[remoteView.get<RemoteComponent>(entity).Id] = info;
+            return true;
+        }
+
         return false;
+    }
 
     PlayerCharacter* pLocalPlayer = PlayerCharacter::Get();
     if (!pLocalPlayer)
         return false;
 
     const float rangeSquared = aRange * aRange;
+    const auto localServerId = GetLocalServerId();
 
-    for (const auto& [_, info] : m_downedPartyMembers)
+    for (auto& [serverId, info] : m_downedPartyMembers)
     {
+        if (localServerId && serverId == *localServerId)
+            continue;
+
+        if (Actor* pActor = FindActorByServerId(serverId))
+        {
+            info.PositionX = pActor->position.x;
+            info.PositionY = pActor->position.y;
+            info.PositionZ = pActor->position.z;
+        }
+
         const float dx = pLocalPlayer->position.x - info.PositionX;
         const float dy = pLocalPlayer->position.y - info.PositionY;
         const float dz = pLocalPlayer->position.z - info.PositionZ;
@@ -996,6 +1074,39 @@ bool MagicService::HasDownedPartyMemberInRange(float aRange) const noexcept
 
         if (distanceSquared <= rangeSquared)
             return true;
+    }
+
+    // Re-check live actors in case the cached downed positions are stale.
+    const auto& partyMembers = m_world.GetPartyService().GetPartyMembers();
+    if (!partyMembers.empty())
+    {
+        auto remoteView = m_world.view<FormIdComponent, PlayerComponent, RemoteComponent>();
+        for (auto entity : remoteView)
+        {
+            const auto& playerComponent = remoteView.get<PlayerComponent>(entity);
+            if (std::find(partyMembers.begin(), partyMembers.end(), playerComponent.Id) == partyMembers.end())
+                continue;
+
+            const auto& formIdComponent = remoteView.get<FormIdComponent>(entity);
+            Actor* pRemotePlayer = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
+            if (!pRemotePlayer || !pRemotePlayer->actorState.IsBleedingOut())
+                continue;
+
+            const float dx = pLocalPlayer->position.x - pRemotePlayer->position.x;
+            const float dy = pLocalPlayer->position.y - pRemotePlayer->position.y;
+            const float dz = pLocalPlayer->position.z - pRemotePlayer->position.z;
+            const float distanceSquared = dx * dx + dy * dy + dz * dz;
+            if (distanceSquared > rangeSquared)
+                continue;
+
+            DownedMemberInfo info{};
+            info.PlayerId = playerComponent.Id;
+            info.PositionX = pRemotePlayer->position.x;
+            info.PositionY = pRemotePlayer->position.y;
+            info.PositionZ = pRemotePlayer->position.z;
+            m_downedPartyMembers[remoteView.get<RemoteComponent>(entity).Id] = info;
+            return true;
+        }
     }
 
     return false;
