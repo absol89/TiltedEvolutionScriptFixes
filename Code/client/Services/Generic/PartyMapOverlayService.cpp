@@ -136,7 +136,9 @@ void PartyMapOverlayService::OnPartyLeft(const PartyLeftEvent&) noexcept
 
 void PartyMapOverlayService::OnPlayerCellChanged(const NotifyPlayerCellChanged& aMsg) noexcept
 {
-    std::scoped_lock lock(m_cacheMutex);
+    std::unique_lock<std::mutex> lock(m_cacheMutex, std::try_to_lock);
+    if (!lock.owns_lock())
+        return;
     // Track worldspace per player when available
     auto& modSystem = m_world.GetModSystem();
 
@@ -159,7 +161,9 @@ void PartyMapOverlayService::OnPlayerCellChanged(const NotifyPlayerCellChanged& 
 
 void PartyMapOverlayService::OnPartyPositions(const NotifyPartyPositions& aMsg) noexcept
 {
-    std::scoped_lock lock(m_cacheMutex);
+    std::unique_lock<std::mutex> lock(m_cacheMutex, std::try_to_lock);
+    if (!lock.owns_lock())
+        return;
     // Update caches from server-sent party positions (covers far-away/unloaded players)
     const uint64_t tick = m_world.GetTick();
     auto& modSystem = m_world.GetModSystem();
@@ -183,33 +187,9 @@ void PartyMapOverlayService::OnPartyPositions(const NotifyPartyPositions& aMsg) 
         }
         m_worlds[e.PlayerId] = info;
 
-        // Track last known position per worldspace for cross-world projection
+        // Track last known position per worldspace; projection is deferred to the render thread.
         if (info.HasWorld)
-        {
             m_lastPerWorld[e.PlayerId][info.WorldSpaceFormId] = pos;
-
-            if (auto* pFromWs = Cast<TESWorldSpace>(TESForm::GetById(info.WorldSpaceFormId)))
-            {
-                if (auto* pDispWs = WorldMapProjector::GetDisplayWorld(pFromWs))
-                {
-                    glm::vec3 dispPos{};
-                    bool converted = false;
-
-                    if (pDispWs == pFromWs)
-                    {
-                        dispPos = pos;
-                        converted = true;
-                    }
-                    else
-                    {
-                        converted = WorldMapProjector::Convert(pFromWs, pos, pDispWs, dispPos);
-                    }
-
-                    if (converted)
-                        m_lastPerWorld[e.PlayerId][pDispWs->formID] = dispPos;
-                }
-            }
-        }
     }
 }
 
@@ -260,7 +240,9 @@ void PartyMapOverlayService::PruneNonPartyEntries() noexcept
 
 void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
 {
-    std::scoped_lock lock(m_cacheMutex);
+    std::unique_lock<std::mutex> lock(m_cacheMutex, std::try_to_lock);
+    if (!lock.owns_lock())
+        return;
     const uint64_t tick = m_world.GetTick();
 
     // Cache last known positions for loaded remote players
@@ -458,6 +440,8 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
                 sx = std::clamp(spos.x, 0.0f, 1.0f) * width;
                 sy = (1.f - std::clamp(spos.y, 0.0f, 1.0f)) * height;
                 drew = true;
+                if (dispWsId != 0)
+                    m_lastPerWorld[pid][dispWsId] = worldPos;
             }
         }
 
@@ -476,6 +460,8 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
                         sx = std::clamp(spos.x, 0.0f, 1.0f) * width;
                         sy = (1.f - std::clamp(spos.y, 0.0f, 1.0f)) * height;
                         drew = true;
+                        if (dispWsId != 0)
+                            m_lastPerWorld[pid][dispWsId] = dstPos;
                     }
                 }
             }
@@ -494,6 +480,8 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
                     sx = std::clamp(spos.x, 0.0f, 1.0f) * width;
                     sy = (1.f - std::clamp(spos.y, 0.0f, 1.0f)) * height;
                     drew = true;
+                    if (dispWsId != 0)
+                        m_lastPerWorld[pid][dispWsId] = dstPos;
                 }
             }
         }
