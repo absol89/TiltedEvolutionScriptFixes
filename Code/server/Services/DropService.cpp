@@ -497,6 +497,31 @@ void DropService::OnDropRequest(const PacketEvent<RequestActorDrop>& acMessage) 
     drop.ClientDropId = message.ClientDropId;
     drop.Version = 1;
 
+    const auto& ownerCell = pPlayer->GetCellComponent();
+    if (ownerCell.Cell)
+    {
+        const bool cellMismatch = drop.CellId && drop.CellId != ownerCell.Cell;
+        if (!drop.CellId || cellMismatch)
+        {
+            if (cellMismatch)
+            {
+                spdlog::debug("DropService: correcting drop cell for player {} from {:X}:{:X} to {:X}:{:X}", pPlayer->GetId(), drop.CellId.ModId, drop.CellId.BaseId, ownerCell.Cell.ModId,
+                              ownerCell.Cell.BaseId);
+            }
+            drop.CellId = ownerCell.Cell;
+        }
+
+        if (ownerCell.WorldSpaceId)
+        {
+            if (!drop.WorldSpaceId || drop.WorldSpaceId != ownerCell.WorldSpaceId)
+                drop.WorldSpaceId = ownerCell.WorldSpaceId;
+        }
+        else if (drop.WorldSpaceId)
+        {
+            drop.WorldSpaceId = {};
+        }
+    }
+
     const int32_t dropCount = drop.PickupEntry.Count;
     if (dropCount <= 0)
     {
@@ -543,10 +568,27 @@ void DropService::OnDropRequest(const PacketEvent<RequestActorDrop>& acMessage) 
                 pExisting->SpawnEpoch = pExisting->Version;
 
                 NotifyActorDrop notify = buildNotify(*pExisting);
-                if (!GameServer::Get()->SendToPlayersInRange(notify, notifyEntity, nullptr))
+                const bool broadcasted = GameServer::Get()->SendToPlayersInRange(notify, notifyEntity, nullptr);
+                if (!broadcasted)
                 {
                     spdlog::error("{}: SendToPlayersInRange failed (duplicate drop)", __FUNCTION__);
                     GameServer::Get()->SendToPlayers(notify, nullptr);
+                }
+                else
+                {
+                    auto* pNotifyCell = m_world.try_get<CellIdComponent>(notifyEntity);
+                    const bool playerCellReady = static_cast<bool>(pPlayer->GetCellComponent());
+                    bool inRange = false;
+                    if (pNotifyCell && playerCellReady)
+                    {
+                        bool isDragon = false;
+                        if (const auto* pCharacterComponent = m_world.try_get<CharacterComponent>(notifyEntity))
+                            isDragon = pCharacterComponent->IsDragon();
+                        inRange = pNotifyCell->IsInRange(pPlayer->GetCellComponent(), isDragon);
+                    }
+
+                    if (!pNotifyCell || !playerCellReady || !inRange)
+                        pPlayer->Send(notify);
                 }
             }
             else
@@ -600,10 +642,27 @@ void DropService::OnDropRequest(const PacketEvent<RequestActorDrop>& acMessage) 
 
     NotifyActorDrop notify = buildNotify(drop);
 
-    if (!GameServer::Get()->SendToPlayersInRange(notify, notifyEntity, nullptr))
+    const bool broadcasted = GameServer::Get()->SendToPlayersInRange(notify, notifyEntity, nullptr);
+    if (!broadcasted)
     {
         spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
         GameServer::Get()->SendToPlayers(notify, nullptr);
+    }
+    else
+    {
+        auto* pNotifyCell = m_world.try_get<CellIdComponent>(notifyEntity);
+        const bool playerCellReady = static_cast<bool>(pPlayer->GetCellComponent());
+        bool inRange = false;
+        if (pNotifyCell && playerCellReady)
+        {
+            bool isDragon = false;
+            if (const auto* pCharacterComponent = m_world.try_get<CharacterComponent>(notifyEntity))
+                isDragon = pCharacterComponent->IsDragon();
+            inRange = pNotifyCell->IsInRange(pPlayer->GetCellComponent(), isDragon);
+        }
+
+        if (!pNotifyCell || !playerCellReady || !inRange)
+            pPlayer->Send(notify);
     }
 
     spdlog::debug("DropService: drop {} tracked for actor {:X}, player {}, cell {:X}:{:X}, world {:X}:{:X}", drop.DropId, drop.ServerId, drop.OriginPlayerId, drop.CellId.ModId, drop.CellId.BaseId,
