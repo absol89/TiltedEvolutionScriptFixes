@@ -323,6 +323,8 @@ DropService::DropService(World& aWorld, entt::dispatcher& aDispatcher, Transport
     : m_world(aWorld)
     , m_dispatcher(aDispatcher)
     , m_transport(aTransport)
+    , m_coSaveService(aWorld.ctx().at<CoSaveService>())
+    , m_dropStorage(m_coSaveService.GetDropStorage())
 {
     m_dropEventConnection = m_dispatcher.sink<DropItemEvent>().connect<&DropService::OnDropEvent>(this);
     m_pickupEventConnection = m_dispatcher.sink<PickupDroppedItemEvent>().connect<&DropService::OnPickupEvent>(this);
@@ -356,32 +358,6 @@ DropService::~DropService()
     }
 }
 
-void DropService::OnSaveGame(const char* apFileName) noexcept
-{
-    spdlog::info("DropService: OnSaveGame called (file='{}')", apFileName ? apFileName : "");
-    EnsureStorageReady();
-    if (m_dropStorage.FlushIfDirty())
-        return;
-
-    if (!apFileName || apFileName[0] == '\0')
-    {
-        const auto fallbackPath = SaveGameUtils::GetCurrentSavePath();
-        if (!fallbackPath.empty())
-            m_dropStorage.FlushToPath(fallbackPath);
-        return;
-    }
-
-    const std::filesystem::path savePath(apFileName);
-    if (savePath.has_parent_path() || savePath.has_root_path())
-    {
-        m_dropStorage.FlushToPath(savePath);
-        return;
-    }
-
-    const auto fallbackPath = SaveGameUtils::GetCurrentSavePath();
-    if (!fallbackPath.empty())
-        m_dropStorage.FlushToPath(fallbackPath);
-}
 
 BSTEventResult DropService::OnEvent(const TESLoadGameEvent*, const EventDispatcher<TESLoadGameEvent>*)
 {
@@ -406,8 +382,6 @@ BSTEventResult DropService::OnEvent(const TESLoadGameEvent*, const EventDispatch
     m_periodicPlayerCellSyncAccumulator = 0.0;
     m_nextDropSyncRequestId = 1;
     m_grabEventSuppressionRemaining = kGrabEventSuppressSeconds;
-
-    m_dropStorage.OnLoadGameReset();
     m_cachedUsername.clear();
 
     return BSTEventResult::kOk;
@@ -1650,12 +1624,12 @@ bool DropService::EnsureStorageReady() noexcept
     if (username != m_cachedUsername)
     {
         m_cachedUsername = username;
-        m_dropStorage.SetActiveUser(username);
+        m_coSaveService.PrepareForUser(username);
     }
 
-    const bool ready = m_dropStorage.EnsureInitialized();
-    spdlog::info("DropService: storage ready={} (user='{}')", ready ? "true" : "false", username);
-    return ready;
+    m_dropStorage.PrepareInMemory();
+    spdlog::info("DropService: storage ready=true (user='{}')", username);
+    return true;
 }
 
 uint32_t DropService::SendDropSyncRequest(bool aRequestAll, bool aHasCellFilter, const GameId& acCellId, bool aHasWorldFilter, const GameId& acWorldId, TiltedPhoques::Vector<RequestDroppedItems::DiscoveryEntry> aDiscoveries) noexcept

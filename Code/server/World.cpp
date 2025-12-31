@@ -22,6 +22,7 @@
 #include <Services/VoteTimeService.h>
 #include <Services/LoginService.h>
 #include <Services/SyncModeService.h>
+#include <Services/PlayerLocationService.h>
 
 #include <es_loader/ESLoader.h>
 
@@ -43,6 +44,7 @@ World::World()
     ctx().emplace<MagicService>(*this, m_dispatcher);
     ctx().emplace<AdminService>(*this, m_dispatcher);
     ctx().emplace<ChatCommandService>(*this, m_dispatcher);
+    ctx().emplace<PlayerLocationService>(*this, m_dispatcher);
     ctx().emplace<OverlayService>(*this, m_dispatcher);
     ctx().emplace<CommandService>(*this, m_dispatcher);
     ctx().emplace<StringCacheService>(*this, m_dispatcher);

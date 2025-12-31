@@ -8,10 +8,12 @@
 
 #include <Messages/NotifyPlayerCellChanged.h>
 #include <Messages/PartyPositionUpdateRequest.h>
+#include <Messages/PartyPositionsRequest.h>
 
 #include <Services/PartyMapOverlayService.h>
 #include <Services/PartyService.h>
 #include <Services/OverlayService.h>
+#include <Services/Generic/CoSaveService.h>
 
 #include <Components.h>
 #include <World.h>
@@ -54,6 +56,12 @@ std::string JsonEscapeString(const TiltedPhoques::String& input)
         }
     }
     return escaped;
+}
+
+uint64_t GetEpochSeconds() noexcept
+{
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count());
 }
 
 bool HasMenuOpen(UI* apUI, const char* acName)
@@ -100,6 +108,7 @@ PartyMapOverlayService::PartyMapOverlayService(World& aWorld, entt::dispatcher& 
 
 void PartyMapOverlayService::OnDisconnected(const DisconnectedEvent&) noexcept
 {
+    std::scoped_lock lock(m_cacheMutex);
     m_last.clear();
     m_worlds.clear();
     m_lastPerWorld.clear();
@@ -109,11 +118,15 @@ void PartyMapOverlayService::OnDisconnected(const DisconnectedEvent&) noexcept
 
 void PartyMapOverlayService::OnPartyJoined(const PartyJoinedEvent&) noexcept
 {
+    std::scoped_lock lock(m_cacheMutex);
     PruneNonPartyEntries();
+    PartyPositionsRequest req{};
+    m_world.GetTransport().Send(req);
 }
 
 void PartyMapOverlayService::OnPartyLeft(const PartyLeftEvent&) noexcept
 {
+    std::scoped_lock lock(m_cacheMutex);
     m_last.clear();
     m_worlds.clear();
     m_lastPerWorld.clear();
@@ -123,10 +136,12 @@ void PartyMapOverlayService::OnPartyLeft(const PartyLeftEvent&) noexcept
 
 void PartyMapOverlayService::OnPlayerCellChanged(const NotifyPlayerCellChanged& aMsg) noexcept
 {
+    std::scoped_lock lock(m_cacheMutex);
     // Track worldspace per player when available
     auto& modSystem = m_world.GetModSystem();
 
     WorldspaceInfo info{};
+    info.IsInterior = !aMsg.WorldSpaceId;
     if (aMsg.WorldSpaceId)
     {
         info.WorldSpaceFormId = modSystem.GetGameId(aMsg.WorldSpaceId);
@@ -144,6 +159,7 @@ void PartyMapOverlayService::OnPlayerCellChanged(const NotifyPlayerCellChanged& 
 
 void PartyMapOverlayService::OnPartyPositions(const NotifyPartyPositions& aMsg) noexcept
 {
+    std::scoped_lock lock(m_cacheMutex);
     // Update caches from server-sent party positions (covers far-away/unloaded players)
     const uint64_t tick = m_world.GetTick();
     auto& modSystem = m_world.GetModSystem();
@@ -154,6 +170,7 @@ void PartyMapOverlayService::OnPartyPositions(const NotifyPartyPositions& aMsg) 
         StoreLastInfo(e.PlayerId, pos, tick);
 
         WorldspaceInfo info{};
+        info.IsInterior = e.IsInterior;
         if (e.WorldSpaceId)
         {
             info.WorldSpaceFormId = modSystem.GetGameId(e.WorldSpaceId);
@@ -243,6 +260,7 @@ void PartyMapOverlayService::PruneNonPartyEntries() noexcept
 
 void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
 {
+    std::scoped_lock lock(m_cacheMutex);
     const uint64_t tick = m_world.GetTick();
 
     // Cache last known positions for loaded remote players
@@ -282,6 +300,31 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
                     req.CellId = {};
 
                 m_world.GetTransport().Send(req);
+
+                CoSaveStorage::LocalPlayerLocation location{};
+                const auto existing = m_world.ctx().at<CoSaveService>().GetLocalPlayerLocation();
+                location.HasLocation = true;
+                location.Position = req.Position;
+                location.WorldSpaceId = req.WorldSpaceId;
+                location.CellId = req.CellId;
+                location.LastSeenEpoch = GetEpochSeconds();
+                location.HasExterior = req.WorldSpaceId;
+                if (location.HasExterior)
+                {
+                    location.ExteriorPosition = req.Position;
+                    location.ExteriorWorldSpaceId = req.WorldSpaceId;
+                    location.ExteriorCellId = req.CellId;
+                    location.ExteriorLastSeenEpoch = location.LastSeenEpoch;
+                }
+                else if (existing && existing->HasExterior)
+                {
+                    location.HasExterior = true;
+                    location.ExteriorPosition = existing->ExteriorPosition;
+                    location.ExteriorWorldSpaceId = existing->ExteriorWorldSpaceId;
+                    location.ExteriorCellId = existing->ExteriorCellId;
+                    location.ExteriorLastSeenEpoch = existing->ExteriorLastSeenEpoch;
+                }
+                m_world.ctx().at<CoSaveService>().UpdateLocalPlayerLocation(location);
             }
         }
     }
@@ -383,6 +426,7 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
             continue; // no position at all yet
 
         const bool hasWorld = (itWs != m_worlds.end()) && itWs->second.HasWorld && itWs->second.WorldSpaceFormId != 0;
+        const bool isInterior = (itWs != m_worlds.end()) && itWs->second.IsInterior;
         float sx = 0.f, sy = 0.f;
         bool drew = false;
         const auto& lastInfo = itPos->second;
@@ -483,10 +527,10 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
         {
             constexpr uint64_t cKeepMs = 3000; // 3 seconds
             auto itLastScr = m_lastScreen.find(pid);
-            const bool allowStaleFallback = !hasWorld;
+            const bool allowStaleFallback = !hasWorld || isInterior;
             if (itLastScr != m_lastScreen.end())
             {
-                const uint64_t age = tick - itLastScr->second.Tick;
+                const uint64_t age = tick >= itLastScr->second.Tick ? (tick - itLastScr->second.Tick) : 0;
                 if (allowStaleFallback || age <= cKeepMs)
                 {
                     sx = itLastScr->second.sx;
@@ -503,7 +547,7 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
         auto itLS = m_lastScreen.find(pid);
         if (itLS != m_lastScreen.end())
         {
-            const uint64_t dt = tick - itLS->second.Tick;
+            const uint64_t dt = tick >= itLS->second.Tick ? (tick - itLS->second.Tick) : 0;
             float alpha = 1.0f;
             if (dt > 0)
             {
@@ -531,7 +575,7 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
         const auto* pInfo = itInfo != playerInfoMap.end() ? &itInfo->second : nullptr;
         const std::string nameEscaped = pInfo ? JsonEscapeString(pInfo->Name) : std::string{};
         const std::string avatarEscaped = pInfo ? JsonEscapeString(pInfo->Avatar) : std::string{};
-        const bool isOutOfBounds = !hasWorld;
+        const bool isOutOfBounds = !hasWorld || isInterior;
 
         if (!first) os << ",";
         first = false;

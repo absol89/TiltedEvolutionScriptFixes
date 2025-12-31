@@ -3,6 +3,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <chrono>
+#include <mutex>
 
 #include <Events/UpdateEvent.h>
 #include <Events/DisconnectedEvent.h>
@@ -39,6 +40,7 @@ private:
     {
         uint32_t WorldSpaceFormId{0}; // numeric TES form id (game id)
         bool HasWorld{false};
+        bool IsInterior{false};
     };
 
     struct LastScreen
@@ -74,6 +76,7 @@ private:
     // last projected screen pos cache to hide brief transition gaps
     std::unordered_map<uint32_t, LastScreen> m_lastScreen;
     uint32_t m_lastValidDisplayWorldId{0};
+    mutable std::mutex m_cacheMutex;
 
     // connections
     entt::scoped_connection m_updateConnection;

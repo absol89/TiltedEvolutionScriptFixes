@@ -17,15 +17,17 @@ public:
     ~DropStorage() override;
 
     void SetActiveUser(std::string aUsername) noexcept;
-    bool EnsureInitialized() noexcept;
+    void PrepareInMemory() noexcept;
     void OnLoadGameReset() noexcept;
     void Shutdown() noexcept;
-    bool FlushIfDirty() noexcept;
-    bool FlushToPath(const std::filesystem::path& aSavePath) noexcept;
+    bool LoadFromPath(const std::filesystem::path& aSavePath) noexcept;
+    bool SaveToPath(const std::filesystem::path& aSavePath) noexcept;
     std::vector<CachedDrop> GetDropsForCell(const GameId& aCellId, const GameId& aWorldId) const noexcept;
     std::vector<CachedDrop> GetAllDrops() const noexcept;
     std::optional<uint32_t> GetRefFormId(uint64_t aDropId) const noexcept;
     std::optional<uint64_t> FindDropIdByRefFormId(uint32_t aRefFormId, const GameId& aCellId, const GameId& aWorldId) const noexcept;
+    void SetLocalPlayerLocation(const CoSaveStorage::LocalPlayerLocation& aLocation) noexcept;
+    std::optional<CoSaveStorage::LocalPlayerLocation> GetLocalPlayerLocation() const noexcept;
     void RemoveCachedDrop(uint64_t aDropId) noexcept;
 
     void OnServerDropTracked(uint64_t aDropId, const DropManager::ServerDropData& acData) noexcept override;
@@ -34,10 +36,7 @@ public:
 
 private:
     static std::string SanitizeUser(const std::string& aUsername);
-    std::filesystem::path ResolveCoSavePath() const;
     void EnsureDirectories(const std::filesystem::path& aPath) const noexcept;
-    void Load() noexcept;
-    bool Flush() noexcept;
     uint32_t ResolveRefFormId(uint32_t aHandleBits) const noexcept;
 
     std::filesystem::path m_storagePath;
@@ -45,4 +44,5 @@ private:
     bool m_initialized{false};
     bool m_dirty{false};
     TiltedPhoques::Map<uint64_t, CachedDrop> m_cachedDrops;
+    std::optional<CoSaveStorage::LocalPlayerLocation> m_localPlayerLocation;
 };

@@ -20,8 +20,10 @@
 #include <Messages/NotifyPlayerJoined.h>
 #include <Messages/NotifyPartyPositions.h>
 #include <Messages/PartyPositionUpdateRequest.h>
+#include <Messages/PartyPositionsRequest.h>
 
 #include <Setting.h>
+#include <Services/PlayerLocationService.h>
 namespace
 {
 Console::Setting bAutoPartyJoin{"Gameplay:bAutoPartyJoin", "Join parties automatically, as long as there is only one party in the server", true};
@@ -39,6 +41,7 @@ PartyService::PartyService(World& aWorld, entt::dispatcher& aDispatcher) noexcep
     , m_partyChangeLeaderConnection(aDispatcher.sink<PacketEvent<PartyChangeLeaderRequest>>().connect<&PartyService::OnPartyChangeLeader>(this))
     , m_partyKickConnection(aDispatcher.sink<PacketEvent<PartyKickRequest>>().connect<&PartyService::OnPartyKick>(this))
     , m_partyPositionUpdateConnection(aDispatcher.sink<PacketEvent<PartyPositionUpdateRequest>>().connect<&PartyService::OnPartyPositionUpdate>(this))
+    , m_partyPositionsRequestConnection(aDispatcher.sink<PacketEvent<PartyPositionsRequest>>().connect<&PartyService::OnPartyPositionsRequest>(this))
 {
 }
 
@@ -97,6 +100,8 @@ void PartyService::OnUpdate(const UpdateEvent& acEvent) noexcept
                 e.PlayerId = pPlayer->GetId();
 
                 // Position from MovementComponent if character exists
+                bool hasMovement = false;
+                bool isInterior = false;
                 if (auto optChar = pPlayer->GetCharacter())
                 {
                     if (m_world.valid(*optChar) && m_world.any_of<MovementComponent>(*optChar))
@@ -105,14 +110,49 @@ void PartyService::OnUpdate(const UpdateEvent& acEvent) noexcept
                         e.Position.x = move.Position.x;
                         e.Position.y = move.Position.y;
                         e.Position.z = move.Position.z;
+                        hasMovement = true;
+
+                        Vector3_NetQuantize pos{};
+                        pos.x = move.Position.x;
+                        pos.y = move.Position.y;
+                        pos.z = move.Position.z;
+                        m_world.GetPlayerLocationService().UpdateLocation(pPlayer, pos, pPlayer->GetCellComponent().WorldSpaceId,
+                                                                          pPlayer->GetCellComponent().Cell, PlayerLocation::Source::Movement);
                     }
                 }
                 // Worldspace / Cell
                 const auto& cell = pPlayer->GetCellComponent();
                 e.WorldSpaceId = cell.WorldSpaceId;
                 e.CellId = cell.Cell;
+                isInterior = !cell.WorldSpaceId;
 
-                msg.Entries.push_back(e);
+                PlayerLocation location{};
+                if (m_world.GetPlayerLocationService().TryGetLocation(pPlayer->GetId(), location))
+                {
+                    if (!hasMovement && location.HasPosition)
+                    {
+                        e.Position = location.Position;
+                        if (location.WorldSpaceId)
+                            e.WorldSpaceId = location.WorldSpaceId;
+                        if (location.CellId)
+                            e.CellId = location.CellId;
+                        hasMovement = true;
+                        isInterior = !location.WorldSpaceId;
+                    }
+
+                    if (location.HasExterior && (!e.WorldSpaceId || !hasMovement))
+                    {
+                        e.Position = location.LastExteriorPosition;
+                        e.WorldSpaceId = location.LastExteriorWorldSpaceId;
+                        e.CellId = location.LastExteriorCellId;
+                        hasMovement = true;
+                        // Keep interior flag from actual state when using exterior fallback.
+                    }
+                }
+
+                e.IsInterior = isInterior;
+                if (hasMovement)
+                    msg.Entries.push_back(e);
             }
 
             // Send to each party member
@@ -168,6 +208,9 @@ void PartyService::OnPartyPositionUpdate(const PacketEvent<PartyPositionUpdateRe
 
     const auto& msgIn = acPacket.Packet;
 
+    m_world.GetPlayerLocationService().UpdateLocation(pSender, msgIn.Position, msgIn.WorldSpaceId, msgIn.CellId,
+                                                      PlayerLocation::Source::ClientReport);
+
     NotifyPartyPositions out{};
     NotifyPartyPositions::Entry e{};
     e.PlayerId = pSender->GetId();
@@ -182,6 +225,57 @@ void PartyService::OnPartyPositionUpdate(const PacketEvent<PartyPositionUpdateRe
             continue; // don't need to echo to the sender
         pMember->Send(out);
     }
+}
+
+void PartyService::OnPartyPositionsRequest(const PacketEvent<PartyPositionsRequest>& acPacket) noexcept
+{
+    Player* const pSender = acPacket.pPlayer;
+    auto* pParty = GetPlayerParty(pSender);
+    if (!pParty)
+        return;
+
+    NotifyPartyPositions msg{};
+    for (auto* pPlayer : pParty->Members)
+    {
+        NotifyPartyPositions::Entry e{};
+        e.PlayerId = pPlayer->GetId();
+        bool hasPosition = false;
+        bool isInterior = false;
+
+        const auto& cell = pPlayer->GetCellComponent();
+        e.WorldSpaceId = cell.WorldSpaceId;
+        e.CellId = cell.Cell;
+        isInterior = !cell.WorldSpaceId;
+
+        PlayerLocation location{};
+        if (m_world.GetPlayerLocationService().TryGetLocation(pPlayer->GetId(), location))
+        {
+            if (location.HasPosition)
+            {
+                e.Position = location.Position;
+                if (location.WorldSpaceId)
+                    e.WorldSpaceId = location.WorldSpaceId;
+                if (location.CellId)
+                    e.CellId = location.CellId;
+                hasPosition = true;
+                isInterior = !location.WorldSpaceId;
+            }
+
+            if (location.HasExterior && (!e.WorldSpaceId || !hasPosition))
+            {
+                e.Position = location.LastExteriorPosition;
+                e.WorldSpaceId = location.LastExteriorWorldSpaceId;
+                e.CellId = location.LastExteriorCellId;
+                hasPosition = true;
+                // Keep interior flag from actual state when using exterior fallback.
+            }
+        }
+        e.IsInterior = isInterior;
+        if (hasPosition)
+            msg.Entries.push_back(e);
+    }
+
+    pSender->Send(msg);
 }
 
 void PartyService::OnPartyCreate(const PacketEvent<PartyCreateRequest>& acPacket) noexcept

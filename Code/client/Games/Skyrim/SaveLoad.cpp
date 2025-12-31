@@ -2,7 +2,7 @@
 
 #include <SaveLoad.h>
 #include <World.h>
-#include <Services/Generic/DropService.h>
+#include <Services/Generic/CoSaveService.h>
 
 void BGSSaveLoadManager::Save(SaveData* apData)
 {
@@ -24,8 +24,8 @@ bool TP_MAKE_THISCALL(HookSaveImpl, BGSSaveLoadManager, int32_t aDeviceId, uint3
     if (result)
     {
         auto& world = World::Get();
-        if (world.ctx().contains<DropService>())
-            world.ctx().at<DropService>().OnSaveGame(apFileName);
+        if (world.ctx().contains<CoSaveService>())
+            world.ctx().at<CoSaveService>().OnSaveGame(apFileName);
     }
 
     return result;

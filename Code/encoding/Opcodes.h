@@ -64,6 +64,7 @@ enum ClientOpcode : unsigned char
     kRequestCurrentWeather,
     kRequestSetWaypoint,
     kRequestRemoveWaypoint,
+    kPartyPositionsRequest,
     kPartyPositionUpdateRequest,
     kPartyMemberDownedRequest,
     kPlayerProfileImageUpdateRequest,

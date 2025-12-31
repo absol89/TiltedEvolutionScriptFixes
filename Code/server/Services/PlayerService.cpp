@@ -26,6 +26,7 @@
 #include <Messages/PlayerProfileImageUpdateRequest.h>
 #include <Messages/NotifyPlayerProfileImage.h>
 #include <Services/LoginService.h>
+#include <Services/PlayerLocationService.h>
 
 #include <Setting.h>
 namespace
@@ -67,6 +68,7 @@ void PlayerService::HandleGridCellShift(const PacketEvent<ShiftGridCellRequest>&
 
     CellIdComponent cell = CellIdComponent{message.PlayerCell, message.WorldSpaceId, message.CenterCoords};
     pPlayer->SetCellComponent(cell);
+    m_world.GetPlayerLocationService().UpdateCell(pPlayer, cell.WorldSpaceId, cell.Cell, PlayerLocation::Source::CellChange);
 
     m_world.GetDispatcher().trigger(PlayerLeaveCellEvent(oldCell));
 
@@ -110,6 +112,7 @@ void PlayerService::HandleExteriorCellEnter(const PacketEvent<EnterExteriorCellR
         }
 
         pPlayer->SetCellComponent(cell);
+        m_world.GetPlayerLocationService().UpdateCell(pPlayer, cell.WorldSpaceId, cell.Cell, PlayerLocation::Source::CellChange);
 
         SendPlayerCellChanged(pPlayer);
     }
@@ -125,6 +128,7 @@ void PlayerService::HandleInteriorCellEnter(const PacketEvent<EnterInteriorCellR
 
     auto cell = CellIdComponent{message.CellId, {}, {}};
     pPlayer->SetCellComponent(cell);
+    m_world.GetPlayerLocationService().UpdateCell(pPlayer, cell.WorldSpaceId, cell.Cell, PlayerLocation::Source::CellChange);
 
     m_world.GetDispatcher().trigger(PlayerLeaveCellEvent(oldCell));
 

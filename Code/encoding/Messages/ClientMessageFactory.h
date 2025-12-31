@@ -67,6 +67,7 @@
 #include <Messages/RequestCurrentWeather.h>
 #include <Messages/RequestSetWaypoint.h>
 #include <Messages/RequestRemoveWaypoint.h>
+#include <Messages/PartyPositionsRequest.h>
 #include <Messages/PartyPositionUpdateRequest.h>
 #include <Messages/PartyMemberDownedRequest.h>
 #include <Messages/PlayerProfileImageUpdateRequest.h>
@@ -89,7 +90,7 @@ struct ClientMessageFactory
             PartyChangeLeaderRequest, PartyKickRequest, TradeInviteRequest, TradeInviteResponseRequest, TradeOfferUpdateRequest, TradeSetReadyRequest, TradeCancelRequest, RequestActorValueChanges, RequestActorMaxValueChanges, EnterExteriorCellRequest, RequestHealthChangeBroadcast, ActivateRequest, LockChangeRequest, AssignObjectsRequest, RequestDeathStateChange, ShiftGridCellRequest,
             RequestOwnershipTransfer, RequestOwnershipClaim, RequestObjectInventoryChanges, SpellCastRequest, ProjectileLaunchRequest, InterruptCastRequest, AddTargetRequest, ScriptAnimationRequest, DrawWeaponRequest, MountRequest, NewPackageRequest, RequestRespawn, SyncExperienceRequest,
             RequestEquipmentChanges, SendChatMessageRequest, TeleportCommandRequest, PlayerRespawnRequest, DialogueRequest, SubtitleRequest, PlayerDialogueRequest, PlayerLevelRequest, TeleportRequest, TeleportResponse, RequestPlayerHealthUpdate, RequestWeatherChange, RequestCurrentWeather, RequestSetWaypoint,
-            RequestRemoveWaypoint, PartyPositionUpdateRequest, PartyMemberDownedRequest, PlayerProfileImageUpdateRequest, RemoveSpellRequest, SetTimeCommandRequest, HealingProximityRequest, PartyFastTravelMarkersRequest, RequestSetSyncMode, PlayEmoteRequest, CancelEmoteRequest>;
+            RequestRemoveWaypoint, PartyPositionsRequest, PartyPositionUpdateRequest, PartyMemberDownedRequest, PlayerProfileImageUpdateRequest, RemoveSpellRequest, SetTimeCommandRequest, HealingProximityRequest, PartyFastTravelMarkersRequest, RequestSetSyncMode, PlayEmoteRequest, CancelEmoteRequest>;
 
         return s_visitor(std::forward<T>(func));
     }

@@ -8,6 +8,7 @@ void NotifyPartyPositions::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) 
     e.Position.Serialize(aWriter);
     e.WorldSpaceId.Serialize(aWriter);
     e.CellId.Serialize(aWriter);
+    aWriter.WriteBits(e.IsInterior ? 1u : 0u, 1);
   }
 }
 
@@ -26,7 +27,9 @@ void NotifyPartyPositions::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader
     e.Position.Deserialize(aReader);
     e.WorldSpaceId.Deserialize(aReader);
     e.CellId.Deserialize(aReader);
+    uint64_t interior = 0;
+    aReader.ReadBits(interior, 1);
+    e.IsInterior = interior != 0;
     Entries.push_back(e);
   }
 }
-

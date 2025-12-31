@@ -10,6 +10,7 @@
 #include <Services/MagicService.h>
 #include <Services/DebugService.h>
 #include <Services/SyncModeService.h>
+#include <Services/Generic/CoSaveService.h>
 
 #include <Systems/ModSystem.h>
 
@@ -40,6 +41,8 @@ struct World : entt::registry
     const MagicService& GetMagicService() const noexcept { return ctx().at<const MagicService>(); }
     SyncModeService& GetSyncModeService() noexcept { return ctx().at<SyncModeService>(); }
     const SyncModeService& GetSyncModeService() const noexcept { return ctx().at<const SyncModeService>(); }
+    CoSaveService& GetCoSaveService() noexcept { return ctx().at<CoSaveService>(); }
+    const CoSaveService& GetCoSaveService() const noexcept { return ctx().at<const CoSaveService>(); }
 
     auto& GetDispatcher() noexcept { return m_dispatcher; }
 

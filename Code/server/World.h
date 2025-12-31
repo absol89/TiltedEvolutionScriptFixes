@@ -9,6 +9,7 @@
 #include <Services/ScriptService.h>
 #include <Services/AdminService.h>
 #include <Services/ChatCommandService.h>
+#include <Services/PlayerLocationService.h>
 
 #include <entt/entt.hpp>
 
@@ -38,6 +39,8 @@ struct World : entt::registry
     const AdminService& GetAdminService() const noexcept { return ctx().at<const AdminService>(); }
     ChatCommandService& GetChatCommandService() noexcept { return ctx().at<ChatCommandService>(); }
     const ChatCommandService& GetChatCommandService() const noexcept { return ctx().at<const ChatCommandService>(); }
+    PlayerLocationService& GetPlayerLocationService() noexcept { return ctx().at<PlayerLocationService>(); }
+    const PlayerLocationService& GetPlayerLocationService() const noexcept { return ctx().at<const PlayerLocationService>(); }
     PartyService& GetPartyService() noexcept { return ctx().at<PartyService>(); }
     const PartyService& GetPartyService() const noexcept { return ctx().at<const PartyService>(); }
     TradeService& GetTradeService() noexcept { return ctx().at<TradeService>(); }

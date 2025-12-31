@@ -17,7 +17,7 @@
 #include <Events/ConnectedEvent.h>
 #include <Events/EventDispatcher.h>
 #include <Games/Events.h>
-#include <Services/Generic/DropStorage.h>
+#include <Services/Generic/CoSaveService.h>
 
 #include <optional>
 #include <string>
@@ -38,7 +38,6 @@ class DropService : public BSTEventSink<TESGrabReleaseEvent>, public BSTEventSin
 public:
     DropService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept;
     ~DropService();
-    void OnSaveGame(const char* apFileName) noexcept;
 
 private:
     struct DropSyncContext;
@@ -108,6 +107,8 @@ private:
     World& m_world;
     entt::dispatcher& m_dispatcher;
     TransportService& m_transport;
+    CoSaveService& m_coSaveService;
+    DropStorage& m_dropStorage;
 
     entt::scoped_connection m_dropEventConnection;
     entt::scoped_connection m_pickupEventConnection;
@@ -121,7 +122,6 @@ private:
     entt::scoped_connection m_gridCellChangeConnection;
     entt::scoped_connection m_updateConnection;
     TiltedPhoques::Vector<PendingAction> m_pendingActions;
-    DropStorage m_dropStorage;
     std::string m_cachedUsername;
     uint32_t m_nextDropSyncRequestId{1};
     TiltedPhoques::Set<uint64_t> m_materializingDrops;

@@ -1,7 +1,6 @@
 #include "DropStorage.h"
 
 #include <TESObjectREFR.h>
-#include <Games/SaveGameUtils.h>
 #include <spdlog/spdlog.h>
 
 #include <filesystem>
@@ -32,31 +31,17 @@ void DropStorage::SetActiveUser(std::string aUsername) noexcept
     m_activeUser = sanitized.empty() ? "default" : sanitized;
 }
 
-bool DropStorage::EnsureInitialized() noexcept
+void DropStorage::PrepareInMemory() noexcept
 {
     if (m_activeUser.empty())
         m_activeUser = "default";
-
-    const auto newPath = ResolveCoSavePath();
-    if (!m_initialized || newPath != m_storagePath)
-    {
-        m_storagePath = newPath;
-        m_cachedDrops.clear();
-        m_dirty = false;
-        if (!m_storagePath.empty())
-        {
-            EnsureDirectories(m_storagePath.parent_path());
-            Load();
-        }
-        m_initialized = true;
-    }
-
-    return true;
+    m_initialized = true;
 }
 
 void DropStorage::OnLoadGameReset() noexcept
 {
     m_cachedDrops.clear();
+    m_localPlayerLocation.reset();
     m_storagePath.clear();
     m_initialized = false;
     m_dirty = false;
@@ -65,6 +50,7 @@ void DropStorage::OnLoadGameReset() noexcept
 void DropStorage::Shutdown() noexcept
 {
     m_cachedDrops.clear();
+    m_localPlayerLocation.reset();
     m_storagePath.clear();
     m_initialized = false;
     m_dirty = false;
@@ -128,6 +114,21 @@ std::optional<uint64_t> DropStorage::FindDropIdByRefFormId(uint32_t aRefFormId, 
     return std::nullopt;
 }
 
+void DropStorage::SetLocalPlayerLocation(const CoSaveStorage::LocalPlayerLocation& aLocation) noexcept
+{
+    PrepareInMemory();
+    if (!m_localPlayerLocation || *m_localPlayerLocation != aLocation)
+    {
+        m_localPlayerLocation = aLocation;
+        m_dirty = true;
+    }
+}
+
+std::optional<CoSaveStorage::LocalPlayerLocation> DropStorage::GetLocalPlayerLocation() const noexcept
+{
+    return m_localPlayerLocation;
+}
+
 void DropStorage::RemoveCachedDrop(uint64_t aDropId) noexcept
 {
     if (m_cachedDrops.erase(aDropId) > 0)
@@ -136,8 +137,7 @@ void DropStorage::RemoveCachedDrop(uint64_t aDropId) noexcept
 
 void DropStorage::OnServerDropTracked(uint64_t aDropId, const DropManager::ServerDropData& acData) noexcept
 {
-    if (!EnsureInitialized())
-        return;
+    PrepareInMemory();
 
     CachedDrop drop{};
     drop.DropId = aDropId;
@@ -169,8 +169,7 @@ void DropStorage::OnServerDropTracked(uint64_t aDropId, const DropManager::Serve
 
 void DropStorage::OnDropHandleBound(uint64_t aDropId, uint32_t aHandleBits) noexcept
 {
-    if (!EnsureInitialized())
-        return;
+    PrepareInMemory();
 
     if (aHandleBits == 0)
         return;
@@ -203,18 +202,6 @@ std::string DropStorage::SanitizeUser(const std::string& aUsername)
     return result;
 }
 
-std::filesystem::path DropStorage::ResolveCoSavePath() const
-{
-    const auto savePath = SaveGameUtils::GetCurrentSavePath();
-    if (savePath.empty())
-        return {};
-
-    std::filesystem::path coSavePath = savePath;
-    coSavePath.replace_extension("tilted");
-    return coSavePath;
-}
-
-
 void DropStorage::EnsureDirectories(const std::filesystem::path& aPath) const noexcept
 {
     if (aPath.empty())
@@ -228,46 +215,54 @@ void DropStorage::EnsureDirectories(const std::filesystem::path& aPath) const no
         spdlog::warn("DropStorage: failed to ensure directory '{}': {}", aPath.string(), ec.message());
 }
 
-void DropStorage::Load() noexcept
+bool DropStorage::LoadFromPath(const std::filesystem::path& aSavePath) noexcept
 {
     m_cachedDrops.clear();
+    m_localPlayerLocation.reset();
+    m_dirty = false;
+    m_initialized = true;
 
-    if (!CoSaveStorage::Load(m_storagePath, m_cachedDrops))
+    if (aSavePath.empty())
+        return false;
+
+    m_storagePath = aSavePath;
+
+    CoSaveStorage::LocalPlayerLocation location{};
+    if (!CoSaveStorage::Load(m_storagePath, m_cachedDrops, &location))
     {
         spdlog::warn("DropStorage: failed to load cache '{}'", m_storagePath.string());
+        return false;
     }
     else
     {
         spdlog::info("DropStorage: loaded cache '{}' ({} entries)", m_storagePath.string(), m_cachedDrops.size());
     }
+
+    if (location.HasLocation)
+        m_localPlayerLocation = location;
+
+    return true;
 }
 
-bool DropStorage::FlushIfDirty() noexcept
-{
-    if (!m_dirty)
-        return true;
-
-    return Flush();
-}
-
-bool DropStorage::FlushToPath(const std::filesystem::path& aSavePath) noexcept
+bool DropStorage::SaveToPath(const std::filesystem::path& aSavePath) noexcept
 {
     if (aSavePath.empty())
         return false;
 
-    std::filesystem::path coSavePath = aSavePath;
-    coSavePath.replace_extension("tilted");
-    m_storagePath = coSavePath;
+    PrepareInMemory();
+    m_storagePath = aSavePath;
+    if (!m_dirty)
+        return true;
+
     EnsureDirectories(m_storagePath.parent_path());
-    return Flush();
-}
 
-bool DropStorage::Flush() noexcept
-{
-    if (m_storagePath.empty())
-        return false;
+    CoSaveStorage::LocalPlayerLocation location{};
+    if (m_localPlayerLocation)
+        location = *m_localPlayerLocation;
+    else
+        location.HasLocation = false;
 
-    if (!CoSaveStorage::Save(m_storagePath, m_cachedDrops))
+    if (!CoSaveStorage::Save(m_storagePath, m_cachedDrops, &location))
     {
         spdlog::warn("DropStorage: failed to save cache '{}'", m_storagePath.string());
         return false;
