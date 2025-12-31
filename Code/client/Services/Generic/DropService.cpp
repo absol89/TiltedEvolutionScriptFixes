@@ -61,6 +61,7 @@ constexpr double kPeriodicPlayerCellSyncSeconds = 5.0;
 constexpr double kDropSyncQueueIntervalSeconds = 0.5;
 constexpr double kGrabEventSuppressSeconds = 2.0;
 constexpr float kDropPhysicsDisableSuppressSeconds = 1.0f;
+constexpr double kLoadSuspendSeconds = 3.0;
 constexpr uint32_t kMaxPendingDropRetries = 600;
 constexpr uint32_t kMaxPendingPickupRetries = 120;
 TiltedPhoques::Map<uint64_t, float> g_materializeGrace;
@@ -89,7 +90,6 @@ bool IsServerItemFormType(FormType aType) noexcept
     case FormType::Light:
     case FormType::Misc:
     case FormType::Apparatus:
-    case FormType::MovableStatic:
     case FormType::LeveledItem:
         return true;
     default:
@@ -103,6 +103,9 @@ bool IsEligibleServerItemRef(TESObjectREFR* apReference) noexcept
         return false;
 
     if (apReference->IsDisabled())
+        return false;
+
+    if (ExtraDataList* pExtra = apReference->GetExtraDataList(); pExtra && pExtra->HasQuestObjectAlias())
         return false;
 
     return IsServerItemFormType(apReference->baseForm->formType);
@@ -383,6 +386,9 @@ BSTEventResult DropService::OnEvent(const TESLoadGameEvent*, const EventDispatch
     m_nextDropSyncRequestId = 1;
     m_grabEventSuppressionRemaining = kGrabEventSuppressSeconds;
     m_cachedUsername.clear();
+    m_suspendProcessing = true;
+    m_requestResyncAfterSuspend = true;
+    m_suspendProcessingAccumulator = 0.0;
 
     return BSTEventResult::kOk;
 }
@@ -500,6 +506,12 @@ void DropService::OnPickupEvent(const PickupDroppedItemEvent& acEvent) noexcept
 
 void DropService::OnNotifyDrop(const NotifyActorDrop& acMessage) noexcept
 {
+    if (m_suspendProcessing)
+    {
+        m_requestResyncAfterSuspend = true;
+        return;
+    }
+
     if (!ApplyDrop(acMessage))
     {
         PendingAction pending{};
@@ -600,6 +612,12 @@ bool DropService::ApplyDrop(const NotifyActorDrop& acMessage) noexcept
 
 void DropService::OnNotifyPickup(const NotifyDroppedItemPickedUp& acMessage) noexcept
 {
+    if (m_suspendProcessing)
+    {
+        m_requestResyncAfterSuspend = true;
+        return;
+    }
+
     spdlog::debug("DropService: received pickup notify drop {} from actor {:X}", acMessage.DropId, acMessage.ServerId);
     if (!ApplyPickup(acMessage))
     {
@@ -734,6 +752,12 @@ bool DropService::IsPickupRelevant(const NotifyDroppedItemPickedUp& acMessage) n
 
 void DropService::OnNotifyDroppedItems(const NotifyDroppedItems& acMessage) noexcept
 {
+    if (m_suspendProcessing)
+    {
+        m_requestResyncAfterSuspend = true;
+        return;
+    }
+
     spdlog::debug("DropService: received {} drops and {} creation-engine pickups from server (request {})", acMessage.Entries.size(), acMessage.CreationEnginePickedUpReferences.size(), acMessage.RequestId);
     HandleDropSyncResponse(acMessage);
 }
@@ -742,6 +766,11 @@ void DropService::OnNotifyDropMove(const NotifyDroppedItemMove& acMessage) noexc
 {
     if (!m_transport.IsConnected())
         return;
+    if (m_suspendProcessing)
+    {
+        m_requestResyncAfterSuspend = true;
+        return;
+    }
 
     uint64_t resolvedDropId = acMessage.DropId;
     if (resolvedDropId == 0 && acMessage.ReferenceId)
@@ -837,6 +866,11 @@ void DropService::OnNotifyDropPhysicsDisabled(const NotifyDroppedItemPhysicsDisa
 {
     if (!m_transport.IsConnected())
         return;
+    if (m_suspendProcessing)
+    {
+        m_requestResyncAfterSuspend = true;
+        return;
+    }
 
     if (acMessage.DropId == 0)
         return;
@@ -965,6 +999,12 @@ void DropService::OnNotifyDropPhysicsDisabled(const NotifyDroppedItemPhysicsDisa
 void DropService::OnConnected(const ConnectedEvent&) noexcept
 {
     EnsureStorageReady();
+    if (m_suspendProcessing)
+    {
+        m_requestResyncAfterSuspend = true;
+        return;
+    }
+
     m_pendingCreationEngineRemovals.clear();
     m_dropSyncQueue.clear();
     m_dropSyncQueuedCells.clear();
@@ -987,6 +1027,12 @@ void DropService::OnConnected(const ConnectedEvent&) noexcept
 
 void DropService::OnCellChange(const CellChangeEvent& acEvent) noexcept
 {
+    if (m_suspendProcessing)
+    {
+        m_requestResyncAfterSuspend = true;
+        return;
+    }
+
     m_pendingCreationEngineRemovals.clear();
     m_grabEventSuppressionRemaining = kGrabEventSuppressSeconds;
     m_grabbedDrops.clear();
@@ -1014,6 +1060,11 @@ void DropService::OnGridCellChange(const GridCellChangeEvent& acEvent) noexcept
 {
     if (!m_transport.IsConnected())
         return;
+    if (m_suspendProcessing)
+    {
+        m_requestResyncAfterSuspend = true;
+        return;
+    }
 
     TESWorldSpace* pWorldSpace = nullptr;
     if (acEvent.WorldSpaceId != 0)
@@ -1055,6 +1106,28 @@ void DropService::OnGridCellChange(const GridCellChangeEvent& acEvent) noexcept
 
 void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept
 {
+    if (m_suspendProcessing)
+    {
+        m_suspendProcessingAccumulator += acEvent.Delta;
+        auto* pPlayer = PlayerCharacter::Get();
+        const bool ready = pPlayer && (pPlayer->GetParentCell() || pPlayer->parentCell) && pPlayer->GetNiNode();
+        if (ready && m_suspendProcessingAccumulator >= kLoadSuspendSeconds)
+        {
+            m_suspendProcessing = false;
+            m_suspendProcessingAccumulator = 0.0;
+
+            if (m_requestResyncAfterSuspend && m_transport.IsConnected())
+            {
+                RequestCellSync(true);
+                const GameId worldId = GetPlayerWorldId();
+                if (worldId)
+                    QueueLoadedExteriorCells(worldId);
+            }
+            m_requestResyncAfterSuspend = false;
+        }
+        return;
+    }
+
     const float delta = static_cast<float>(acEvent.Delta);
     if (m_grabEventSuppressionRemaining > 0.0)
     {
@@ -1172,6 +1245,8 @@ void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept
 BSTEventResult DropService::OnEvent(const TESGrabReleaseEvent* apEvent, const EventDispatcher<TESGrabReleaseEvent>*)
 {
     if (!apEvent || !m_transport.IsConnected() || m_grabEventSuppressionRemaining > 0.0)
+        return BSTEventResult::kOk;
+    if (m_suspendProcessing)
         return BSTEventResult::kOk;
 
     TESObjectREFR* pReference = apEvent->reference;
@@ -1636,6 +1711,11 @@ uint32_t DropService::SendDropSyncRequest(bool aRequestAll, bool aHasCellFilter,
 {
     if (!m_transport.IsConnected())
         return 0;
+    if (m_suspendProcessing)
+    {
+        m_requestResyncAfterSuspend = true;
+        return 0;
+    }
 
     RequestDroppedItems request{};
     request.RequestId = m_nextDropSyncRequestId++;
@@ -1833,15 +1913,23 @@ void DropService::ProcessDropEntry(const NotifyDroppedItems::Entry& acEntry, boo
                     if (cellFormId)
                         pCell = Cast<TESObjectCELL>(TESForm::GetById(cellFormId));
                 }
-            if (!pCell)
-                pCell = pReference->GetParentCellEx();
-            const auto* pCurrentCell = pReference->GetParentCellEx();
-            if (pCell && (!pCurrentCell || pCell != pCurrentCell))
-                pReference->MoveTo(pCell, data.Location);
-            else if (pCurrentCell)
-                pReference->SetPosition(data.Location);
-            pReference->SetRotation(data.Rotation);
-            pReference->Update3DPosition(true);
+                if (!pCell)
+                    pCell = pReference->GetParentCellEx();
+                const auto* pCurrentCell = pReference->GetParentCellEx();
+                if (!pCell && !pCurrentCell)
+                {
+                    spdlog::debug("DropService: skip transform for drop {} (reference missing parent cell)", acEntry.DropId);
+                }
+                else
+                {
+                    if (pCell && (!pCurrentCell || pCell != pCurrentCell))
+                        pReference->MoveTo(pCell, data.Location);
+                    else if (pCurrentCell)
+                        pReference->SetPosition(data.Location);
+                    pReference->SetRotation(data.Rotation);
+                    if (pReference->GetNiNode())
+                        pReference->Update3DPosition(true);
+                }
         }
         }
         m_localDrops.insert(acEntry.DropId);
@@ -2173,7 +2261,8 @@ bool DropService::TryBindExistingReference(uint64_t aDropId, const DropManager::
         }
 
         const bool locallyActive = IsDropLocallyActive(aDropId, referenceId);
-        if (!locallyActive && HasDropLocation(acData.Location) && IsDropCellLoaded(acData.CellId, acData.WorldSpaceId))
+        const bool cellLoaded = IsDropCellLoaded(acData.CellId, acData.WorldSpaceId);
+        if (!locallyActive && HasDropLocation(acData.Location) && cellLoaded)
         {
             TESObjectCELL* pCell = nullptr;
             if (acData.CellId)
@@ -2185,18 +2274,29 @@ bool DropService::TryBindExistingReference(uint64_t aDropId, const DropManager::
             if (!pCell)
                 pCell = apReference->GetParentCellEx();
             const auto* pCurrentCell = apReference->GetParentCellEx();
-            if (pCell && (!pCurrentCell || pCell != pCurrentCell))
-                apReference->MoveTo(pCell, acData.Location);
-            else if (pCurrentCell)
-                apReference->SetPosition(acData.Location);
-            apReference->SetRotation(acData.Rotation);
-            apReference->Update3DPosition(true);
+            if (!pCell && !pCurrentCell)
+            {
+                spdlog::debug("DropService: skip transform for drop {} (reference missing parent cell)", aDropId);
+            }
+            else
+            {
+                if (pCell && (!pCurrentCell || pCell != pCurrentCell))
+                    apReference->MoveTo(pCell, acData.Location);
+                else if (pCurrentCell)
+                    apReference->SetPosition(acData.Location);
+                apReference->SetRotation(acData.Rotation);
+                if (apReference->GetNiNode())
+                    apReference->Update3DPosition(true);
+            }
         }
 
         if (!locallyActive)
         {
-            SetReferenceMotionType(apReference, MotionType::kKeyframed, true);
-            apReference->Update3DPosition(true);
+            if (apReference->GetNiNode())
+            {
+                SetReferenceMotionType(apReference, MotionType::kKeyframed, true);
+                apReference->Update3DPosition(true);
+            }
         }
 
         spdlog::debug("DropService: rebound existing reference {:X}:{:X} for drop {}", referenceId.ModId, referenceId.BaseId, aDropId);
@@ -2477,9 +2577,7 @@ TiltedPhoques::Vector<RequestDroppedItems::DiscoveryEntry> DropService::BuildDis
         FormType::KeyMaster,
         FormType::Light,
         FormType::Misc,
-        FormType::Apparatus,
-        FormType::MovableStatic,
-        FormType::LeveledItem
+        FormType::Apparatus
     };
 
     const auto references = pCell->GetRefsByFormTypes(formTypes);

@@ -158,6 +158,9 @@ private:
     TiltedPhoques::Map<GameId, float> m_referencePhysicsCooldowns;
     TiltedPhoques::Map<GameId, float> m_referenceMoveSyncTimers;
     double m_grabEventSuppressionRemaining{0.0};
+    bool m_suspendProcessing{false};
+    bool m_requestResyncAfterSuspend{false};
+    double m_suspendProcessingAccumulator{0.0};
 
     struct PendingCreationEngineRemoval
     {
