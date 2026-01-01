@@ -96,6 +96,7 @@ declare namespace SkyrimTogetherTypes {
     isolated: boolean,
     title: string,
     detail: string,
+    moreInfo?: string,
   ) => void;
 
   type ProtocolMismatch = () => void;

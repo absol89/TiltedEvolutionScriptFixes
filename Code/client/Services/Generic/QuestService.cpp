@@ -22,7 +22,6 @@
 #include <filesystem>
 #include <fstream>
 #include <regex>
-#include <optional>
 #include <algorithm>
 #include <cctype>
 #include <string>
@@ -44,37 +43,63 @@ uint32_t ParseHex(const std::string& aText) noexcept
     }
 }
 
-std::optional<GateRule> ParseRuleChunk(const std::string& aChunk) noexcept
+struct RuleMetadata
+{
+    TiltedPhoques::String IdName{};
+    TiltedPhoques::String Name{};
+};
+
+bool ParseRuleMetadata(const std::string& aChunk, RuleMetadata& aOut) noexcept
 {
     std::regex idNameRx("\"idName\"\\s*:\\s*\"([^\"]+)\"");
-    std::regex minRx("\"stageMin\"\\s*:\\s*([0-9]+)");
-    std::regex maxRx("\"stageMax\"\\s*:\\s*([0-9]+)");
+    std::regex nameRx("\"name\"\\s*:\\s*\"([^\"]+)\"");
 
     std::smatch match;
 
-    TiltedPhoques::String idName{};
     if (std::regex_search(aChunk, match, idNameRx))
-        idName = match[1].str().c_str();
+        aOut.IdName = match[1].str().c_str();
 
-    uint16_t stageMin = 0;
-    if (std::regex_search(aChunk, match, minRx))
-        stageMin = static_cast<uint16_t>(ParseHex(match[1].str()));
+    if (std::regex_search(aChunk, match, nameRx))
+        aOut.Name = match[1].str().c_str();
 
-    uint16_t stageMax = stageMin;
+    return !aOut.IdName.empty();
+}
+
+bool ParseStageRange(const std::string& aChunk, uint16_t& aStageMin, uint16_t& aStageMax, TiltedPhoques::String& aNotes) noexcept
+{
+    std::regex minRx("\"stageMin\"\\s*:\\s*([0-9]+)");
+    std::regex maxRx("\"stageMax\"\\s*:\\s*([0-9]+)");
+    std::regex notesRx("\"notes\"\\s*:\\s*\"([^\"]+)\"");
+
+    std::smatch match;
+
+    if (!std::regex_search(aChunk, match, minRx))
+        return false;
+
+    aStageMin = static_cast<uint16_t>(ParseHex(match[1].str()));
+    aStageMax = aStageMin;
     if (std::regex_search(aChunk, match, maxRx))
-        stageMax = static_cast<uint16_t>(ParseHex(match[1].str()));
+        aStageMax = static_cast<uint16_t>(ParseHex(match[1].str()));
 
-    if (stageMax < stageMin)
-        std::swap(stageMin, stageMax);
+    if (aStageMax < aStageMin)
+        std::swap(aStageMin, aStageMax);
 
-    if (idName.empty())
-        return std::nullopt;
+    if (std::regex_search(aChunk, match, notesRx))
+        aNotes = match[1].str().c_str();
+    else
+        aNotes.clear();
 
-    GateRule rule{};
-    rule.IdName = idName;
-    rule.StageMin = stageMin;
-    rule.StageMax = stageMax;
-    return rule;
+    return true;
+}
+
+bool GateStatusEquals(const QuestService::GateStatus& aLeft, const QuestService::GateStatus& aRight) noexcept
+{
+    return aLeft.Active == aRight.Active
+        && aLeft.FormId == aRight.FormId
+        && aLeft.Stage == aRight.Stage
+        && aLeft.IdName == aRight.IdName
+        && aLeft.Name == aRight.Name
+        && aLeft.Notes == aRight.Notes;
 }
 
 void LoadRulesFromFile(const std::filesystem::path& aPath, TiltedPhoques::Vector<GateRule>& aOutRules) noexcept
@@ -91,6 +116,7 @@ void LoadRulesFromFile(const std::filesystem::path& aPath, TiltedPhoques::Vector
     std::replace(content.begin(), content.end(), '\r', ' ');
 
     std::regex chunkRx("\\{[^\\{\\}]*?idName[^\\}]*?\\}");
+    std::regex blacklistEntryRx("\\{[^\\{\\}]*?stageMin[^\\}]*?\\}");
 
     auto chunkIt = std::sregex_iterator(content.begin(), content.end(), chunkRx);
     auto end = std::sregex_iterator();
@@ -103,10 +129,46 @@ void LoadRulesFromFile(const std::filesystem::path& aPath, TiltedPhoques::Vector
             limit = static_cast<size_t>(nextBase->position());
 
         const std::string slice = content.substr(start, limit - start);
+        RuleMetadata metadata{};
+        if (!ParseRuleMetadata(slice, metadata))
+            continue;
 
-        if (auto rule = ParseRuleChunk(slice))
+        bool added = false;
+        auto entryIt = std::sregex_iterator(slice.begin(), slice.end(), blacklistEntryRx);
+        for (; entryIt != end; ++entryIt)
         {
-            aOutRules.push_back(*rule);
+            const auto entry = entryIt->str();
+            uint16_t stageMin = 0;
+            uint16_t stageMax = 0;
+            TiltedPhoques::String notes{};
+            if (!ParseStageRange(entry, stageMin, stageMax, notes))
+                continue;
+
+            GateRule rule{};
+            rule.IdName = metadata.IdName;
+            rule.Name = metadata.Name;
+            rule.Notes = notes;
+            rule.StageMin = stageMin;
+            rule.StageMax = stageMax;
+            aOutRules.push_back(rule);
+            added = true;
+        }
+
+        if (!added)
+        {
+            uint16_t stageMin = 0;
+            uint16_t stageMax = 0;
+            TiltedPhoques::String notes{};
+            if (ParseStageRange(slice, stageMin, stageMax, notes))
+            {
+                GateRule rule{};
+                rule.IdName = metadata.IdName;
+                rule.Name = metadata.Name;
+                rule.Notes = notes;
+                rule.StageMin = stageMin;
+                rule.StageMax = stageMax;
+                aOutRules.push_back(rule);
+            }
         }
     }
 
@@ -188,6 +250,7 @@ void QuestService::OnConnected(const ConnectedEvent&) noexcept
     m_gateRescanTimer = 0.0;
     m_gateRulesLoaded = false;
     m_initialGateScan = false;
+    m_gateStatus = {};
     LoadGateRules();
     EvaluateGatesFromWorld();
 }
@@ -476,6 +539,8 @@ void QuestService::EvaluateGatesFromWorld() noexcept
     bool shouldGate = false;
     uint32_t matchedQuestId = 0;
     uint16_t matchedStage = 0;
+    const GateRule* matchedRule = nullptr;
+    TESQuest* matchedQuest = nullptr;
     for (const auto& rule : m_gateRules)
     {
         TESQuest* pQuest = nullptr;
@@ -498,13 +563,44 @@ void QuestService::EvaluateGatesFromWorld() noexcept
             shouldGate = true;
             matchedQuestId = formId;
             matchedStage = pQuest->currentStage;
+            matchedRule = &rule;
+            matchedQuest = pQuest;
             break;
         }
     }
 
+    GateStatus nextStatus{};
+    nextStatus.Active = shouldGate;
+    if (shouldGate)
+    {
+        nextStatus.FormId = matchedQuestId;
+        nextStatus.Stage = matchedStage;
+        if (matchedRule)
+        {
+            nextStatus.IdName = matchedRule->IdName;
+            nextStatus.Name = matchedRule->Name;
+            nextStatus.Notes = matchedRule->Notes;
+        }
+        if (nextStatus.Name.empty() && matchedQuest)
+        {
+            if (const char* fullName = matchedQuest->fullName.value.AsAscii())
+                nextStatus.Name = fullName;
+        }
+        if (nextStatus.IdName.empty() && matchedQuest)
+        {
+            if (const char* idName = matchedQuest->idName.AsAscii())
+                nextStatus.IdName = idName;
+        }
+    }
+
+    const bool statusChanged = !GateStatusEquals(m_gateStatus, nextStatus);
+    m_gateStatus = nextStatus;
+
     const SyncMode desiredMode = shouldGate ? SyncMode::Ghost : SyncMode::Normal;
 
-    if (shouldGate != m_gateActive || m_world.GetSyncModeService().GetLocalMode() != desiredMode)
+    const bool modeChange =
+        (shouldGate != m_gateActive || m_world.GetSyncModeService().GetLocalMode() != desiredMode);
+    if (modeChange)
     {
         m_gateActive = shouldGate;
         m_world.GetSyncModeService().SetLocalMode(desiredMode);
@@ -512,6 +608,10 @@ void QuestService::EvaluateGatesFromWorld() noexcept
             spdlog::info("Entering quest sync gate for quest {:X} stage {}", matchedQuestId, matchedStage);
         else
             spdlog::info("Exiting quest sync gate");
+    }
+    else if (statusChanged && shouldGate)
+    {
+        m_world.GetSyncModeService().RefreshOverlaySyncStatus();
     }
 }
 

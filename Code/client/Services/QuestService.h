@@ -28,11 +28,25 @@ public:
     struct GateRule
     {
         TiltedPhoques::String IdName{};
+        TiltedPhoques::String Name{};
+        TiltedPhoques::String Notes{};
         uint16_t StageMin{0};
         uint16_t StageMax{0};
 
         [[nodiscard]] bool Matches(uint16_t aStage) const noexcept { return aStage >= StageMin && aStage <= StageMax; }
     };
+
+    struct GateStatus
+    {
+        bool Active{false};
+        uint32_t FormId{0};
+        uint16_t Stage{0};
+        TiltedPhoques::String IdName{};
+        TiltedPhoques::String Name{};
+        TiltedPhoques::String Notes{};
+    };
+
+    [[nodiscard]] const GateStatus& GetGateStatus() const noexcept { return m_gateStatus; }
 
 private:
     friend struct QuestEventHandler;
@@ -63,6 +77,7 @@ private:
 
     TiltedPhoques::Vector<NotifyQuestUpdate> m_pendingUpdates;
     TiltedPhoques::Vector<GateRule> m_gateRules;
+    GateStatus m_gateStatus{};
 
     double m_gateRescanTimer{0.0};
     bool m_initialGateScan{false};

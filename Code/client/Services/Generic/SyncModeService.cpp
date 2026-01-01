@@ -19,6 +19,7 @@
 #include <Messages/RequestDroppedItems.h>
 #include <Messages/RequestCurrentWeather.h>
 #include <Services/OverlayService.h>
+#include <Services/QuestService.h>
 #include <Services/PartyService.h>
 #include <Services/TransportService.h>
 #include <Services/CharacterService.h>
@@ -33,6 +34,7 @@
 #include <Games/Overrides.h>
 #include <Forms/TESNPC.h>
 #include <ExtraData/ExtraGhost.h>
+#include <string>
 
 namespace
 {
@@ -321,11 +323,43 @@ void SyncModeService::UpdateOverlaySyncStatus() const noexcept
         return;
 
     const bool isolated = (m_transport.IsOnline() && m_localMode == SyncMode::Ghost);
+    std::string title;
+    std::string detail;
+    std::string moreInfo;
+
+    if (isolated)
+    {
+        title = "Quest Isolation";
+        detail = "Sync paused";
+
+        if (auto* pQuestService = m_world.ctx().find<QuestService>(); pQuestService)
+        {
+            const auto& gateStatus = pQuestService->GetGateStatus();
+            if (gateStatus.Active)
+            {
+                std::string questLabel;
+                if (!gateStatus.Name.empty())
+                    questLabel = gateStatus.Name.c_str();
+                else if (!gateStatus.IdName.empty())
+                    questLabel = gateStatus.IdName.c_str();
+
+                if (!questLabel.empty())
+                    detail = "Sync paused due to quest: " + questLabel;
+
+                moreInfo = "Stage " + std::to_string(gateStatus.Stage);
+                if (!gateStatus.IdName.empty())
+                    moreInfo += " (" + std::string(gateStatus.IdName.c_str()) + ")";
+                if (!gateStatus.Notes.empty())
+                    moreInfo += "\nNotes: " + std::string(gateStatus.Notes.c_str());
+            }
+        }
+    }
 
     auto pArgs = CefListValue::Create();
     pArgs->SetBool(0, isolated);
-    pArgs->SetString(1, isolated ? "Quest Isolation" : "");
-    pArgs->SetString(2, isolated ? "Sync paused" : "");
+    pArgs->SetString(1, title);
+    pArgs->SetString(2, detail);
+    pArgs->SetString(3, moreInfo);
 
     pOverlay->ExecuteAsync("setSyncStatus", pArgs);
 }

@@ -30,6 +30,7 @@ struct SyncModeService
     void SetLocalMode(SyncMode aMode) noexcept;
     [[nodiscard]] SyncMode GetLocalMode() const noexcept { return m_localMode; }
     void OnActor3DUpdated(Actor* apActor) noexcept;
+    void RefreshOverlaySyncStatus() const noexcept { UpdateOverlaySyncStatus(); }
     // Reset ghost visuals/state when the world is being torn down (e.g., save load).
     void OnLoadGameReset() noexcept;
 

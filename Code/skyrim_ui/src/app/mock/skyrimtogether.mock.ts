@@ -353,7 +353,7 @@ export class SkyrimtogetherMock extends EventEmitter implements SkyrimTogether {
     this.emit('enterGame');
     this.emit('setVersion', this.version);
     this.emit('setName', this.playerName);
-    this.emit('setSyncStatus', false, '', '');
+    this.emit('setSyncStatus', false, '', '', '');
 
     fromEvent(window, 'keydown').subscribe((event: KeyboardEvent) => {
       if (event.ctrlKey && event.location === 2) {

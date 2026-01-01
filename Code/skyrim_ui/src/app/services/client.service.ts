@@ -60,6 +60,7 @@ export interface SyncStatusPayload {
   isolated: boolean;
   title: string;
   detail: string;
+  moreInfo: string;
 }
 
 /** Client game service. */
@@ -89,6 +90,7 @@ export class ClientService implements OnDestroy {
     isolated: false,
     title: '',
     detail: '',
+    moreInfo: '',
   });
 
   /** Player name change. */
@@ -627,7 +629,12 @@ export class ClientService implements OnDestroy {
       this.localPlayerIdChange.next(undefined);
       this.connectionStateChange.next(false);
       this.isConnectionInProgressChange.next(false);
-      this.syncStatusChange.next({ isolated: false, title: '', detail: '' });
+      this.syncStatusChange.next({
+        isolated: false,
+        title: '',
+        detail: '',
+        moreInfo: '',
+      });
 
       if (isError && this._remainingReconnectionAttempt > 0) {
         this._remainingReconnectionAttempt--;
@@ -845,9 +852,19 @@ export class ClientService implements OnDestroy {
     });
   }
 
-  private onSetSyncStatus(isolated: boolean, title: string, detail: string) {
+  private onSetSyncStatus(
+    isolated: boolean,
+    title: string,
+    detail: string,
+    moreInfo?: string,
+  ) {
     this.zone.run(() => {
-      this.syncStatusChange.next({ isolated, title, detail });
+      this.syncStatusChange.next({
+        isolated,
+        title,
+        detail,
+        moreInfo: moreInfo || '',
+      });
     });
   }
 
