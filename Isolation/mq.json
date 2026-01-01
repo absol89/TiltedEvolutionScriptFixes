@@ -66,7 +66,7 @@
             "blacklist": [
                 {
                     "stageMin": 10,
-                    "stageMax": 60,
+                    "stageMax": 300,
                     "notes": "Peace council scene, forced seating, dialogue-driven civil war state resolution."
                 }
             ]
@@ -78,8 +78,8 @@
             },
             "blacklist": [
                 {
-                    "stageMin": 120,
-                    "stageMax": 200,
+                    "stageMin": 30,
+                    "stageMax": 220,
                     "notes": "Odahviing trap scene and dragon riding transition to Skuldafn."
                 }
             ]
