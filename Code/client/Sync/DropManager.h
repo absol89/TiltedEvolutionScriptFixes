@@ -30,6 +30,8 @@ struct ServerDropData
     Inventory::Entry Item{};
     NiPoint3 Location{};
     NiPoint3 Rotation{};
+    NiPoint3 Velocity{};
+    bool HasVelocity{false};
     uint32_t HandleBits{};
     GameId CellId{};
     GameId WorldSpaceId{};
@@ -57,7 +59,8 @@ std::optional<uint64_t> GetDropIdForReference(const GameId& referenceId) noexcep
 std::optional<uint32_t> GetHandleForDrop(uint64_t dropId) noexcept;
 std::optional<ServerDropData> GetServerDrop(uint64_t dropId) noexcept;
 std::optional<uint64_t> FindDropBySignature(const GameId& aBaseId, const NiPoint3& aLocation, float aRadiusSq) noexcept;
-bool UpdateServerDropTransform(uint64_t dropId, const NiPoint3& acLocation, const NiPoint3& acRotation, const GameId& acCellId, const GameId& acWorldSpaceId, const GameId& acReferenceId) noexcept;
+bool UpdateServerDropTransform(uint64_t dropId, const NiPoint3& acLocation, const NiPoint3& acRotation, const GameId& acCellId, const GameId& acWorldSpaceId, const GameId& acReferenceId, bool aHasVelocity = false,
+                               const NiPoint3& acVelocity = {}) noexcept;
 
 void RemoveServerDrop(uint64_t dropId) noexcept;
 void SetStorageListener(StorageListener* apListener) noexcept;

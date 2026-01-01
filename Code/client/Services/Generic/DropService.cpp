@@ -37,6 +37,8 @@
 #include <Utils.h>
 #include <ExtraData/ExtraContainerChanges.h>
 #include <Games/Primitives.h>
+#include <type_traits>
+#include <cmath>
 
 #include <cmath>
 
@@ -55,7 +57,9 @@ constexpr float kDropSearchRadiusSquared = 400.f * 400.f;
 constexpr float kPickupRemovalRadiusSquared = 2500.f * 2500.f;
 constexpr float kMaterializeGraceSeconds = 0.5f;
 constexpr float kDropPhysicsHoldSeconds = 5.0f;
-constexpr float kDropMoveSyncIntervalSeconds = 0.1f;
+constexpr float kDropMoveSyncIntervalSeconds = 0.25f;
+constexpr float kDropMoveInterpolationSeconds = 0.25f;
+constexpr float kDropMovePredictionSeconds = 0.1f;
 constexpr float kDropRotationNetScale = 1000.0f;
 constexpr double kPeriodicPlayerCellSyncSeconds = 5.0;
 constexpr double kDropSyncQueueIntervalSeconds = 0.5;
@@ -180,6 +184,18 @@ Vector3_NetQuantize ToNetDropRotation(const NiPoint3& aRotation) noexcept
     value.y = aRotation.y * kDropRotationNetScale;
     value.z = aRotation.z * kDropRotationNetScale;
     return value;
+}
+
+float NormalizeAngleDelta(float aDelta) noexcept
+{
+    constexpr float kPi = 3.14159265358979323846f;
+    constexpr float kTwoPi = 6.28318530717958647692f;
+    aDelta = std::fmod(aDelta, kTwoPi);
+    if (aDelta > kPi)
+        aDelta -= kTwoPi;
+    else if (aDelta < -kPi)
+        aDelta += kTwoPi;
+    return aDelta;
 }
 
 TESBoundObject* ResolveDroppedObject(const Inventory::Entry& acEntry)
@@ -816,6 +832,7 @@ void DropService::OnNotifyDropMove(const NotifyDroppedItemMove& acMessage) noexc
     TESObjectREFR* pReference = nullptr;
     NiPoint3 location{};
     NiPoint3 rotation{};
+    NiPoint3 velocity{};
 
     if (resolvedDropId != 0)
     {
@@ -825,8 +842,10 @@ void DropService::OnNotifyDropMove(const NotifyDroppedItemMove& acMessage) noexc
 
         location = acMessage.HasLocation ? ToPoint(acMessage.Location) : dropOpt->Location;
         rotation = acMessage.HasRotation ? ToDropRotation(acMessage.Rotation) : dropOpt->Rotation;
+        if (acMessage.HasVelocity)
+            velocity = ToPoint(acMessage.Velocity);
 
-        DropManager::UpdateServerDropTransform(resolvedDropId, location, rotation, acMessage.CellId, acMessage.WorldSpaceId, acMessage.ReferenceId);
+        DropManager::UpdateServerDropTransform(resolvedDropId, location, rotation, acMessage.CellId, acMessage.WorldSpaceId, acMessage.ReferenceId, acMessage.HasVelocity, velocity);
 
         const auto updatedOpt = DropManager::GetServerDrop(resolvedDropId);
         if (!updatedOpt)
@@ -881,28 +900,50 @@ void DropService::OnNotifyDropMove(const NotifyDroppedItemMove& acMessage) noexc
         return;
     }
 
-    if (acMessage.HasLocation)
+    if (acMessage.HasLocation || acMessage.HasRotation)
     {
-        if (TESObjectCELL* pCell = pReference->GetParentCellEx())
-            pReference->SetPosition(location);
-    }
-
-    if (acMessage.HasRotation)
-    {
-        if (pReference->GetParentCellEx() || pReference->GetParentCell())
-            pReference->SetRotation(rotation);
-    }
-
-    if (ShouldDeferPhysicsLock(m_cellPhysicsGraceRemaining))
-    {
-        m_requestPhysicsLockAfterGrace = true;
-    }
-    else
-    {
-        // Keep remote drops keyframed so activation stays available.
         SafeSetReferenceMotionType(pReference, MotionType::kKeyframed, true);
-        // Warp Havok so activation uses the updated collision.
-        SafeUpdateReference3D(pReference, true);
+
+        if (!CanTouchReference3D(pReference))
+            return;
+
+        MoveInterpolation interpolation{};
+        interpolation.DropId = resolvedDropId;
+        interpolation.ReferenceId = acMessage.ReferenceId;
+        interpolation.HasLocation = acMessage.HasLocation;
+        interpolation.HasRotation = acMessage.HasRotation;
+        interpolation.HasVelocity = acMessage.HasVelocity;
+        interpolation.HasAngularVelocity = acMessage.HasAngularVelocity;
+        interpolation.Duration = kDropMoveInterpolationSeconds;
+        interpolation.StartLocation = pReference->position;
+        interpolation.StartRotation = pReference->rotation;
+        interpolation.TargetLocation = location;
+        interpolation.TargetRotation = rotation;
+        if (interpolation.HasVelocity)
+        {
+            interpolation.Velocity = velocity;
+            if (interpolation.HasLocation)
+            {
+                interpolation.TargetLocation.x += velocity.x * kDropMovePredictionSeconds;
+                interpolation.TargetLocation.y += velocity.y * kDropMovePredictionSeconds;
+                interpolation.TargetLocation.z += velocity.z * kDropMovePredictionSeconds;
+            }
+        }
+        if (interpolation.HasAngularVelocity)
+        {
+            interpolation.AngularVelocity = ToPoint(acMessage.AngularVelocity);
+            if (interpolation.HasRotation)
+            {
+                interpolation.TargetRotation.x += interpolation.AngularVelocity.x * kDropMovePredictionSeconds;
+                interpolation.TargetRotation.y += interpolation.AngularVelocity.y * kDropMovePredictionSeconds;
+                interpolation.TargetRotation.z += interpolation.AngularVelocity.z * kDropMovePredictionSeconds;
+            }
+        }
+
+        if (resolvedDropId != 0)
+            m_dropMoveInterpolations[resolvedDropId] = interpolation;
+        else if (acMessage.ReferenceId)
+            m_referenceMoveInterpolations[acMessage.ReferenceId] = interpolation;
     }
 }
 
@@ -1305,6 +1346,117 @@ void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept
         }
     }
 
+    if (!m_dropMoveInterpolations.empty() || !m_referenceMoveInterpolations.empty())
+    {
+        auto updateInterpolation = [&](auto& map, auto&& resolveReference) {
+            using MapType = std::decay_t<decltype(map)>;
+            using KeyType = typename MapType::key_type;
+            TiltedPhoques::Vector<KeyType> keys;
+            keys.reserve(map.size());
+            for (const auto& entry : map)
+                keys.push_back(entry.first);
+
+            TiltedPhoques::Vector<KeyType> toErase;
+            toErase.reserve(map.size());
+
+            for (const auto& key : keys)
+            {
+                auto& interpolation = map[key];
+                TESObjectREFR* pReference = resolveReference(interpolation);
+                if (!pReference)
+                {
+                    toErase.push_back(key);
+                    continue;
+                }
+
+                if (!CanTouchReference3D(pReference))
+                {
+                    toErase.push_back(key);
+                    continue;
+                }
+
+                if (interpolation.DropId != 0 && IsDropLocallyActive(interpolation.DropId, interpolation.ReferenceId))
+                {
+                    toErase.push_back(key);
+                    continue;
+                }
+
+                if (interpolation.Duration <= 0.f)
+                {
+                    toErase.push_back(key);
+                    continue;
+                }
+
+                interpolation.Elapsed += delta;
+                const float duration = interpolation.Duration > 0.f ? interpolation.Duration : kDropMoveInterpolationSeconds;
+                const float rawT = std::min(interpolation.Elapsed / duration, 1.f);
+                const float t = rawT * rawT * (3.f - 2.f * rawT);
+
+                if (interpolation.HasLocation)
+                {
+                    NiPoint3 blended{};
+                    blended.x = interpolation.StartLocation.x + (interpolation.TargetLocation.x - interpolation.StartLocation.x) * t;
+                    blended.y = interpolation.StartLocation.y + (interpolation.TargetLocation.y - interpolation.StartLocation.y) * t;
+                    blended.z = interpolation.StartLocation.z + (interpolation.TargetLocation.z - interpolation.StartLocation.z) * t;
+                    if (std::isfinite(blended.x) && std::isfinite(blended.y) && std::isfinite(blended.z) && pReference->GetParentCellEx())
+                        pReference->SetPosition(blended);
+                }
+
+                if (interpolation.HasRotation)
+                {
+                    NiPoint3 blended{};
+                    const float dx = NormalizeAngleDelta(interpolation.TargetRotation.x - interpolation.StartRotation.x);
+                    const float dy = NormalizeAngleDelta(interpolation.TargetRotation.y - interpolation.StartRotation.y);
+                    const float dz = NormalizeAngleDelta(interpolation.TargetRotation.z - interpolation.StartRotation.z);
+                    blended.x = interpolation.StartRotation.x + dx * t;
+                    blended.y = interpolation.StartRotation.y + dy * t;
+                    blended.z = interpolation.StartRotation.z + dz * t;
+                    if (std::isfinite(blended.x) && std::isfinite(blended.y) && std::isfinite(blended.z) &&
+                        (pReference->GetParentCellEx() || pReference->GetParentCell()))
+                        pReference->SetRotation(blended);
+                }
+
+                if (rawT >= 1.f)
+                {
+                    if (ShouldDeferPhysicsLock(m_cellPhysicsGraceRemaining))
+                    {
+                        m_requestPhysicsLockAfterGrace = true;
+                    }
+                    else
+                    {
+                        SafeSetReferenceMotionType(pReference, MotionType::kKeyframed, true);
+                        SafeUpdateReference3D(pReference, true);
+                    }
+
+                    toErase.push_back(key);
+                }
+            }
+
+            for (const auto& key : toErase)
+                map.erase(key);
+        };
+
+        if (!m_dropMoveInterpolations.empty())
+        {
+            updateInterpolation(m_dropMoveInterpolations, [&](const MoveInterpolation& interpolation) -> TESObjectREFR* {
+                if (const auto handleOpt = DropManager::GetHandleForDrop(interpolation.DropId); handleOpt)
+                    return TESObjectREFR::GetByHandle(*handleOpt);
+                if (interpolation.ReferenceId)
+                    return GetReferenceById(interpolation.ReferenceId);
+                return nullptr;
+            });
+        }
+
+        if (!m_referenceMoveInterpolations.empty())
+        {
+            updateInterpolation(m_referenceMoveInterpolations, [&](const MoveInterpolation& interpolation) -> TESObjectREFR* {
+                if (interpolation.ReferenceId)
+                    return GetReferenceById(interpolation.ReferenceId);
+                return nullptr;
+            });
+        }
+    }
+
     UpdateDropPhysics(acEvent);
 
     if (m_pendingActions.empty())
@@ -1505,8 +1657,9 @@ void DropService::UpdateDropPhysics(const UpdateEvent& acEvent) noexcept
             m_dropMoveSyncTimers[dropId] += delta;
             if (m_dropMoveSyncTimers[dropId] >= kDropMoveSyncIntervalSeconds)
             {
+                const float elapsed = m_dropMoveSyncTimers[dropId];
                 m_dropMoveSyncTimers[dropId] = 0.f;
-                SendDropMoveRequest(dropId, pReference, true);
+                SendDropMoveRequest(dropId, pReference, true, elapsed);
             }
             continue;
         }
@@ -1517,9 +1670,14 @@ void DropService::UpdateDropPhysics(const UpdateEvent& acEvent) noexcept
             if (remaining <= 0.f)
             {
                 m_dropPhysicsCooldowns.erase(cooldownIt);
+                float elapsed = 0.f;
+                if (const auto it = m_dropMoveSyncTimers.find(dropId); it != m_dropMoveSyncTimers.end())
+                    elapsed = it->second;
                 m_dropMoveSyncTimers.erase(dropId);
-                SendDropMoveRequest(dropId, pReference, false);
+                SendDropMoveRequest(dropId, pReference, false, elapsed);
                 SendDropPhysicsDisabledRequest(dropId, pReference);
+                m_dropMoveLastLocations.erase(dropId);
+                m_dropMoveLastRotations.erase(dropId);
                 SafeSetReferenceMotionType(pReference, MotionType::kKeyframed, true);
                 SafeUpdateReference3D(pReference, true);
             }
@@ -1530,8 +1688,9 @@ void DropService::UpdateDropPhysics(const UpdateEvent& acEvent) noexcept
                 m_dropMoveSyncTimers[dropId] += delta;
                 if (m_dropMoveSyncTimers[dropId] >= kDropMoveSyncIntervalSeconds)
                 {
+                    const float elapsed = m_dropMoveSyncTimers[dropId];
                     m_dropMoveSyncTimers[dropId] = 0.f;
-                    SendDropMoveRequest(dropId, pReference, true);
+                    SendDropMoveRequest(dropId, pReference, true, elapsed);
                 }
             }
 
@@ -1539,6 +1698,8 @@ void DropService::UpdateDropPhysics(const UpdateEvent& acEvent) noexcept
         }
 
         m_dropMoveSyncTimers.erase(dropId);
+        m_dropMoveLastLocations.erase(dropId);
+        m_dropMoveLastRotations.erase(dropId);
         SafeSetReferenceMotionType(pReference, MotionType::kKeyframed, true);
         continue;
     }
@@ -1558,8 +1719,9 @@ void DropService::UpdateDropPhysics(const UpdateEvent& acEvent) noexcept
                 m_referenceMoveSyncTimers[referenceId] += delta;
                 if (m_referenceMoveSyncTimers[referenceId] >= kDropMoveSyncIntervalSeconds)
                 {
+                    const float elapsed = m_referenceMoveSyncTimers[referenceId];
                     m_referenceMoveSyncTimers[referenceId] = 0.f;
-                    SendReferenceMoveRequest(referenceId, pReference);
+                    SendReferenceMoveRequest(referenceId, pReference, elapsed);
                 }
             }
         }
@@ -1586,8 +1748,9 @@ void DropService::UpdateDropPhysics(const UpdateEvent& acEvent) noexcept
                 m_referenceMoveSyncTimers[entry.first] += delta;
                 if (m_referenceMoveSyncTimers[entry.first] >= kDropMoveSyncIntervalSeconds)
                 {
+                    const float elapsed = m_referenceMoveSyncTimers[entry.first];
                     m_referenceMoveSyncTimers[entry.first] = 0.f;
-                    SendReferenceMoveRequest(entry.first, pReference);
+                    SendReferenceMoveRequest(entry.first, pReference, elapsed);
                 }
             }
         }
@@ -1601,17 +1764,23 @@ void DropService::UpdateDropPhysics(const UpdateEvent& acEvent) noexcept
     for (const auto& referenceId : readyReferences)
     {
         m_referencePhysicsCooldowns.erase(referenceId);
+        float elapsed = 0.f;
+        if (const auto it = m_referenceMoveSyncTimers.find(referenceId); it != m_referenceMoveSyncTimers.end())
+            elapsed = it->second;
         m_referenceMoveSyncTimers.erase(referenceId);
         if (TESObjectREFR* pReference = GetReferenceById(referenceId))
         {
-            SendReferenceMoveRequest(referenceId, pReference);
+            SendReferenceMoveRequest(referenceId, pReference, elapsed);
             SafeSetReferenceMotionType(pReference, MotionType::kKeyframed, true);
             SafeUpdateReference3D(pReference, true);
         }
+
+        m_referenceMoveLastLocations.erase(referenceId);
+        m_referenceMoveLastRotations.erase(referenceId);
     }
 }
 
-void DropService::SendDropMoveRequest(uint64_t aDropId, TESObjectREFR* apReference, bool aForce) noexcept
+void DropService::SendDropMoveRequest(uint64_t aDropId, TESObjectREFR* apReference, bool aForce, float aElapsedSeconds) noexcept
 {
     if (!m_transport.IsConnected() || !apReference)
         return;
@@ -1657,7 +1826,32 @@ void DropService::SendDropMoveRequest(uint64_t aDropId, TESObjectREFR* apReferen
     if (!aForce && distSq <= kMoveEpsilonSq && rotDistSq <= kRotEpsilonSq)
         return;
 
-    DropManager::UpdateServerDropTransform(aDropId, location, rotation, cellId, worldId, referenceId);
+    bool hasVelocity = false;
+    NiPoint3 velocity{};
+    bool hasAngularVelocity = false;
+    NiPoint3 angularVelocity{};
+    if (aElapsedSeconds > 0.f)
+    {
+        if (const auto it = m_dropMoveLastLocations.find(aDropId); it != m_dropMoveLastLocations.end())
+        {
+            velocity.x = (location.x - it->second.x) / aElapsedSeconds;
+            velocity.y = (location.y - it->second.y) / aElapsedSeconds;
+            velocity.z = (location.z - it->second.z) / aElapsedSeconds;
+            hasVelocity = true;
+        }
+        if (const auto it = m_dropMoveLastRotations.find(aDropId); it != m_dropMoveLastRotations.end())
+        {
+            angularVelocity.x = NormalizeAngleDelta(rotation.x - it->second.x) / aElapsedSeconds;
+            angularVelocity.y = NormalizeAngleDelta(rotation.y - it->second.y) / aElapsedSeconds;
+            angularVelocity.z = NormalizeAngleDelta(rotation.z - it->second.z) / aElapsedSeconds;
+            hasAngularVelocity = true;
+        }
+    }
+
+    m_dropMoveLastLocations[aDropId] = location;
+    m_dropMoveLastRotations[aDropId] = rotation;
+
+    DropManager::UpdateServerDropTransform(aDropId, location, rotation, cellId, worldId, referenceId, hasVelocity, velocity);
 
     RequestDroppedItemMove request{};
     request.ServerId = *serverIdRes;
@@ -1666,6 +1860,12 @@ void DropService::SendDropMoveRequest(uint64_t aDropId, TESObjectREFR* apReferen
     request.Location = ToNetVector(location);
     request.HasRotation = true;
     request.Rotation = ToNetDropRotation(rotation);
+    request.HasVelocity = hasVelocity;
+    if (hasVelocity)
+        request.Velocity = ToNetVector(velocity);
+    request.HasAngularVelocity = hasAngularVelocity;
+    if (hasAngularVelocity)
+        request.AngularVelocity = ToNetVector(angularVelocity);
     request.CellId = cellId;
     request.WorldSpaceId = worldId;
     request.ReferenceId = referenceId;
@@ -1718,7 +1918,7 @@ void DropService::SendDropPhysicsDisabledRequest(uint64_t aDropId, TESObjectREFR
     m_transport.Send(request);
 }
 
-void DropService::SendReferenceMoveRequest(const GameId& acReferenceId, TESObjectREFR* apReference) noexcept
+void DropService::SendReferenceMoveRequest(const GameId& acReferenceId, TESObjectREFR* apReference, float aElapsedSeconds) noexcept
 {
     if (!m_transport.IsConnected() || !apReference)
         return;
@@ -1743,6 +1943,30 @@ void DropService::SendReferenceMoveRequest(const GameId& acReferenceId, TESObjec
 
     const NiPoint3 location = apReference->position;
     const NiPoint3 rotation = apReference->rotation;
+    bool hasVelocity = false;
+    NiPoint3 velocity{};
+    bool hasAngularVelocity = false;
+    NiPoint3 angularVelocity{};
+    if (aElapsedSeconds > 0.f)
+    {
+        if (const auto it = m_referenceMoveLastLocations.find(acReferenceId); it != m_referenceMoveLastLocations.end())
+        {
+            velocity.x = (location.x - it->second.x) / aElapsedSeconds;
+            velocity.y = (location.y - it->second.y) / aElapsedSeconds;
+            velocity.z = (location.z - it->second.z) / aElapsedSeconds;
+            hasVelocity = true;
+        }
+        if (const auto it = m_referenceMoveLastRotations.find(acReferenceId); it != m_referenceMoveLastRotations.end())
+        {
+            angularVelocity.x = NormalizeAngleDelta(rotation.x - it->second.x) / aElapsedSeconds;
+            angularVelocity.y = NormalizeAngleDelta(rotation.y - it->second.y) / aElapsedSeconds;
+            angularVelocity.z = NormalizeAngleDelta(rotation.z - it->second.z) / aElapsedSeconds;
+            hasAngularVelocity = true;
+        }
+    }
+
+    m_referenceMoveLastLocations[acReferenceId] = location;
+    m_referenceMoveLastRotations[acReferenceId] = rotation;
 
     RequestDroppedItemMove request{};
     request.ServerId = *serverIdRes;
@@ -1751,6 +1975,12 @@ void DropService::SendReferenceMoveRequest(const GameId& acReferenceId, TESObjec
     request.Location = ToNetVector(location);
     request.HasRotation = true;
     request.Rotation = ToNetDropRotation(rotation);
+    request.HasVelocity = hasVelocity;
+    if (hasVelocity)
+        request.Velocity = ToNetVector(velocity);
+    request.HasAngularVelocity = hasAngularVelocity;
+    if (hasAngularVelocity)
+        request.AngularVelocity = ToNetVector(angularVelocity);
     request.CellId = cellId;
     request.WorldSpaceId = worldId;
     request.ReferenceId = acReferenceId;

@@ -25,6 +25,10 @@ struct RequestDroppedItemMove final : ClientMessage
             && (!HasLocation || Location == acRhs.Location)
             && HasRotation == acRhs.HasRotation
             && (!HasRotation || Rotation == acRhs.Rotation)
+            && HasVelocity == acRhs.HasVelocity
+            && (!HasVelocity || Velocity == acRhs.Velocity)
+            && HasAngularVelocity == acRhs.HasAngularVelocity
+            && (!HasAngularVelocity || AngularVelocity == acRhs.AngularVelocity)
             && CellId == acRhs.CellId
             && WorldSpaceId == acRhs.WorldSpaceId
             && ReferenceId == acRhs.ReferenceId;
@@ -36,6 +40,10 @@ struct RequestDroppedItemMove final : ClientMessage
     Vector3_NetQuantize Location{};
     bool HasRotation{false};
     Vector3_NetQuantize Rotation{};
+    bool HasVelocity{false};
+    Vector3_NetQuantize Velocity{};
+    bool HasAngularVelocity{false};
+    Vector3_NetQuantize AngularVelocity{};
     GameId CellId{};
     GameId WorldSpaceId{};
     GameId ReferenceId{};

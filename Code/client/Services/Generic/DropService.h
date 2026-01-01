@@ -17,6 +17,7 @@
 #include <Events/ConnectedEvent.h>
 #include <Events/EventDispatcher.h>
 #include <Games/Events.h>
+#include <Games/Primitives.h>
 #include <Services/Generic/CoSaveService.h>
 
 #include <optional>
@@ -75,9 +76,9 @@ private:
     TESObjectREFR* GetReferenceById(const GameId& acReferenceId) noexcept;
     bool HandleUntrackedPickup(const NotifyDroppedItemPickedUp& acMessage) noexcept;
     void UpdateDropPhysics(const UpdateEvent& acEvent) noexcept;
-    void SendDropMoveRequest(uint64_t aDropId, TESObjectREFR* apReference, bool aForce) noexcept;
+    void SendDropMoveRequest(uint64_t aDropId, TESObjectREFR* apReference, bool aForce, float aElapsedSeconds) noexcept;
     void SendDropPhysicsDisabledRequest(uint64_t aDropId, TESObjectREFR* apReference) noexcept;
-    void SendReferenceMoveRequest(const GameId& acReferenceId, TESObjectREFR* apReference) noexcept;
+    void SendReferenceMoveRequest(const GameId& acReferenceId, TESObjectREFR* apReference, float aElapsedSeconds) noexcept;
     void ReconcileCachedDrops(const GameId& acCellId, const GameId& acWorldId, const TiltedPhoques::Vector<uint64_t>& acAuthoritativeDropIds) noexcept;
     void ApplyCreationEngineCellSync(const DropSyncContext& acContext, const TiltedPhoques::Vector<GameId>& acPickedUpRefs) noexcept;
     void ProcessPendingCreationEngineRemovals() noexcept;
@@ -147,16 +148,40 @@ private:
         GameId WorldSpaceId{};
     };
 
+    struct MoveInterpolation
+    {
+        uint64_t DropId{};
+        GameId ReferenceId{};
+        NiPoint3 StartLocation{};
+        NiPoint3 StartRotation{};
+        NiPoint3 TargetLocation{};
+        NiPoint3 TargetRotation{};
+        NiPoint3 Velocity{};
+        NiPoint3 AngularVelocity{};
+        bool HasLocation{false};
+        bool HasRotation{false};
+        bool HasVelocity{false};
+        bool HasAngularVelocity{false};
+        float Elapsed{0.f};
+        float Duration{0.f};
+    };
+
     std::unordered_map<uint32_t, DropSyncContext> m_pendingDropSyncs;
     // Tracks the latest spawn epoch processed per server drop to ignore stale notifications
     TiltedPhoques::Map<uint64_t, uint64_t> m_knownSpawnEpochs;
     TiltedPhoques::Set<uint64_t> m_grabbedDrops;
     TiltedPhoques::Map<uint64_t, float> m_dropPhysicsCooldowns;
     TiltedPhoques::Map<uint64_t, float> m_dropMoveSyncTimers;
+    TiltedPhoques::Map<uint64_t, NiPoint3> m_dropMoveLastLocations;
+    TiltedPhoques::Map<uint64_t, NiPoint3> m_dropMoveLastRotations;
+    TiltedPhoques::Map<uint64_t, MoveInterpolation> m_dropMoveInterpolations;
     TiltedPhoques::Map<uint64_t, float> m_dropPhysicsDisableSuppressions;
     TiltedPhoques::Set<GameId> m_grabbedReferences;
     TiltedPhoques::Map<GameId, float> m_referencePhysicsCooldowns;
     TiltedPhoques::Map<GameId, float> m_referenceMoveSyncTimers;
+    TiltedPhoques::Map<GameId, NiPoint3> m_referenceMoveLastLocations;
+    TiltedPhoques::Map<GameId, NiPoint3> m_referenceMoveLastRotations;
+    TiltedPhoques::Map<GameId, MoveInterpolation> m_referenceMoveInterpolations;
     double m_grabEventSuppressionRemaining{0.0};
     bool m_suspendProcessing{false};
     bool m_requestResyncAfterSuspend{false};

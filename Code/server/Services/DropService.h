@@ -45,6 +45,10 @@ private:
         Vector3_NetQuantize Location{};
         bool HasRotation{false};
         Vector3_NetQuantize Rotation{};
+        bool HasVelocity{false};
+        Vector3_NetQuantize Velocity{};
+        bool HasAngularVelocity{false};
+        Vector3_NetQuantize AngularVelocity{};
         GameId CellId{};
         GameId WorldSpaceId{};
         GameId ReferenceId{};

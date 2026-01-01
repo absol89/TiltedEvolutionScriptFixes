@@ -1009,6 +1009,12 @@ void DropService::OnDropMoveRequest(const PacketEvent<RequestDroppedItemMove>& a
     notify.HasRotation = message.HasRotation;
     if (notify.HasRotation)
         notify.Rotation = message.Rotation;
+    notify.HasVelocity = message.HasVelocity;
+    if (notify.HasVelocity)
+        notify.Velocity = message.Velocity;
+    notify.HasAngularVelocity = message.HasAngularVelocity;
+    if (notify.HasAngularVelocity)
+        notify.AngularVelocity = message.AngularVelocity;
     notify.CellId = message.CellId;
     notify.WorldSpaceId = message.WorldSpaceId;
     notify.ReferenceId = message.ReferenceId;
@@ -1051,6 +1057,18 @@ void DropService::OnDropMoveRequest(const PacketEvent<RequestDroppedItemMove>& a
                 pDrop->Rotation = message.Rotation;
             }
 
+            if (message.HasVelocity)
+            {
+                pDrop->HasVelocity = true;
+                pDrop->Velocity = message.Velocity;
+            }
+
+            if (message.HasAngularVelocity)
+            {
+                pDrop->HasAngularVelocity = true;
+                pDrop->AngularVelocity = message.AngularVelocity;
+            }
+
             if (previousRef && previousRef != pDrop->ReferenceId)
                 m_referenceDropIndex.erase(previousRef);
             if (pDrop->ReferenceId)
@@ -1071,6 +1089,12 @@ void DropService::OnDropMoveRequest(const PacketEvent<RequestDroppedItemMove>& a
             notify.HasRotation = pDrop->HasRotation;
             if (notify.HasRotation)
                 notify.Rotation = pDrop->Rotation;
+            notify.HasVelocity = pDrop->HasVelocity;
+            if (notify.HasVelocity)
+                notify.Velocity = pDrop->Velocity;
+            notify.HasAngularVelocity = pDrop->HasAngularVelocity;
+            if (notify.HasAngularVelocity)
+                notify.AngularVelocity = pDrop->AngularVelocity;
             notify.CellId = pDrop->CellId;
             notify.WorldSpaceId = pDrop->WorldSpaceId;
             notify.ReferenceId = pDrop->ReferenceId;

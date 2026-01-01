@@ -75,6 +75,11 @@ void TrackServerDrop(uint64_t dropId, const ServerDropData& data) noexcept
             merged.WorldSpaceId = current.WorldSpaceId;
         if (merged.Type == ServerItemType::Dropped && current.Type == ServerItemType::CreationEngine)
             merged.Type = current.Type;
+        if (!merged.HasVelocity && current.HasVelocity)
+        {
+            merged.HasVelocity = true;
+            merged.Velocity = current.Velocity;
+        }
     }
 
     s_serverDrops[dropId] = merged;
@@ -198,7 +203,8 @@ std::optional<ServerDropData> GetServerDrop(uint64_t dropId) noexcept
     return it->second;
 }
 
-bool UpdateServerDropTransform(uint64_t dropId, const NiPoint3& acLocation, const NiPoint3& acRotation, const GameId& acCellId, const GameId& acWorldSpaceId, const GameId& acReferenceId) noexcept
+bool UpdateServerDropTransform(uint64_t dropId, const NiPoint3& acLocation, const NiPoint3& acRotation, const GameId& acCellId, const GameId& acWorldSpaceId, const GameId& acReferenceId, bool aHasVelocity,
+                               const NiPoint3& acVelocity) noexcept
 {
     if (s_serverDrops.find(dropId) == s_serverDrops.end())
         return false;
@@ -207,6 +213,11 @@ bool UpdateServerDropTransform(uint64_t dropId, const NiPoint3& acLocation, cons
     const GameId previousReference = drop.ReferenceId;
     drop.Location = acLocation;
     drop.Rotation = acRotation;
+    if (aHasVelocity)
+    {
+        drop.HasVelocity = true;
+        drop.Velocity = acVelocity;
+    }
     if (acCellId)
         drop.CellId = acCellId;
     if (acWorldSpaceId)
