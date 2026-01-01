@@ -1590,6 +1590,43 @@ BSTEventResult DropService::OnEvent(const TESGrabReleaseEvent* apEvent, const Ev
         if (!referenceId)
             return BSTEventResult::kOk;
 
+        if (apEvent->grabbed && IsEligibleServerItemRef(pReference))
+        {
+            if (!DropManager::GetDropIdForReference(referenceId))
+            {
+                auto& modSystem = m_world.GetModSystem();
+                GameId cellId{};
+                GameId worldId{};
+                if (TESObjectCELL* pCell = pReference->GetParentCellEx())
+                    modSystem.GetServerModId(pCell->formID, cellId);
+                if (TESWorldSpace* pWorld = pReference->GetWorldSpace())
+                    modSystem.GetServerModId(pWorld->formID, worldId);
+                if (cellId && !m_dropStorage.FindDropIdByRefFormId(pReference->formID, cellId, worldId))
+                {
+                    RequestDroppedItems::DiscoveryEntry entry{};
+                    entry.ReferenceId = referenceId;
+                    entry.CellId = cellId;
+                    entry.WorldSpaceId = worldId;
+                    entry.HasLocation = true;
+                    entry.Location = ToNetVector(pReference->position);
+                    entry.HasRotation = true;
+                    entry.Rotation = ToNetDropRotation(pReference->rotation);
+                    entry.Item.Count = 1;
+                    m_world.GetModSystem().GetServerModId(pReference->baseForm->formID, entry.Item.BaseId);
+                    if (entry.Item.BaseId)
+                    {
+                        TESObjectREFR::GetItemFromExtraData(entry.Item, pReference->GetExtraDataList());
+                        if (entry.Item.Count == 0)
+                            entry.Item.Count = 1;
+
+                        TiltedPhoques::Vector<RequestDroppedItems::DiscoveryEntry> discoveries;
+                        discoveries.push_back(entry);
+                        SendDropSyncRequest(false, true, cellId, static_cast<bool>(worldId), worldId, std::move(discoveries));
+                    }
+                }
+            }
+        }
+
         if (apEvent->grabbed)
         {
             m_grabbedReferences.insert(referenceId);
@@ -1871,7 +1908,6 @@ void DropService::SendDropMoveRequest(uint64_t aDropId, TESObjectREFR* apReferen
     request.ReferenceId = referenceId;
 
     m_transport.Send(request);
-    m_dropPhysicsDisableSuppressions[aDropId] = kDropPhysicsDisableSuppressSeconds;
 }
 
 void DropService::SendDropPhysicsDisabledRequest(uint64_t aDropId, TESObjectREFR* apReference) noexcept
