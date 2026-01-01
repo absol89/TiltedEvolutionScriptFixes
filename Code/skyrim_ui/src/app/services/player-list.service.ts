@@ -308,6 +308,7 @@ export class PlayerListService implements OnDestroy {
 
     existing.connected = true;
     existing.online = true;
+    existing.isLoaded = true;
 
     this.playerList.next(playerList);
   }

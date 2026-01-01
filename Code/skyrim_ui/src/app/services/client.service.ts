@@ -410,6 +410,12 @@ export class ClientService implements OnDestroy {
     this._username = username;
     this._password = password;
     this._serverPassword = serverPassword;
+
+    if (username && username.length > 0) {
+      this.zone.run(() => {
+        this.nameChange.next(username);
+      });
+    }
   }
 
   /**

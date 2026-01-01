@@ -21,7 +21,10 @@
           <b class="group-member-level">{{ player.level }} </b>
           <div *ngIf="player.health === 0" class="group-member-dead"></div>
           <div *ngIf="player.isOwner" class="group-member-leader"></div>
-          <span class="member-name">{{ player.name }}</span>
+          <span class="member-name-wrap">
+            <span class="member-name">{{ player.name }}</span>
+            <span *ngIf="player.isLocal" class="member-self">(You)</span>
+          </span>
         </div>
         <div
           *ngIf="player.health !== undefined && player.isLoaded"

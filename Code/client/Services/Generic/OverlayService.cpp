@@ -831,15 +831,56 @@ void OverlayService::RunPlayerHealthUpdates() noexcept
     lastSendTimePoint = now;
 
     static float s_previousPercentage = -1.f;
+    static int32_t s_previousLevel = -1;
 
-    const float newPercentage = CalculateHealthPercentage(PlayerCharacter::Get());
-    if (newPercentage == s_previousPercentage)
+    auto* pPlayer = PlayerCharacter::Get();
+    if (!pPlayer)
         return;
 
-    s_previousPercentage = newPercentage;
+    const float newPercentage = CalculateHealthPercentage(pPlayer);
+    const int32_t newLevel = static_cast<int32_t>(pPlayer->GetLevel());
 
-    RequestPlayerHealthUpdate request{};
-    request.Percentage = newPercentage;
+    const bool healthChanged = newPercentage != s_previousPercentage;
+    const bool levelChanged = newLevel != s_previousLevel;
 
-    m_transport.Send(request);
+    if (!healthChanged && !levelChanged)
+        return;
+
+    uint32_t localId = m_transport.GetLocalPlayerId();
+    if (localId == 0)
+    {
+        TryGetLocalServerId(localId);
+    }
+    const bool canUpdateUi = m_pOverlay && localId != 0;
+
+    if (levelChanged)
+    {
+        s_previousLevel = newLevel;
+
+        if (canUpdateUi)
+        {
+            auto pArguments = CefListValue::Create();
+            pArguments->SetInt(0, localId);
+            pArguments->SetInt(1, newLevel);
+            m_pOverlay->ExecuteAsync("setLevel", pArguments);
+        }
+    }
+
+    if (healthChanged)
+    {
+        s_previousPercentage = newPercentage;
+
+        if (canUpdateUi)
+        {
+            auto pArguments = CefListValue::Create();
+            pArguments->SetInt(0, localId);
+            pArguments->SetDouble(1, static_cast<double>(newPercentage));
+            m_pOverlay->ExecuteAsync("setHealth", pArguments);
+        }
+
+        RequestPlayerHealthUpdate request{};
+        request.Percentage = newPercentage;
+
+        m_transport.Send(request);
+    }
 }

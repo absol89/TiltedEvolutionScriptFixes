@@ -34,7 +34,9 @@ interface GroupPosition {
 export class GroupComponent implements OnInit, OnDestroy {
   timerSubscription: Subscription;
 
-  groupMembers$: Observable<(Player & { isOwner: boolean })[]>;
+  groupMembers$: Observable<
+    (Player & { isOwner: boolean; isLocal: boolean })[]
+  >;
   group$: Observable<Group>;
   readonly defaultAvatar = 'assets/images/group/avatar-placeholder.png';
 
@@ -63,10 +65,12 @@ export class GroupComponent implements OnInit, OnDestroy {
         if (!group) {
           return [];
         }
+        const localId = this.clientService.localPlayerId;
         return members
           .map(member => ({
             ...member,
             isOwner: member.id === group.owner,
+            isLocal: member.id === localId,
             avatar:
               member.avatar && member.avatar.length > 0
                 ? member.avatar

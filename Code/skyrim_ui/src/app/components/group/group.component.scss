@@ -48,11 +48,29 @@
         display: flex;
         align-items: center;
         gap: 0.4vw;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
+      }
+
+      .member-name-wrap {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 0.35vw;
+        flex: 0 0 auto;
+        white-space: nowrap;
       }
 
       .member-name {
+        flex: 0 0 auto;
         text-shadow: 1px 1px 2px #000000;
+        white-space: nowrap;
+      }
+
+      .member-self {
+        flex: 0 0 auto;
+        font-size: 0.75em;
+        opacity: 0.7;
+        text-shadow: 1px 1px 2px #000000;
+        white-space: nowrap;
       }
 
       .group-member-level {
