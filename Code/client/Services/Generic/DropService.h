@@ -67,7 +67,7 @@ private:
     void HandleDropSyncResponse(const NotifyDroppedItems& acMessage) noexcept;
     void ProcessDropEntry(const NotifyDroppedItems::Entry& acEntry, bool aForceMaterialize) noexcept;
     bool MaterializeDrop(uint64_t aDropId, const DropManager::ServerDropData& acData, bool aForce) noexcept;
-    bool SpawnLocalDrop(const DropManager::ServerDropData& acData, uint64_t aDropId) const noexcept;
+    bool SpawnLocalDrop(const DropManager::ServerDropData& acData, uint64_t aDropId) noexcept;
     bool RemoveNearbyReference(uint64_t aDropId, const char* apReason, float aRadiusSq) noexcept;
     bool RemoveReferenceById(const GameId& acReferenceId, const char* apReason) noexcept;
     bool RemoveReferenceByLocation(const Inventory::Entry& acItem, const Vector3_NetQuantize& acLocation, const char* apReason, float aRadiusSq) noexcept;
@@ -161,6 +161,9 @@ private:
     bool m_suspendProcessing{false};
     bool m_requestResyncAfterSuspend{false};
     double m_suspendProcessingAccumulator{0.0};
+    uint8_t m_pendingDiscoveryResyncs{0};
+    double m_cellPhysicsGraceRemaining{0.0};
+    bool m_requestPhysicsLockAfterGrace{false};
 
     struct PendingCreationEngineRemoval
     {

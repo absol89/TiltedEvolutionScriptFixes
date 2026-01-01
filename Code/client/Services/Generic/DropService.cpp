@@ -62,6 +62,7 @@ constexpr double kDropSyncQueueIntervalSeconds = 0.5;
 constexpr double kGrabEventSuppressSeconds = 2.0;
 constexpr float kDropPhysicsDisableSuppressSeconds = 1.0f;
 constexpr double kLoadSuspendSeconds = 3.0;
+constexpr double kCellPhysicsGraceSeconds = 1.0;
 constexpr uint32_t kMaxPendingDropRetries = 600;
 constexpr uint32_t kMaxPendingPickupRetries = 120;
 TiltedPhoques::Map<uint64_t, float> g_materializeGrace;
@@ -109,6 +110,11 @@ bool IsEligibleServerItemRef(TESObjectREFR* apReference) noexcept
         return false;
 
     return IsServerItemFormType(apReference->baseForm->formType);
+}
+
+bool ShouldDeferPhysicsLock(double aRemainingGraceSeconds) noexcept
+{
+    return aRemainingGraceSeconds > 0.0;
 }
 
 enum class MotionType : uint8_t
@@ -389,6 +395,9 @@ BSTEventResult DropService::OnEvent(const TESLoadGameEvent*, const EventDispatch
     m_suspendProcessing = true;
     m_requestResyncAfterSuspend = true;
     m_suspendProcessingAccumulator = 0.0;
+    m_pendingDiscoveryResyncs = 0;
+    m_cellPhysicsGraceRemaining = kCellPhysicsGraceSeconds;
+    m_requestPhysicsLockAfterGrace = true;
 
     return BSTEventResult::kOk;
 }
@@ -608,6 +617,31 @@ bool DropService::ApplyDrop(const NotifyActorDrop& acMessage) noexcept
     m_dropMoveSyncTimers.erase(acMessage.DropId);
     spdlog::debug("DropService: applied drop {} for actor {:X}", acMessage.DropId, serverData.ActorFormId);
     return true;
+}
+
+bool CanTouchReference3D(TESObjectREFR* apReference) noexcept
+{
+    if (!apReference)
+        return false;
+    if (!apReference->GetNiNode())
+        return false;
+    if (!apReference->GetParentCellEx() && !apReference->GetParentCell())
+        return false;
+    return true;
+}
+
+void SafeSetReferenceMotionType(TESObjectREFR* apReference, MotionType aMotionType, bool aAllowActivate) noexcept
+{
+    if (!apReference || !apReference->GetNiNode())
+        return;
+    SetReferenceMotionType(apReference, aMotionType, aAllowActivate);
+}
+
+void SafeUpdateReference3D(TESObjectREFR* apReference, bool aWarp) noexcept
+{
+    if (!CanTouchReference3D(apReference))
+        return;
+    apReference->Update3DPosition(aWarp);
 }
 
 void DropService::OnNotifyPickup(const NotifyDroppedItemPickedUp& acMessage) noexcept
@@ -854,12 +888,22 @@ void DropService::OnNotifyDropMove(const NotifyDroppedItemMove& acMessage) noexc
     }
 
     if (acMessage.HasRotation)
-        pReference->SetRotation(rotation);
+    {
+        if (pReference->GetParentCellEx() || pReference->GetParentCell())
+            pReference->SetRotation(rotation);
+    }
 
-    // Keep remote drops keyframed so activation stays available.
-    SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
-    // Warp Havok so activation uses the updated collision.
-    pReference->Update3DPosition(true);
+    if (ShouldDeferPhysicsLock(m_cellPhysicsGraceRemaining))
+    {
+        m_requestPhysicsLockAfterGrace = true;
+    }
+    else
+    {
+        // Keep remote drops keyframed so activation stays available.
+        SafeSetReferenceMotionType(pReference, MotionType::kKeyframed, true);
+        // Warp Havok so activation uses the updated collision.
+        SafeUpdateReference3D(pReference, true);
+    }
 }
 
 void DropService::OnNotifyDropPhysicsDisabled(const NotifyDroppedItemPhysicsDisabled& acMessage) noexcept
@@ -927,8 +971,15 @@ void DropService::OnNotifyDropPhysicsDisabled(const NotifyDroppedItemPhysicsDisa
 
         if (suppress)
         {
-            SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
-            pReference->Update3DPosition(true);
+            if (ShouldDeferPhysicsLock(m_cellPhysicsGraceRemaining))
+            {
+                m_requestPhysicsLockAfterGrace = true;
+            }
+            else
+            {
+                SafeSetReferenceMotionType(pReference, MotionType::kKeyframed, true);
+                SafeUpdateReference3D(pReference, true);
+            }
             m_localDrops.insert(acMessage.DropId);
             return;
         }
@@ -940,13 +991,23 @@ void DropService::OnNotifyDropPhysicsDisabled(const NotifyDroppedItemPhysicsDisa
         }
 
         if (acMessage.HasRotation)
-            pReference->SetRotation(rotation);
+        {
+            if (pReference->GetParentCellEx() || pReference->GetParentCell())
+                pReference->SetRotation(rotation);
+        }
 
         const bool locallyActive = IsDropLocallyActive(acMessage.DropId, data.ReferenceId);
         if (!locallyActive)
         {
-            SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
-            pReference->Update3DPosition(true);
+            if (ShouldDeferPhysicsLock(m_cellPhysicsGraceRemaining))
+            {
+                m_requestPhysicsLockAfterGrace = true;
+            }
+            else
+            {
+                SafeSetReferenceMotionType(pReference, MotionType::kKeyframed, true);
+                SafeUpdateReference3D(pReference, true);
+            }
         }
 
         m_localDrops.insert(acMessage.DropId);
@@ -962,8 +1023,8 @@ void DropService::OnNotifyDropPhysicsDisabled(const NotifyDroppedItemPhysicsDisa
         {
             if (suppress)
             {
-                SetReferenceMotionType(pExisting, MotionType::kKeyframed, true);
-                pExisting->Update3DPosition(true);
+                SafeSetReferenceMotionType(pExisting, MotionType::kKeyframed, true);
+                SafeUpdateReference3D(pExisting, true);
                 m_localDrops.insert(acMessage.DropId);
                 return;
             }
@@ -985,9 +1046,9 @@ void DropService::OnNotifyDropPhysicsDisabled(const NotifyDroppedItemPhysicsDisa
     {
         if (TESObjectREFR* pNewRef = TESObjectREFR::GetByHandle(*newHandleOpt))
         {
-            pNewRef->Update3DPosition(true);
-            SetReferenceMotionType(pNewRef, MotionType::kKeyframed, true);
-            pNewRef->Update3DPosition(true);
+            SafeUpdateReference3D(pNewRef, true);
+            SafeSetReferenceMotionType(pNewRef, MotionType::kKeyframed, true);
+            SafeUpdateReference3D(pNewRef, true);
             GameId newRefId{};
             m_world.GetModSystem().GetServerModId(pNewRef->formID, newRefId);
             if (newRefId)
@@ -1052,6 +1113,9 @@ void DropService::OnCellChange(const CellChangeEvent& acEvent) noexcept
     }
 
     m_periodicPlayerCellSyncAccumulator = 0.0;
+    m_pendingDiscoveryResyncs = 2;
+    m_cellPhysicsGraceRemaining = kCellPhysicsGraceSeconds;
+    m_requestPhysicsLockAfterGrace = true;
 
     QueueDropSync(acEvent.CellId, acEvent.WorldSpaceId, true);
 }
@@ -1115,6 +1179,8 @@ void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept
         {
             m_suspendProcessing = false;
             m_suspendProcessingAccumulator = 0.0;
+            m_cellPhysicsGraceRemaining = kCellPhysicsGraceSeconds;
+            m_requestPhysicsLockAfterGrace = true;
 
             if (m_requestResyncAfterSuspend && m_transport.IsConnected())
             {
@@ -1129,6 +1195,39 @@ void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept
     }
 
     const float delta = static_cast<float>(acEvent.Delta);
+    if (m_cellPhysicsGraceRemaining > 0.0)
+    {
+        m_cellPhysicsGraceRemaining = std::max(0.0, m_cellPhysicsGraceRemaining - acEvent.Delta);
+        if (m_cellPhysicsGraceRemaining <= 0.0 && m_requestPhysicsLockAfterGrace)
+        {
+            TiltedPhoques::Vector<uint64_t> dropIds(m_localDrops.begin(), m_localDrops.end());
+            for (const auto dropId : dropIds)
+            {
+                const auto dropOpt = DropManager::GetServerDrop(dropId);
+                if (!dropOpt)
+                    continue;
+
+                const auto& data = *dropOpt;
+                if (IsDropLocallyActive(dropId, data.ReferenceId))
+                    continue;
+
+                TESObjectREFR* pReference = nullptr;
+                if (const auto handleOpt = DropManager::GetHandleForDrop(dropId); handleOpt)
+                    pReference = TESObjectREFR::GetByHandle(*handleOpt);
+
+                if (!pReference && data.ReferenceId)
+                    pReference = GetReferenceById(data.ReferenceId);
+
+                if (!pReference || !pReference->GetNiNode())
+                    continue;
+
+                SafeSetReferenceMotionType(pReference, MotionType::kKeyframed, true);
+                SafeUpdateReference3D(pReference, true);
+            }
+
+            m_requestPhysicsLockAfterGrace = false;
+        }
+    }
     if (m_grabEventSuppressionRemaining > 0.0)
     {
         m_grabEventSuppressionRemaining = std::max(0.0, m_grabEventSuppressionRemaining - acEvent.Delta);
@@ -1183,7 +1282,15 @@ void DropService::OnUpdate(const UpdateEvent& acEvent) noexcept
         if (m_periodicPlayerCellSyncAccumulator >= kPeriodicPlayerCellSyncSeconds)
         {
             m_periodicPlayerCellSyncAccumulator = 0.0;
-            RequestCellSync(false);
+            if (m_pendingDiscoveryResyncs > 0)
+            {
+                --m_pendingDiscoveryResyncs;
+                RequestCellSync(true);
+            }
+            else
+            {
+                RequestCellSync(false);
+            }
         }
 
         m_dropSyncQueueAccumulator += acEvent.Delta;
@@ -1335,13 +1442,13 @@ BSTEventResult DropService::OnEvent(const TESGrabReleaseEvent* apEvent, const Ev
         {
             m_grabbedReferences.insert(referenceId);
             m_referencePhysicsCooldowns.erase(referenceId);
-            SetReferenceMotionType(pReference, MotionType::kDynamic, true);
+            SafeSetReferenceMotionType(pReference, MotionType::kDynamic, true);
         }
         else
         {
             m_grabbedReferences.erase(referenceId);
             m_referencePhysicsCooldowns[referenceId] = kDropPhysicsHoldSeconds;
-            SetReferenceMotionType(pReference, MotionType::kDynamic, true);
+            SafeSetReferenceMotionType(pReference, MotionType::kDynamic, true);
         }
 
         return BSTEventResult::kOk;
@@ -1363,13 +1470,13 @@ BSTEventResult DropService::OnEvent(const TESGrabReleaseEvent* apEvent, const Ev
     {
         m_grabbedDrops.insert(*dropIdOpt);
         m_dropPhysicsCooldowns.erase(*dropIdOpt);
-        SetReferenceMotionType(pReference, MotionType::kDynamic, true);
+        SafeSetReferenceMotionType(pReference, MotionType::kDynamic, true);
     }
     else
     {
         m_grabbedDrops.erase(*dropIdOpt);
         m_dropPhysicsCooldowns[*dropIdOpt] = kDropPhysicsHoldSeconds;
-        SetReferenceMotionType(pReference, MotionType::kDynamic, true);
+        SafeSetReferenceMotionType(pReference, MotionType::kDynamic, true);
     }
 
     return BSTEventResult::kOk;
@@ -1394,7 +1501,7 @@ void DropService::UpdateDropPhysics(const UpdateEvent& acEvent) noexcept
 
         if (m_grabbedDrops.find(dropId) != m_grabbedDrops.end())
         {
-            SetReferenceMotionType(pReference, MotionType::kDynamic, true);
+            SafeSetReferenceMotionType(pReference, MotionType::kDynamic, true);
             m_dropMoveSyncTimers[dropId] += delta;
             if (m_dropMoveSyncTimers[dropId] >= kDropMoveSyncIntervalSeconds)
             {
@@ -1413,13 +1520,13 @@ void DropService::UpdateDropPhysics(const UpdateEvent& acEvent) noexcept
                 m_dropMoveSyncTimers.erase(dropId);
                 SendDropMoveRequest(dropId, pReference, false);
                 SendDropPhysicsDisabledRequest(dropId, pReference);
-                SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
-                pReference->Update3DPosition(true);
+                SafeSetReferenceMotionType(pReference, MotionType::kKeyframed, true);
+                SafeUpdateReference3D(pReference, true);
             }
             else
             {
                 m_dropPhysicsCooldowns[dropId] = remaining;
-                SetReferenceMotionType(pReference, MotionType::kDynamic, true);
+                SafeSetReferenceMotionType(pReference, MotionType::kDynamic, true);
                 m_dropMoveSyncTimers[dropId] += delta;
                 if (m_dropMoveSyncTimers[dropId] >= kDropMoveSyncIntervalSeconds)
                 {
@@ -1432,7 +1539,7 @@ void DropService::UpdateDropPhysics(const UpdateEvent& acEvent) noexcept
         }
 
         m_dropMoveSyncTimers.erase(dropId);
-        SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
+        SafeSetReferenceMotionType(pReference, MotionType::kKeyframed, true);
         continue;
     }
 
@@ -1447,7 +1554,7 @@ void DropService::UpdateDropPhysics(const UpdateEvent& acEvent) noexcept
         {
             if (TESObjectREFR* pReference = GetReferenceById(referenceId))
             {
-                SetReferenceMotionType(pReference, MotionType::kDynamic, true);
+                SafeSetReferenceMotionType(pReference, MotionType::kDynamic, true);
                 m_referenceMoveSyncTimers[referenceId] += delta;
                 if (m_referenceMoveSyncTimers[referenceId] >= kDropMoveSyncIntervalSeconds)
                 {
@@ -1475,7 +1582,7 @@ void DropService::UpdateDropPhysics(const UpdateEvent& acEvent) noexcept
             pendingUpdates.emplace_back(entry.first, remaining);
             if (TESObjectREFR* pReference = GetReferenceById(entry.first))
             {
-                SetReferenceMotionType(pReference, MotionType::kDynamic, true);
+                SafeSetReferenceMotionType(pReference, MotionType::kDynamic, true);
                 m_referenceMoveSyncTimers[entry.first] += delta;
                 if (m_referenceMoveSyncTimers[entry.first] >= kDropMoveSyncIntervalSeconds)
                 {
@@ -1498,8 +1605,8 @@ void DropService::UpdateDropPhysics(const UpdateEvent& acEvent) noexcept
         if (TESObjectREFR* pReference = GetReferenceById(referenceId))
         {
             SendReferenceMoveRequest(referenceId, pReference);
-            SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
-            pReference->Update3DPosition(true);
+            SafeSetReferenceMotionType(pReference, MotionType::kKeyframed, true);
+            SafeUpdateReference3D(pReference, true);
         }
     }
 }
@@ -1521,7 +1628,7 @@ void DropService::SendDropMoveRequest(uint64_t aDropId, TESObjectREFR* apReferen
     if (!serverIdRes)
         return;
 
-    apReference->Update3DPosition(false);
+    SafeUpdateReference3D(apReference, false);
 
     auto& modSystem = m_world.GetModSystem();
     GameId cellId{};
@@ -1928,9 +2035,19 @@ void DropService::ProcessDropEntry(const NotifyDroppedItems::Entry& acEntry, boo
                         pReference->SetPosition(data.Location);
                     pReference->SetRotation(data.Rotation);
                     if (pReference->GetNiNode())
-                        pReference->Update3DPosition(true);
+                        SafeUpdateReference3D(pReference, true);
                 }
         }
+            if (!locallyActive && pReference->GetNiNode())
+            {
+                if (ShouldDeferPhysicsLock(m_cellPhysicsGraceRemaining))
+                    m_requestPhysicsLockAfterGrace = true;
+                else
+                {
+                    SafeSetReferenceMotionType(pReference, MotionType::kKeyframed, true);
+                    SafeUpdateReference3D(pReference, true);
+                }
+            }
         }
         m_localDrops.insert(acEntry.DropId);
         spdlog::debug("DropService: skip drop {} from sync (already present locally)", acEntry.DropId);
@@ -2044,7 +2161,7 @@ bool DropService::MaterializeDrop(uint64_t aDropId, const DropManager::ServerDro
     return true;
 }
 
-bool DropService::SpawnLocalDrop(const DropManager::ServerDropData& acData, uint64_t aDropId) const noexcept
+bool DropService::SpawnLocalDrop(const DropManager::ServerDropData& acData, uint64_t aDropId) noexcept
 {
     PlayerCharacter* pPlayer = PlayerCharacter::Get();
     if (!pPlayer)
@@ -2135,8 +2252,15 @@ bool DropService::SpawnLocalDrop(const DropManager::ServerDropData& acData, uint
     extraEntry.ExtraWornLeft = false;
     const uint16_t dropCount = ClampExtraCount(extraEntry.Count);
     ApplyDropExtraData(pReference, extraEntry, dropCount);
-    SetReferenceMotionType(pReference, MotionType::kKeyframed, true);
-    pReference->Update3DPosition(true);
+    if (ShouldDeferPhysicsLock(m_cellPhysicsGraceRemaining))
+    {
+        m_requestPhysicsLockAfterGrace = true;
+    }
+    else
+    {
+        SafeSetReferenceMotionType(pReference, MotionType::kKeyframed, true);
+        SafeUpdateReference3D(pReference, true);
+    }
 
     DropManager::BindHandleToServerDrop(aDropId, acData.ActorFormId, handleBits);
 
@@ -2286,7 +2410,7 @@ bool DropService::TryBindExistingReference(uint64_t aDropId, const DropManager::
                     apReference->SetPosition(acData.Location);
                 apReference->SetRotation(acData.Rotation);
                 if (apReference->GetNiNode())
-                    apReference->Update3DPosition(true);
+                    SafeUpdateReference3D(apReference, true);
             }
         }
 
@@ -2294,8 +2418,15 @@ bool DropService::TryBindExistingReference(uint64_t aDropId, const DropManager::
         {
             if (apReference->GetNiNode())
             {
-                SetReferenceMotionType(apReference, MotionType::kKeyframed, true);
-                apReference->Update3DPosition(true);
+                if (ShouldDeferPhysicsLock(m_cellPhysicsGraceRemaining))
+                {
+                    m_requestPhysicsLockAfterGrace = true;
+                }
+                else
+                {
+                    SafeSetReferenceMotionType(apReference, MotionType::kKeyframed, true);
+                    SafeUpdateReference3D(apReference, true);
+                }
             }
         }
 
