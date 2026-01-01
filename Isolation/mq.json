@@ -53,7 +53,7 @@
             "blacklist": [
                 {
                     "stageMin": 10,
-                    "stageMax": 70,
+                    "stageMax": 100,
                     "notes": "Time-Wound vision and Dragonrend acquisition cutscene with forced camera and player disable."
                 }
             ]
