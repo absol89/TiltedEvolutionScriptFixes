@@ -6,9 +6,6 @@
 #include <imgui/imgui_impl_dx11.h>
 #include <imgui/imgui_impl_win32.h>
 #include <imgui.h>
-#include <TiltedCore/Filesystem.hpp>
-#include <filesystem>
-#include <string>
 
 // According to imgui documentation we have to do it this way in order to avoid link conflicts with windows.h
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -24,37 +21,13 @@ ImguiService::~ImguiService() noexcept
 
 void ImguiService::Create(RenderSystemD3D11* apRenderSystem, HWND aHwnd)
 {
-    ID3D11Device* d3dDevice = nullptr;
-    ID3D11DeviceContext* d3dContext = nullptr;
-
     m_imDriver.Initialize(static_cast<void*>(aHwnd));
 
     // init platform
     if (!ImGui_ImplWin32_Init(aHwnd))
         spdlog::error("Failed to initialize Imgui-Win32");
 
-    apRenderSystem->GetSwapChain()->GetDevice(__uuidof(d3dDevice), reinterpret_cast<void**>(&d3dDevice));
-    d3dDevice->GetImmediateContext(&d3dContext);
-
-    ImGui_ImplDX11_Init(d3dDevice, d3dContext);
-
-    // Load "Skyrim"-like font (Futura Condensed) from assets if present
-    ImGuiIO& io = ImGui::GetIO();
-
-    const std::filesystem::path fontPath = TiltedPhoques::GetPath() / "UI" / "assets" / "futura-condensed-medium.otf";
-    const std::string fontPathUtf8 = fontPath.generic_string();
-
-    if (auto* font = io.Fonts->AddFontFromFileTTF(fontPathUtf8.c_str(), 24.0f))
-    {
-        m_skyrimFont = font;
-        // Recreate device objects so the new font atlas is uploaded
-        ImGui_ImplDX11_InvalidateDeviceObjects();
-        ImGui_ImplDX11_CreateDeviceObjects();
-    }
-    else
-    {
-        spdlog::warn("ImguiService: failed to load font at {}", fontPathUtf8);
-    }
+    ImGui_ImplDX11_Init(apRenderSystem->GetDevice(), apRenderSystem->GetDeviceContext());
 }
 
 void ImguiService::Render() const

@@ -218,15 +218,6 @@ void OverlayService::Create(RenderSystemD3D11* apRenderSystem) noexcept
 
 void OverlayService::Render() noexcept
 {
-    // TODO: delete this hack?
-    static bool s_bi = false;
-    if (!s_bi)
-    {
-        m_pOverlay->GetClient()->GetBrowser()->GetHost()->WasResized();
-
-        s_bi = true;
-    }
-
     auto pPlayer = PlayerCharacter::Get();
     bool inGame = pPlayer && pPlayer->GetNiNode();
     if (inGame && !m_inGame)
@@ -813,8 +804,8 @@ void OverlayService::RunDebugDataUpdates() noexcept
     auto steamStats = m_transport.GetConnectionStatus();
 
     auto pArguments = CefListValue::Create();
-    pArguments->SetInt(0, steamStats.m_flOutPacketsPerSec);
-    pArguments->SetInt(1, steamStats.m_flInPacketsPerSec);
+    pArguments->SetInt(0, static_cast<int32_t>(steamStats.m_flOutPacketsPerSec));
+    pArguments->SetInt(1, static_cast<int32_t>(steamStats.m_flInPacketsPerSec));
     pArguments->SetInt(2, steamStats.m_nPing);
     pArguments->SetInt(3, 0);
     pArguments->SetInt(4, internalStats.SentBytes);
