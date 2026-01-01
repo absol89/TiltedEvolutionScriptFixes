@@ -131,6 +131,7 @@ bool IsAnyMenuOpen() noexcept
 }
 
 static bool s_emoteOpenedFromInactive = false;
+static bool s_f3Pressed = false;
 
 void SetUIActive(OverlayService& aOverlay, auto apRenderer, bool aActive)
 {
@@ -225,6 +226,22 @@ void ProcessKeyboard(uint16_t aKey, uint16_t aScanCode, cef_key_event_type_t aTy
     const auto active = overlay.GetActive();
 
     spdlog::debug("ProcessKey, type: {}, key: {}, active: {}", aType, aKey, active);
+
+    if (aType != KEYEVENT_CHAR && aKey == VK_F3)
+    {
+        if (aType == KEYEVENT_KEYDOWN)
+        {
+            if (!s_f3Pressed)
+            {
+                World::Get().GetDebugService().m_showDebugStuff = !World::Get().GetDebugService().m_showDebugStuff;
+                s_f3Pressed = true;
+            }
+        }
+        else if (aType == KEYEVENT_KEYUP)
+        {
+            s_f3Pressed = false;
+        }
+    }
 
     if (aType != KEYEVENT_CHAR && (IsToggleKey(aKey) || (IsDisableKey(aKey) && active)))
     {
