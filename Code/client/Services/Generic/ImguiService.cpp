@@ -3,6 +3,7 @@
 #include <Services/ImguiService.h>
 #include <Systems/RenderSystemD3D11.h>
 #include <d3d11.h>
+#include <filesystem>
 #include <imgui/imgui_impl_dx11.h>
 #include <imgui/imgui_impl_win32.h>
 #include <imgui.h>
@@ -28,6 +29,24 @@ void ImguiService::Create(RenderSystemD3D11* apRenderSystem, HWND aHwnd)
         spdlog::error("Failed to initialize Imgui-Win32");
 
     ImGui_ImplDX11_Init(apRenderSystem->GetDevice(), apRenderSystem->GetDeviceContext());
+
+    // Load "Skyrim"-like font (Futura Condensed) from assets if present
+    ImGuiIO& io = ImGui::GetIO();
+    const std::filesystem::path fontPath =
+        TiltedPhoques::GetPath() / "UI" / "assets" / "futura-condensed-medium.otf";
+    const std::string fontPathUtf8 = fontPath.generic_string();
+
+    if (auto* font = io.Fonts->AddFontFromFileTTF(fontPathUtf8.c_str(), 24.0f))
+    {
+        m_skyrimFont = font;
+        // Recreate device objects so the new font atlas is uploaded
+        ImGui_ImplDX11_InvalidateDeviceObjects();
+        ImGui_ImplDX11_CreateDeviceObjects();
+    }
+    else
+    {
+        spdlog::warn("ImguiService: failed to load font at {}", fontPathUtf8);
+    }
 }
 
 void ImguiService::Render() const
