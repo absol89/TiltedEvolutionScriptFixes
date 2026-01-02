@@ -344,6 +344,8 @@ bool TransportService::IsAllowedOutbound(const ClientMessage& acMessage) const n
     case kPartyCreateRequest:
     case kPartyChangeLeaderRequest:
     case kPartyKickRequest:
+    case kPartyActorNamesRequest:
+    case kPlayerActorNameUpdateRequest:
     case kSendChatMessageRequest:
     // Trade while quest-gated (no world sync)
     case kTradeInviteRequest:
@@ -373,6 +375,7 @@ bool TransportService::IsAllowedInbound(const ServerMessage& acMessage) const no
     case kNotifyPlayerList:
     case kNotifyPlayerJoined:
     case kNotifyPlayerLeft:
+    case kNotifyPlayerActorName:
     case kNotifyPlayerSyncMode:
     case kStringCacheUpdate:
     case kNotifyCommandList:

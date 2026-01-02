@@ -29,6 +29,7 @@ export class SkyrimtogetherMock extends EventEmitter implements SkyrimTogether {
   private showEvents = true;
   private localPlayerId: number;
   private nametagMode = 0;
+  private playerNamePreference = 'username';
   public readonly players$ = playerStore.pipe(selectAllEntities());
   private pendingTeleportRequests = new Set<number>();
 
@@ -330,6 +331,13 @@ export class SkyrimtogetherMock extends EventEmitter implements SkyrimTogether {
     this.nametagMode = mode;
     if (this.showEvents) {
       console.log('[mock] setNameTagMode', mode);
+    }
+  }
+
+  setPlayerNamePreference(preference: string): void {
+    this.playerNamePreference = preference;
+    if (this.showEvents) {
+      console.log('[mock] setPlayerNamePreference', preference);
     }
   }
 

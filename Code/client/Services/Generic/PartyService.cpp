@@ -18,7 +18,9 @@
 #include <Messages/PartyCreateRequest.h>
 #include <Messages/PartyChangeLeaderRequest.h>
 #include <Messages/PartyKickRequest.h>
+#include <Messages/PartyActorNamesRequest.h>
 #include <Messages/NotifyPlayerProfileImage.h>
+#include <Messages/NotifyPlayerActorName.h>
 
 #include <OverlayApp.hpp>
 
@@ -37,6 +39,16 @@ PartyService::PartyService(World& aWorld, entt::dispatcher& aDispatcher, Transpo
     m_partyJoinedConnection = aDispatcher.sink<NotifyPartyJoined>().connect<&PartyService::OnPartyJoined>(this);
     m_partyLeftConnection = aDispatcher.sink<NotifyPartyLeft>().connect<&PartyService::OnPartyLeft>(this);
     m_playerAvatarConnection = aDispatcher.sink<NotifyPlayerProfileImage>().connect<&PartyService::OnPlayerProfileImage>(this);
+    m_playerActorNameConnection = aDispatcher.sink<NotifyPlayerActorName>().connect<&PartyService::OnPlayerActorName>(this);
+}
+
+const String* PartyService::GetActorName(uint32_t aPlayerId) const noexcept
+{
+    const auto it = m_actorNames.find(aPlayerId);
+    if (it == m_actorNames.end())
+        return nullptr;
+
+    return &it->second;
 }
 
 void PartyService::CreateParty() const noexcept
@@ -104,17 +116,34 @@ void PartyService::OnUpdate(const UpdateEvent& acEvent) noexcept
 void PartyService::OnDisconnected(const DisconnectedEvent& acEvent) noexcept
 {
     DestroyParty();
+    m_actorNames.clear();
 }
 
 void PartyService::OnPlayerList(const NotifyPlayerList& acPlayerList) noexcept
 {
     m_players = acPlayerList.Players;
+
+    for (auto it = m_actorNames.begin(); it != m_actorNames.end();)
+    {
+        if (m_players.find(it->first) == m_players.end())
+            it = m_actorNames.erase(it);
+        else
+            ++it;
+    }
 }
 
 void PartyService::OnPlayerProfileImage(const NotifyPlayerProfileImage& acMessage) noexcept
 {
     auto& entry = m_players[acMessage.PlayerId];
     entry.Avatar = acMessage.Avatar;
+}
+
+void PartyService::OnPlayerActorName(const NotifyPlayerActorName& acMessage) noexcept
+{
+    if (acMessage.ActorName.empty())
+        return;
+
+    m_actorNames[acMessage.PlayerId] = acMessage.ActorName;
 }
 
 void PartyService::OnPartyInfo(const NotifyPartyInfo& acPartyInfo) noexcept
@@ -125,6 +154,9 @@ void PartyService::OnPartyInfo(const NotifyPartyInfo& acPartyInfo) noexcept
         m_isLeader = acPartyInfo.IsLeader;
         m_leaderPlayerId = acPartyInfo.LeaderPlayerId;
         m_partyMembers = acPartyInfo.PlayerIds;
+
+        PartyActorNamesRequest actorNamesRequest{};
+        m_transport.Send(actorNamesRequest);
 
         // TODO: this can be done a bit prettier
         if (m_isLeader)
@@ -165,6 +197,9 @@ void PartyService::OnPartyJoined(const NotifyPartyJoined& acPartyJoined) noexcep
     m_isLeader = acPartyJoined.IsLeader;
     m_leaderPlayerId = acPartyJoined.LeaderPlayerId;
     m_partyMembers = acPartyJoined.PlayerIds;
+
+    PartyActorNamesRequest actorNamesRequest{};
+    m_transport.Send(actorNamesRequest);
 
     m_world.GetDispatcher().trigger(PartyJoinedEvent(m_isLeader));
 }

@@ -35,6 +35,12 @@ struct NameTagService
         Normal = 3
     };
 
+    enum class NamePreference : uint8_t
+    {
+        Username = 0,
+        Actor = 1
+    };
+
     struct Style
     {
         ImVec4 BackgroundColor{0.f, 0.f, 0.f, 0.65f};
@@ -79,6 +85,7 @@ struct NameTagService
     void SetStyle(const Style& aStyle) noexcept { m_style = aStyle; }
     [[nodiscard]] Mode GetMode() const noexcept { return m_mode; }
     void SetMode(Mode aMode) noexcept;
+    void SetNamePreference(NamePreference aPreference) noexcept { m_namePreference = aPreference; }
 
 private:
     struct VisibilityInfo
@@ -114,6 +121,7 @@ private:
     World& m_world;
     Style m_style{};
     Mode m_mode = Mode::Normal;
+    NamePreference m_namePreference = NamePreference::Username;
     RenderSystemD3D11* m_renderSystem = nullptr;
 
     std::unordered_map<uint32_t, VisibilityInfo> m_visibility;

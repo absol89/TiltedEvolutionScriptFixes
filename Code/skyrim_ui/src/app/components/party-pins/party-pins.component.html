@@ -1,23 +1,34 @@
-<div class="party-pins-layer" *ngIf="pins.length > 0">
+<div
+  class="party-pins-layer"
+  *ngIf="pins.length > 0"
+  [style.--pin-size.px]="pinSize"
+  [style.--pin-offset.px]="pinSize / 2"
+>
   <ng-container *ngFor="let pin of pins">
     <div
       class="pin"
-      [ngClass]="{ oob: pin.oob }"
+      [ngClass]="{ oob: pin.oob, 'no-avatar': !showMarkerAvatar }"
       [style.left.px]="pin.x"
       [style.top.px]="pin.y"
       [attr.title]="pin.name || ''"
     >
       <img
-        [src]="pin.avatar !== undefined && pin.avatar !== '' ? pin.avatar : defaultAvatar"
+        *ngIf="showMarkerAvatar"
+        [src]="
+          pin.avatar !== undefined && pin.avatar !== ''
+            ? pin.avatar
+            : defaultAvatar
+        "
         [alt]="pin.name || 'Party member avatar'"
         draggable="false"
       />
+      <span *ngIf="!showMarkerAvatar" class="pin-marker"></span>
     </div>
     <div
       class="label"
       [ngClass]="{ oob: pin.oob }"
       [style.left.px]="pin.x"
-      [style.top.px]="pin.y + 24"
+      [style.top.px]="pin.y + pinLabelOffset"
       *ngIf="pin.name"
     >
       {{ pin.name }}

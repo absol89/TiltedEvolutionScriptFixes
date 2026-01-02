@@ -21,7 +21,7 @@
       <tbody class="listBody">
         <tr *ngFor="let player of playerList$ | async">
           <td>{{ player.level }}</td>
-          <td>{{ player.name }}</td>
+          <td>{{ player.displayName || player.name }}</td>
           <td>{{ player.cellName }}</td>
           <td class="actions-col">
             <button

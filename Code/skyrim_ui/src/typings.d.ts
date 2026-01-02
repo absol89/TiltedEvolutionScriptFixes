@@ -85,6 +85,8 @@ declare namespace SkyrimTogetherTypes {
 
   type SetCellCallback = (playerId: number, cellName: string) => void;
 
+  type SetActorNameCallback = (playerId: number, actorName: string) => void;
+
   type SetPlayer3dLoadedCallback = (playerId: number, health: number) => void;
 
   type SetPlayer3dUnloadedCallback = (playerId: number) => void;
@@ -305,6 +307,12 @@ interface SkyrimTogether {
   /** Add listener to when one player change cell in server. */
   on(event: 'setCell', callback: SkyrimTogetherTypes.SetCellCallback): void;
 
+  /** Add listener to when one player actor name is updated. */
+  on(
+    event: 'setActorName',
+    callback: SkyrimTogetherTypes.SetActorNameCallback,
+  ): void;
+
   /** Add listener to when a player is loaded or unloaded in 3D.  */
   on(
     event: 'setPlayer3dLoaded',
@@ -523,6 +531,11 @@ interface SkyrimTogether {
   off(event: 'setLevel', callback?: SkyrimTogetherTypes.SetLevelCallback): void;
 
   off(event: 'setCell', callback?: SkyrimTogetherTypes.SetCellCallback): void;
+
+  off(
+    event: 'setActorName',
+    callback?: SkyrimTogetherTypes.SetActorNameCallback,
+  ): void;
 
   /** Add listener to when a player is loaded or unloaded in 3D.  */
   off(
@@ -819,6 +832,13 @@ interface SkyrimTogether {
    * @param mode Numeric representation of the desired nametag display mode.
    */
   setNameTagMode(mode: number): void;
+
+  /**
+   * Select whether to prefer account usernames or in-game actor names.
+   *
+   * @param preference Either "username" or "actor".
+   */
+  setPlayerNamePreference(preference: string): void;
 
   /**
    * Called when the player clicks the respawn button on the death screen.

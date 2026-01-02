@@ -118,9 +118,31 @@
       },
       "PARTY_ANCHOR_OFFSET_X": "Horizontale verschuiving",
       "PARTY_ANCHOR_OFFSET_Y": "Verticale verschuiving",
+      "PARTY_SCALE": "Party Scale",
+      "PARTY_LAYOUT": "Layout",
+      "PARTY_LAYOUTS": {
+        "CLASSIC": "Classic",
+        "COMPACT": "Compact"
+      },
+      "PARTY_SHOW_AVATAR": "Show Avatars",
+      "PARTY_SHOW_NAME": "Show Names",
+      "PARTY_NAME_SOURCE": "Name Source",
+      "PARTY_NAME_SOURCES": {
+        "USERNAME": "Username",
+        "ACTOR": "Actor name (if available)"
+      },
+      "PARTY_SHOW_LEVEL": "Show Level",
+      "PARTY_SHOW_HEALTH": "Show Health Bar",
+      "PARTY_PIN_SHOW_AVATAR": "Show Marker Avatars",
+      "PARTY_PIN_SCALE": "Marker Size",
       "LENGTH": "{{length}}s",
       "DEBUG": "Debug",
       "SHOW_DEBUG_INFO": "Debug informatie weergeven",
+      "PLAYER_NAME_PREFERENCE": "Player Name Preference",
+      "PLAYER_NAME_PREFERENCES": {
+        "USERNAME": "Username",
+        "ACTOR": "Actor name (if available)"
+      },
       "BACK": "Terug"
     }
   },

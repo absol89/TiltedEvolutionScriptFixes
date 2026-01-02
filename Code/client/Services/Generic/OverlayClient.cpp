@@ -216,6 +216,8 @@ bool OverlayClient::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefR
             ProcessSetProfilePicture(eventArgs);
         else if (eventName == "setNameTagMode")
             ProcessSetNameTagMode(eventArgs);
+        else if (eventName == "setPlayerNamePreference")
+            ProcessSetPlayerNamePreference(eventArgs);
         else if (eventName == "teleportToPlayer" || eventName == "requestTeleport")
             ProcessTeleportRequestMessage(eventArgs);
         else if (eventName == "respondTeleportRequest")
@@ -419,6 +421,34 @@ void OverlayClient::ProcessSetNameTagMode(CefRefPtr<CefListValue> aEventArgs)
         if (!world.ctx().contains<NameTagService>())
             return;
         world.ctx().at<NameTagService>().SetMode(mode);
+    });
+}
+
+void OverlayClient::ProcessSetPlayerNamePreference(CefRefPtr<CefListValue> aEventArgs)
+{
+    if (!aEventArgs || aEventArgs->GetSize() < 1)
+        return;
+
+    NameTagService::NamePreference preference = NameTagService::NamePreference::Username;
+    const auto rawType = aEventArgs->GetType(0);
+    if (rawType == VTYPE_INT)
+    {
+        const int rawValue = aEventArgs->GetInt(0);
+        if (rawValue == static_cast<int>(NameTagService::NamePreference::Actor))
+            preference = NameTagService::NamePreference::Actor;
+    }
+    else
+    {
+        const std::string raw = aEventArgs->GetString(0).ToString();
+        if (raw == "actor")
+            preference = NameTagService::NamePreference::Actor;
+    }
+
+    World::Get().GetRunner().Queue([preference]() {
+        auto& world = World::Get();
+        if (!world.ctx().contains<NameTagService>())
+            return;
+        world.ctx().at<NameTagService>().SetNamePreference(preference);
     });
 }
 

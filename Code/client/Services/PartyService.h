@@ -11,6 +11,7 @@ struct NotifyPartyInvite;
 struct NotifyPartyJoined;
 struct NotifyPartyLeft;
 struct NotifyPlayerProfileImage;
+struct NotifyPlayerActorName;
 
 /**
  * @brief Manages the party of the local player.
@@ -28,6 +29,7 @@ struct PartyService
 
     const Vector<uint32_t>& GetPartyMembers() const noexcept { return m_partyMembers; }
     const Map<uint32_t, NotifyPlayerList::PlayerListEntry>& GetPlayers() const noexcept { return m_players; }
+    const String* GetActorName(uint32_t aPlayerId) const noexcept;
     Map<uint32_t, uint64_t>& GetInvitations() noexcept { return m_invitations; }
 
     void CreateParty() const noexcept;
@@ -46,11 +48,13 @@ protected:
     void OnPartyJoined(const NotifyPartyJoined& acPartyJoined) noexcept;
     void OnPartyLeft(const NotifyPartyLeft& acPartyLeft) noexcept;
     void OnPlayerProfileImage(const NotifyPlayerProfileImage& acMessage) noexcept;
+    void OnPlayerActorName(const NotifyPlayerActorName& acMessage) noexcept;
 
 private:
     void DestroyParty() noexcept;
 
     Map<uint32_t, NotifyPlayerList::PlayerListEntry> m_players;
+    Map<uint32_t, String> m_actorNames;
     Map<uint32_t, uint64_t> m_invitations;
     uint64_t m_nextUpdate{0};
 
@@ -70,4 +74,5 @@ private:
     entt::scoped_connection m_partyJoinedConnection;
     entt::scoped_connection m_partyLeftConnection;
     entt::scoped_connection m_playerAvatarConnection;
+    entt::scoped_connection m_playerActorNameConnection;
 };

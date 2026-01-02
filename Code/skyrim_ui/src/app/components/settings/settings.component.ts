@@ -6,6 +6,8 @@ import {
   autoHideTimerLengths,
   FontSize,
   PartyAnchor,
+  PartyLayout,
+  PlayerNamePreference,
   SettingService,
 } from 'src/app/services/setting.service';
 import { Sound, SoundService } from '../../services/sound.service';
@@ -64,8 +66,30 @@ export class SettingsComponent {
       label: 'COMPONENT.SETTINGS.NAMETAG_MODES.HIDDEN',
     },
   ];
+  readonly availablePlayerNamePreferences: {
+    id: PlayerNamePreference;
+    label: string;
+  }[] = [
+    {
+      id: PlayerNamePreference.USERNAME,
+      label: 'COMPONENT.SETTINGS.PLAYER_NAME_PREFERENCES.USERNAME',
+    },
+    {
+      id: PlayerNamePreference.ACTOR,
+      label: 'COMPONENT.SETTINGS.PLAYER_NAME_PREFERENCES.ACTOR',
+    },
+  ];
   readonly availableAutoHideTimes = autoHideTimerLengths;
-
+  readonly availablePartyLayouts: { id: PartyLayout; label: string }[] = [
+    {
+      id: PartyLayout.CLASSIC,
+      label: 'COMPONENT.SETTINGS.PARTY_LAYOUTS.CLASSIC',
+    },
+    {
+      id: PartyLayout.COMPACT,
+      label: 'COMPONENT.SETTINGS.PARTY_LAYOUTS.COMPACT',
+    },
+  ];
   public settings = this.settingService.settings;
   public autoHideTime: number;
   public partyAnchor: PartyAnchor;

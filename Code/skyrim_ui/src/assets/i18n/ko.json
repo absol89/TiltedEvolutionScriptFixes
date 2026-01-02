@@ -124,6 +124,23 @@
       },
       "PARTY_ANCHOR_OFFSET_X": "수평 오프셋",
       "PARTY_ANCHOR_OFFSET_Y": "수직 오프셋",
+      "PARTY_SCALE": "Party Scale",
+      "PARTY_LAYOUT": "Layout",
+      "PARTY_LAYOUTS": {
+        "CLASSIC": "Classic",
+        "COMPACT": "Compact"
+      },
+      "PARTY_SHOW_AVATAR": "Show Avatars",
+      "PARTY_SHOW_NAME": "Show Names",
+      "PARTY_NAME_SOURCE": "Name Source",
+      "PARTY_NAME_SOURCES": {
+        "USERNAME": "Username",
+        "ACTOR": "Actor name (if available)"
+      },
+      "PARTY_SHOW_LEVEL": "Show Level",
+      "PARTY_SHOW_HEALTH": "Show Health Bar",
+      "PARTY_PIN_SHOW_AVATAR": "Show Marker Avatars",
+      "PARTY_PIN_SCALE": "Marker Size",
       "LENGTH": "{{length}}초",
       "UI": "사용자 인터페이스",
       "LANGUAGE": "언어",
@@ -136,6 +153,11 @@
         "M": "중간",
         "L": "크게",
         "XL": "매우 크게"
+      },
+      "PLAYER_NAME_PREFERENCE": "Player Name Preference",
+      "PLAYER_NAME_PREFERENCES": {
+        "USERNAME": "Username",
+        "ACTOR": "Actor name (if available)"
       },
       "BACK": "뒤로"
     }

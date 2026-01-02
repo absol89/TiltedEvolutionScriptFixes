@@ -74,6 +74,8 @@ enum ClientOpcode : unsigned char
     kRequestSetSyncMode,
     kPlayEmoteRequest,
     kCancelEmoteRequest,
+    kPlayerActorNameUpdateRequest,
+    kPartyActorNamesRequest,
     kClientOpcodeMax
 };
 
@@ -156,5 +158,6 @@ enum ServerOpcode : unsigned char
     kNotifyCommandList,
     kNotifyPlayEmote,
     kNotifyCancelEmote,
+    kNotifyPlayerActorName,
     kServerOpcodeMax
 };

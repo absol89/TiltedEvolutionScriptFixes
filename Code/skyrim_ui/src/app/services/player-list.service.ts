@@ -8,6 +8,7 @@ import { View } from '../models/view.enum';
 import { UiRepository } from '../store/ui.repository';
 import { ClientService } from './client.service';
 import { PopupNotificationService } from './popup-notification.service';
+import { SettingService } from './setting.service';
 
 @Injectable({
   providedIn: 'root',
@@ -26,8 +27,10 @@ export class PlayerListService implements OnDestroy {
   private teleportRequestSubscription: Subscription;
   private teleportRequestHandledSubscription: Subscription;
   private avatarSubscription: Subscription;
+  private actorNameSubscription: Subscription;
   private nameSubscription: Subscription;
   private localPlayerSubscription: Subscription;
+  private namePreferenceSubscription: Subscription;
 
   private isConnect = false;
 
@@ -36,6 +39,7 @@ export class PlayerListService implements OnDestroy {
     private readonly popupNotificationService: PopupNotificationService,
     private readonly uiRepository: UiRepository,
     private readonly translocoService: TranslocoService,
+    private readonly settingService: SettingService,
   ) {
     this.onDebug();
     this.onConnectionStateChanged();
@@ -47,7 +51,9 @@ export class PlayerListService implements OnDestroy {
     this.onTeleportRequest();
     this.onTeleportRequestHandled();
     this.onAvatarChange();
+    this.onActorNameChange();
     this.onLocalPlayerMetadata();
+    this.onNamePreferenceChange();
   }
 
   ngOnDestroy() {
@@ -60,8 +66,10 @@ export class PlayerListService implements OnDestroy {
     this.teleportRequestSubscription.unsubscribe();
     this.teleportRequestHandledSubscription.unsubscribe();
     this.avatarSubscription.unsubscribe();
+    this.actorNameSubscription.unsubscribe();
     this.nameSubscription.unsubscribe();
     this.localPlayerSubscription.unsubscribe();
+    this.namePreferenceSubscription.unsubscribe();
   }
 
   private onDebug() {
@@ -101,6 +109,7 @@ export class PlayerListService implements OnDestroy {
             existing.cellName = player.cellName;
             existing.connected = player.connected;
             existing.online = player.online;
+            this.updateDisplayName(existing);
             existing.avatar =
               player.avatar && player.avatar.length > 0
                 ? player.avatar
@@ -115,6 +124,8 @@ export class PlayerListService implements OnDestroy {
                     : this.defaultAvatar,
               }),
             );
+            const created = playerList.players[playerList.players.length - 1];
+            this.updateDisplayName(created);
           }
           this.playerList.next(playerList);
         }
@@ -173,9 +184,10 @@ export class PlayerListService implements OnDestroy {
           if (playerList) {
             const invitingPlayer = this.getPlayerById(inviterId);
             invitingPlayer.hasInvitedLocalPlayer = true;
+            this.updateDisplayName(invitingPlayer);
             this.playerList.next(playerList);
             this.popupNotificationService.addPartyInvite(
-              invitingPlayer.name,
+              invitingPlayer.displayName || invitingPlayer.name,
               () => this.acceptPartyInvite(inviterId),
             );
           }
@@ -191,7 +203,7 @@ export class PlayerListService implements OnDestroy {
           const player = playerList
             ? this.getPlayerById(requesterId)
             : undefined;
-          const displayName = player?.name ?? requesterName;
+          const displayName = this.resolveDisplayName(player, requesterName);
 
           if (player && playerList) {
             player.hasTeleportRequest = true;
@@ -247,6 +259,31 @@ export class PlayerListService implements OnDestroy {
           return;
         }
 
+        let existing = playerList.players.find(entry => entry.id === player.id);
+
+        if (!existing && player.id === this.clientService.localPlayerId) {
+          this.ensureLocalPlayerEntry();
+          existing = playerList.players.find(entry => entry.id === player.id);
+        }
+
+        if (!existing) {
+          return;
+        }
+
+        existing.avatar = player.avatar;
+        this.playerList.next(playerList);
+      },
+    );
+  }
+
+  private onActorNameChange() {
+    this.actorNameSubscription = this.clientService.actorNameChange.subscribe(
+      (player: Player) => {
+        const playerList = this.playerList.getValue();
+        if (!playerList) {
+          return;
+        }
+
         const existing = playerList.players.find(
           entry => entry.id === player.id,
         );
@@ -255,7 +292,8 @@ export class PlayerListService implements OnDestroy {
           return;
         }
 
-        existing.avatar = player.avatar;
+        existing.actorName = player.actorName;
+        this.updateDisplayName(existing);
         this.playerList.next(playerList);
       },
     );
@@ -296,6 +334,7 @@ export class PlayerListService implements OnDestroy {
         isLoaded: true,
         avatar: this.defaultAvatar,
       });
+      this.updateDisplayName(existing);
       playerList.players.push(existing);
     } else {
       if (displayName && displayName.length > 0) {
@@ -304,6 +343,7 @@ export class PlayerListService implements OnDestroy {
       if (!existing.avatar) {
         existing.avatar = this.defaultAvatar;
       }
+      this.updateDisplayName(existing);
     }
 
     existing.connected = true;
@@ -311,6 +351,33 @@ export class PlayerListService implements OnDestroy {
     existing.isLoaded = true;
 
     this.playerList.next(playerList);
+  }
+
+  private onNamePreferenceChange() {
+    this.namePreferenceSubscription =
+      this.settingService.settings.playerNamePreference.subscribe(() => {
+        const playerList = this.getPlayerList();
+        if (!playerList) {
+          return;
+        }
+        for (const player of playerList.players) {
+          this.updateDisplayName(player);
+        }
+        this.playerList.next(playerList);
+      });
+  }
+
+  private updateDisplayName(player: Player) {
+    player.displayName = this.settingService.resolvePlayerName(player);
+  }
+
+  private resolveDisplayName(player?: Player, fallback?: string): string {
+    if (player) {
+      this.updateDisplayName(player);
+      return player.displayName || player.name || fallback || '';
+    }
+
+    return fallback || '';
   }
 
   public getLocalPlayer(): Player {

@@ -63,6 +63,7 @@
 #include <Messages/NotifyPlayerJoined.h>
 #include <Messages/NotifyPlayerLevel.h>
 #include <Messages/NotifyPlayerCellChanged.h>
+#include <Messages/NotifyPlayerActorName.h>
 #include <Messages/NotifyPlayerProfileImage.h>
 #include <Messages/NotifyTeleportRequest.h>
 #include <Messages/NotifyTeleportCountdown.h>
@@ -94,7 +95,7 @@ struct ServerMessageFactory
             AuthenticationResponse, AssignCharacterResponse, ServerReferencesMoveRequest, ServerTimeSettings, CharacterSpawnRequest, NotifyInventoryChanges, NotifyActorDrop, NotifyDroppedItemPickedUp, NotifyDroppedItems, NotifyDroppedItemMove, NotifyDroppedItemPhysicsDisabled, StringCacheUpdate, NotifyFactionsChanges, NotifyRemoveCharacter, NotifyQuestUpdate, NotifyPlayerList, NotifyPartyInfo, NotifyPartyInvite,
             NotifyPartyJoined, NotifyPartyLeft, NotifyTradeInvite, NotifyTradeStarted, NotifyTradeState, NotifyTradeCancel, NotifyTradeComplete, NotifyActorValueChanges, NotifyActorMaxValueChanges, NotifyHealthChangeBroadcast, NotifySpawnData, NotifyActivate, NotifyLockChange, AssignObjectsResponse, NotifyDeathStateChange, NotifyOwnershipTransfer, NotifyObjectInventoryChanges, NotifySpellCast,
             NotifyProjectileLaunch, NotifyInterruptCast, NotifyAddTarget, NotifyScriptAnimation, NotifyDrawWeapon, NotifyMount, NotifyNewPackage, NotifyRespawn, NotifySyncExperience, NotifyEquipmentChanges, NotifyChatMessageBroadcast, TeleportCommandResponse, NotifyPlayerRespawn, NotifyDialogue,
-            NotifySubtitle, NotifyPlayerDialogue, NotifyActorTeleport, NotifyRelinquishControl, NotifyPlayerLeft, NotifyPlayerJoined, NotifyPlayerProfileImage, NotifyDialogue, NotifySubtitle, NotifyPlayerDialogue, NotifyPlayerLevel, NotifyPlayerCellChanged, NotifyTeleportRequest, NotifyTeleportCountdown, NotifyTeleport, NotifyPlayerHealthUpdate, NotifySettingsChange,
+            NotifySubtitle, NotifyPlayerDialogue, NotifyActorTeleport, NotifyRelinquishControl, NotifyPlayerLeft, NotifyPlayerJoined, NotifyPlayerActorName, NotifyPlayerProfileImage, NotifyDialogue, NotifySubtitle, NotifyPlayerDialogue, NotifyPlayerLevel, NotifyPlayerCellChanged, NotifyTeleportRequest, NotifyTeleportCountdown, NotifyTeleport, NotifyPlayerHealthUpdate, NotifySettingsChange,
             NotifyWeatherChange, NotifySetWaypoint, NotifyRemoveWaypoint, NotifySetTimeResult, NotifyPartyPositions, NotifyRemoveSpell, NotifyHealingProximity, NotifyPartyMemberDowned, NotifyPartyFastTravelMarkers, NotifyPlayerSyncMode, NotifyCommandList, NotifyPlayEmote, NotifyCancelEmote>;
 
         return s_visitor(std::forward<T>(func));

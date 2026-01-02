@@ -27,6 +27,7 @@ struct NotifyPlayerProfileImage;
 struct NotifyPlayerDialogue;
 struct ConnectionErrorEvent;
 struct NotifyPlayerLevel;
+struct NotifyPlayerActorName;
 struct NotifyPlayerCellChanged;
 struct NotifyTeleportRequest;
 struct NotifyTeleportCountdown;
@@ -81,7 +82,7 @@ protected:
     void OnUpdate(const UpdateEvent&) noexcept;
     void OnConnectedEvent(const ConnectedEvent&) noexcept;
     void OnDisconnectedEvent(const DisconnectedEvent&) noexcept;
-    void OnWaitingFor3DRemoved(entt::registry& aRegistry, entt::entity aEntity) const noexcept;
+    void OnWaitingFor3DRemoved(entt::registry& aRegistry, entt::entity aEntity) noexcept;
     void OnPlayerComponentRemoved(entt::registry& aRegistry, entt::entity aEntity) const noexcept;
     void OnConnectionError(const ConnectionErrorEvent& acConnectedEvent) const noexcept;
     void OnChatMessageReceived(const NotifyChatMessageBroadcast&) noexcept;
@@ -90,6 +91,7 @@ protected:
     void OnPlayerLeft(const NotifyPlayerLeft&) noexcept;
     void OnPlayerProfileImage(const NotifyPlayerProfileImage&) noexcept;
     void OnPlayerLevel(const NotifyPlayerLevel&) noexcept;
+    void OnNotifyPlayerActorName(const NotifyPlayerActorName& acMessage) noexcept;
     void OnPlayerCellChanged(const NotifyPlayerCellChanged& acMessage) const noexcept;
     void OnNotifyTeleportRequest(const NotifyTeleportRequest& acMessage) noexcept;
     void OnNotifyTeleportCountdown(const NotifyTeleportCountdown& acMessage) noexcept;
@@ -100,6 +102,7 @@ protected:
     void OnNotifyCancelEmote(const NotifyCancelEmote& acMessage) noexcept;
     void OnPartyJoinedEvent(const PartyJoinedEvent& acEvent) noexcept;
     void OnPartyLeftEvent(const PartyLeftEvent& acEvent) noexcept;
+    void SendLocalActorName(Actor* apActor) noexcept;
 
 private:
     struct RemoteEmoteState
@@ -134,6 +137,7 @@ private:
     entt::scoped_connection m_playerAddedConnection;
     entt::scoped_connection m_playerRemovedConnection;
     entt::scoped_connection m_playerLevelConnection;
+    entt::scoped_connection m_playerActorNameConnection;
     entt::scoped_connection m_cellChangedConnection;
     entt::scoped_connection m_teleportConnection;
     entt::scoped_connection m_teleportRequestConnection;
@@ -146,4 +150,5 @@ private:
     entt::scoped_connection m_partyLeftConnection;
 
     std::unordered_map<uint32_t, RemoteEmoteState> m_remoteEmotes;
+    std::string m_localActorName;
 };

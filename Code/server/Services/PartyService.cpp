@@ -21,6 +21,8 @@
 #include <Messages/NotifyPartyPositions.h>
 #include <Messages/PartyPositionUpdateRequest.h>
 #include <Messages/PartyPositionsRequest.h>
+#include <Messages/PartyActorNamesRequest.h>
+#include <Messages/NotifyPlayerActorName.h>
 
 #include <Setting.h>
 #include <Services/PlayerLocationService.h>
@@ -42,6 +44,7 @@ PartyService::PartyService(World& aWorld, entt::dispatcher& aDispatcher) noexcep
     , m_partyKickConnection(aDispatcher.sink<PacketEvent<PartyKickRequest>>().connect<&PartyService::OnPartyKick>(this))
     , m_partyPositionUpdateConnection(aDispatcher.sink<PacketEvent<PartyPositionUpdateRequest>>().connect<&PartyService::OnPartyPositionUpdate>(this))
     , m_partyPositionsRequestConnection(aDispatcher.sink<PacketEvent<PartyPositionsRequest>>().connect<&PartyService::OnPartyPositionsRequest>(this))
+    , m_partyActorNamesRequestConnection(aDispatcher.sink<PacketEvent<PartyActorNamesRequest>>().connect<&PartyService::OnPartyActorNamesRequest>(this))
 {
 }
 
@@ -278,6 +281,26 @@ void PartyService::OnPartyPositionsRequest(const PacketEvent<PartyPositionsReque
     pSender->Send(msg);
 }
 
+void PartyService::OnPartyActorNamesRequest(const PacketEvent<PartyActorNamesRequest>& acPacket) noexcept
+{
+    Player* const pSender = acPacket.pPlayer;
+    auto* pParty = GetPlayerParty(pSender);
+    if (!pParty)
+        return;
+
+    for (auto* pMember : pParty->Members)
+    {
+        const auto& actorName = pMember->GetActorName();
+        if (actorName.empty())
+            continue;
+
+        NotifyPlayerActorName notify{};
+        notify.PlayerId = pMember->GetId();
+        notify.ActorName = actorName;
+        pSender->Send(notify);
+    }
+}
+
 void PartyService::OnPartyCreate(const PacketEvent<PartyCreateRequest>& acPacket) noexcept
 {
     Player* const player = acPacket.pPlayer;
@@ -400,6 +423,18 @@ void PartyService::OnPlayerJoin(const PlayerJoinEvent& acEvent) noexcept
     spdlog::debug("[Party] New notify player {:x} {}", notify.PlayerId, notify.Username.c_str());
 
     GameServer::Get()->SendToPlayers(notify, acEvent.pPlayer);
+
+    for (Player* player : m_world.GetPlayerManager())
+    {
+        const auto& actorName = player->GetActorName();
+        if (actorName.empty())
+            continue;
+
+        NotifyPlayerActorName actorNotify{};
+        actorNotify.PlayerId = player->GetId();
+        actorNotify.ActorName = actorName;
+        acEvent.pPlayer->Send(actorNotify);
+    }
 
     if (m_parties.size() == 1 && bAutoPartyJoin)
     {

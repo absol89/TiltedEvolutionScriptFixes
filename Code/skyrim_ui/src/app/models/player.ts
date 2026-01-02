@@ -13,6 +13,12 @@ export class Player implements Friend {
   /** Username. */
   name: string;
 
+  /** Character name, if available. */
+  actorName?: string;
+
+  /** Preferred display name based on settings. */
+  displayName?: string;
+
   avatar?: string;
 
   /** Current health. */
@@ -48,6 +54,7 @@ export class Player implements Friend {
     options: {
       id?: number;
       name?: string;
+      actorName?: string;
       avatar?: string;
       online?: boolean;
       connected?: boolean;
@@ -63,6 +70,9 @@ export class Player implements Friend {
   ) {
     this.id = options.id || 0;
     this.name = options.name || '';
+    if (options.actorName) {
+      this.actorName = options.actorName;
+    }
     if (options.avatar) {
       this.avatar = options.avatar;
     }

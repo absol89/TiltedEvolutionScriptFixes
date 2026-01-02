@@ -119,6 +119,23 @@
       },
       "PARTY_ANCHOR_OFFSET_X": "水平偏移",
       "PARTY_ANCHOR_OFFSET_Y": "垂直偏移",
+      "PARTY_SCALE": "Party Scale",
+      "PARTY_LAYOUT": "Layout",
+      "PARTY_LAYOUTS": {
+        "CLASSIC": "Classic",
+        "COMPACT": "Compact"
+      },
+      "PARTY_SHOW_AVATAR": "Show Avatars",
+      "PARTY_SHOW_NAME": "Show Names",
+      "PARTY_NAME_SOURCE": "Name Source",
+      "PARTY_NAME_SOURCES": {
+        "USERNAME": "Username",
+        "ACTOR": "Actor name (if available)"
+      },
+      "PARTY_SHOW_LEVEL": "Show Level",
+      "PARTY_SHOW_HEALTH": "Show Health Bar",
+      "PARTY_PIN_SHOW_AVATAR": "Show Marker Avatars",
+      "PARTY_PIN_SCALE": "Marker Size",
       "LENGTH": "{{length}}秒",
       "UI": "UI",
       "LANGUAGE": "语言",
@@ -131,6 +148,11 @@
         "M": "中",
         "L": "大",
         "XL": "特大"
+      },
+      "PLAYER_NAME_PREFERENCE": "Player Name Preference",
+      "PLAYER_NAME_PREFERENCES": {
+        "USERNAME": "Username",
+        "ACTOR": "Actor name (if available)"
       },
       "BACK": "返回"
     }

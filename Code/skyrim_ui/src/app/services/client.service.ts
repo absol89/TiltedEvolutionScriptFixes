@@ -152,6 +152,9 @@ export class ClientService implements OnDestroy {
   /** Player cell change. */
   public cellChange = new Subject<Player>();
 
+  /** Player actor name change. */
+  public actorNameChange = new Subject<Player>();
+
   /** Player isLoaded change. */
   public isLoadedChange = new Subject<Player>();
 
@@ -264,6 +267,7 @@ export class ClientService implements OnDestroy {
     skyrimtogether.on('setHealth', this.onSetHealth.bind(this));
     skyrimtogether.on('setLevel', this.onSetLevel.bind(this));
     skyrimtogether.on('setCell', this.onSetCell.bind(this));
+    skyrimtogether.on('setActorName', this.onSetActorName.bind(this));
     skyrimtogether.on('setPlayer3dLoaded', this.onSetPlayer3dLoaded.bind(this));
     skyrimtogether.on(
       'setPlayer3dUnloaded',
@@ -351,6 +355,7 @@ export class ClientService implements OnDestroy {
     skyrimtogether.off('setHealth');
     skyrimtogether.off('setLevel');
     skyrimtogether.off('setCell');
+    skyrimtogether.off('setActorName');
     skyrimtogether.off('setPlayer3dLoaded');
     skyrimtogether.off('setPlayer3dUnloaded');
     skyrimtogether.off('setLocalPlayerId');
@@ -813,6 +818,21 @@ export class ClientService implements OnDestroy {
     }
     this.zone.run(() => {
       this.cellChange.next(new Player({ id: playerId, cellName: cellName }));
+    });
+  }
+
+  private onSetActorName(playerId: number, actorName: string) {
+    if (environment.game) {
+      console.log(
+        `%conSetActorName`,
+        'background: #009688; color: #fff; padding: 3px; font-size: 9px;',
+        ...Array.from(arguments).map(v => JSON.stringify(v)),
+      );
+    }
+    this.zone.run(() => {
+      this.actorNameChange.next(
+        new Player({ id: playerId, actorName: actorName }),
+      );
     });
   }
 

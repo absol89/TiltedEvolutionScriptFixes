@@ -87,6 +87,22 @@
           ></app-dropdown-option>
         </app-dropdown>
       </div>
+      <div class="setting">
+        <label>{{
+          'COMPONENT.SETTINGS.PLAYER_NAME_PREFERENCE' | transloco
+        }}</label>
+        <app-dropdown
+          class="settings-dropdown"
+          [ngModel]="settings.playerNamePreference | async"
+          (ngModelChange)="settings.playerNamePreference.next($event)"
+        >
+          <app-dropdown-option
+            *ngFor="let preference of availablePlayerNamePreferences"
+            [text]="preference.label"
+            [value]="preference.id"
+          ></app-dropdown-option>
+        </app-dropdown>
+      </div>
     </section>
 
     <section>
@@ -128,6 +144,102 @@
             [value]="time"
           ></app-dropdown-option>
         </app-dropdown>
+      </div>
+      <div class="setting">
+        <label for="partyScale">{{
+          'COMPONENT.SETTINGS.PARTY_SCALE' | transloco
+        }}</label>
+        <input
+          type="range"
+          id="partyScale"
+          min="0.75"
+          max="1.5"
+          step="0.05"
+          [ngModel]="settings.partyScale | async"
+          (ngModelChange)="settings.partyScale.next($event)"
+        />
+      </div>
+      <div class="setting">
+        <label>{{ 'COMPONENT.SETTINGS.PARTY_LAYOUT' | transloco }}</label>
+        <app-dropdown
+          [ngModel]="settings.partyLayout | async"
+          (ngModelChange)="settings.partyLayout.next($event)"
+        >
+          <app-dropdown-option
+            *ngFor="let layout of availablePartyLayouts"
+            [text]="layout.label"
+            [value]="layout.id"
+          ></app-dropdown-option>
+        </app-dropdown>
+      </div>
+      <div class="setting">
+        <label for="partyShowAvatar">{{
+          'COMPONENT.SETTINGS.PARTY_SHOW_AVATAR' | transloco
+        }}</label>
+        <input
+          type="checkbox"
+          id="partyShowAvatar"
+          [ngModel]="settings.partyShowAvatar | async"
+          (ngModelChange)="settings.partyShowAvatar.next($event)"
+        />
+      </div>
+      <div class="setting">
+        <label for="partyShowName">{{
+          'COMPONENT.SETTINGS.PARTY_SHOW_NAME' | transloco
+        }}</label>
+        <input
+          type="checkbox"
+          id="partyShowName"
+          [ngModel]="settings.partyShowName | async"
+          (ngModelChange)="settings.partyShowName.next($event)"
+        />
+      </div>
+      <div class="setting">
+        <label for="partyShowLevel">{{
+          'COMPONENT.SETTINGS.PARTY_SHOW_LEVEL' | transloco
+        }}</label>
+        <input
+          type="checkbox"
+          id="partyShowLevel"
+          [ngModel]="settings.partyShowLevel | async"
+          (ngModelChange)="settings.partyShowLevel.next($event)"
+        />
+      </div>
+      <div class="setting">
+        <label for="partyShowHealth">{{
+          'COMPONENT.SETTINGS.PARTY_SHOW_HEALTH' | transloco
+        }}</label>
+        <input
+          type="checkbox"
+          id="partyShowHealth"
+          [ngModel]="settings.partyShowHealth | async"
+          (ngModelChange)="settings.partyShowHealth.next($event)"
+        />
+      </div>
+      <div class="setting">
+        <label for="partyPinShowAvatar">{{
+          'COMPONENT.SETTINGS.PARTY_PIN_SHOW_AVATAR' | transloco
+        }}</label>
+        <input
+          type="checkbox"
+          id="partyPinShowAvatar"
+          [ngModel]="settings.partyPinShowAvatar | async"
+          (ngModelChange)="settings.partyPinShowAvatar.next($event)"
+        />
+      </div>
+      <div class="setting">
+        <label for="partyPinScale">{{
+          'COMPONENT.SETTINGS.PARTY_PIN_SCALE' | transloco
+        }}</label>
+        <input
+          type="range"
+          id="partyPinScale"
+          min="0.6"
+          max="1.8"
+          step="0.05"
+          [ngModel]="settings.partyPinScale | async"
+          (ngModelChange)="settings.partyPinScale.next($event)"
+        />
       </div>
       <div class="setting">
         <label>{{ 'COMPONENT.SETTINGS.PARTY_ANCHOR' | transloco }}</label>

@@ -86,7 +86,8 @@
       (click)="acceptPartyInvite(player.id)"
     >
       {{
-        'COMPONENT.PARTY_MENU.ACCEPT_INVITE' | transloco : { name: player.name }
+        'COMPONENT.PARTY_MENU.ACCEPT_INVITE'
+          | transloco : { name: player.displayName || player.name }
       }}
     </button>
   </div>
@@ -119,7 +120,7 @@
         <tbody>
           <tr *ngFor="let player of members$ | async">
             <td>{{ player.level }}</td>
-            <td>{{ player.name }}</td>
+            <td>{{ player.displayName || player.name }}</td>
             <td>{{ player.cellName }}</td>
             <td>
               <button

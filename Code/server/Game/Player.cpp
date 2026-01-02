@@ -25,6 +25,7 @@ Player::Player(Player&& aRhs) noexcept
     , m_endpoint{std::exchange(aRhs.m_endpoint, {})}
     , m_username{std::exchange(aRhs.m_username, {})}
     , m_avatar{std::exchange(aRhs.m_avatar, {})}
+    , m_actorName{std::exchange(aRhs.m_actorName, {})}
     , m_party{std::exchange(aRhs.m_party, {})}
     , m_questLog{std::exchange(aRhs.m_questLog, {})}
     , m_cell{std::exchange(aRhs.m_cell, {})}
@@ -70,6 +71,11 @@ void Player::SetUsername(String aUsername) noexcept
 void Player::SetAvatar(String aAvatar) noexcept
 {
     m_avatar = std::move(aAvatar);
+}
+
+void Player::SetActorName(String aActorName) noexcept
+{
+    m_actorName = std::move(aActorName);
 }
 
 void Player::SetMods(Vector<String> aMods) noexcept

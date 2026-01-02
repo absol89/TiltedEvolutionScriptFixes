@@ -22,11 +22,13 @@
 #include <Messages/NotifyPlayerDialogue.h>
 #include <Messages/NotifyPlayerLevel.h>
 #include <Messages/NotifyPlayerCellChanged.h>
+#include <Messages/NotifyPlayerActorName.h>
 #include <Messages/NotifyTeleport.h>
 #include <Messages/NotifyTeleportCountdown.h>
 #include <Messages/NotifyTeleportRequest.h>
 #include <Messages/RequestPlayerHealthUpdate.h>
 #include <Messages/NotifyPlayerHealthUpdate.h>
+#include <Messages/PlayerActorNameUpdateRequest.h>
 #include <Messages/NotifyCommandList.h>
 #include <Messages/NotifyPlayEmote.h>
 #include <Messages/NotifyCancelEmote.h>
@@ -101,6 +103,34 @@ bool TryGetLocalServerId(uint32_t& aOutId) noexcept
     }
 
     return false;
+}
+
+std::string GetActorName(Actor* apActor) noexcept
+{
+    if (!apActor || !apActor->baseForm)
+        return {};
+
+    BSFixedString emptyTag;
+    const char* name = apActor->baseForm->GetName(emptyTag);
+    if (!name || name[0] == '\0')
+        return {};
+
+    return name;
+}
+
+void PushActorName(OverlayApp* apOverlay, uint32_t aPlayerId, Actor* apActor) noexcept
+{
+    if (!apOverlay)
+        return;
+
+    const auto name = GetActorName(apActor);
+    if (name.empty())
+        return;
+
+    auto pArguments = CefListValue::Create();
+    pArguments->SetInt(0, aPlayerId);
+    pArguments->SetString(1, name);
+    apOverlay->ExecuteAsync("setActorName", pArguments);
 }
 }
 
@@ -183,6 +213,7 @@ OverlayService::OverlayService(World& aWorld, TransportService& transport, entt:
     m_playerAddedConnection = m_world.on_destroy<WaitingFor3D>().connect<&OverlayService::OnWaitingFor3DRemoved>(this);
     m_playerRemovedConnection = m_world.on_destroy<PlayerComponent>().connect<&OverlayService::OnPlayerComponentRemoved>(this);
     m_playerLevelConnection = aDispatcher.sink<NotifyPlayerLevel>().connect<&OverlayService::OnPlayerLevel>(this);
+    m_playerActorNameConnection = aDispatcher.sink<NotifyPlayerActorName>().connect<&OverlayService::OnNotifyPlayerActorName>(this);
     m_cellChangedConnection = aDispatcher.sink<NotifyPlayerCellChanged>().connect<&OverlayService::OnPlayerCellChanged>(this);
     m_teleportRequestConnection = aDispatcher.sink<NotifyTeleportRequest>().connect<&OverlayService::OnNotifyTeleportRequest>(this);
     m_teleportConnection = aDispatcher.sink<NotifyTeleport>().connect<&OverlayService::OnNotifyTeleport>(this);
@@ -502,14 +533,21 @@ void OverlayService::OnConnectedEvent(const ConnectedEvent& acEvent) noexcept
     auto pArguments = CefListValue::Create();
     pArguments->SetInt(0, acEvent.PlayerId);
     m_pOverlay->ExecuteAsync("setLocalPlayerId", pArguments);
+
+    if (auto* pPlayer = PlayerCharacter::Get())
+    {
+        PushActorName(m_pOverlay.get(), acEvent.PlayerId, pPlayer);
+        SendLocalActorName(pPlayer);
+    }
 }
 
 void OverlayService::OnDisconnectedEvent(const DisconnectedEvent&) noexcept
 {
     m_pOverlay->ExecuteAsync("disconnect");
+    m_localActorName.clear();
 }
 
-void OverlayService::OnWaitingFor3DRemoved(entt::registry& aRegistry, entt::entity aEntity) const noexcept
+void OverlayService::OnWaitingFor3DRemoved(entt::registry& aRegistry, entt::entity aEntity) noexcept
 {
     const auto* pPlayerComponent = m_world.try_get<PlayerComponent>(aEntity);
     if (!pPlayerComponent)
@@ -531,6 +569,29 @@ void OverlayService::OnWaitingFor3DRemoved(entt::registry& aRegistry, entt::enti
     pArguments->SetInt(1, static_cast<int>(percentage));
 
     m_pOverlay->ExecuteAsync("setPlayer3dLoaded", pArguments);
+    PushActorName(m_pOverlay.get(), pPlayerComponent->Id, pActor);
+
+    if (pPlayerComponent->Id == m_transport.GetLocalPlayerId())
+        SendLocalActorName(pActor);
+}
+
+void OverlayService::SendLocalActorName(Actor* apActor) noexcept
+{
+    if (!m_transport.IsConnected())
+        return;
+
+    const auto name = GetActorName(apActor);
+    if (name.empty())
+        return;
+
+    if (name == m_localActorName)
+        return;
+
+    m_localActorName = name;
+
+    PlayerActorNameUpdateRequest request{};
+    request.ActorName = name;
+    m_transport.Send(request);
 }
 
 void OverlayService::OnPlayerComponentRemoved(entt::registry& aRegistry, entt::entity aEntity) const noexcept
@@ -615,6 +676,17 @@ void OverlayService::OnPlayerLevel(const NotifyPlayerLevel& acMessage) noexcept
     pArguments->SetInt(0, acMessage.PlayerId);
     pArguments->SetInt(1, acMessage.NewLevel);
     m_pOverlay->ExecuteAsync("setLevel", pArguments);
+}
+
+void OverlayService::OnNotifyPlayerActorName(const NotifyPlayerActorName& acMessage) noexcept
+{
+    if (!m_pOverlay)
+        return;
+
+    auto pArguments = CefListValue::Create();
+    pArguments->SetInt(0, acMessage.PlayerId);
+    pArguments->SetString(1, acMessage.ActorName.c_str());
+    m_pOverlay->ExecuteAsync("setActorName", pArguments);
 }
 
 void OverlayService::OnPlayerCellChanged(const NotifyPlayerCellChanged& acMessage) const noexcept

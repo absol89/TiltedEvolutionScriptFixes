@@ -15,6 +15,7 @@ import { PlayerList } from '../models/player-list';
 import { Player } from '../models/player';
 import { UiRepository } from '../store/ui.repository';
 import { View } from '../models/view.enum';
+import { SettingService } from './setting.service';
 
 export interface TradeInventoryItemView {
   index: number;
@@ -92,6 +93,7 @@ export class TradeUiService {
     private readonly popupNotificationService: PopupNotificationService,
     private readonly transloco: TranslocoService,
     private readonly uiRepository: UiRepository,
+    private readonly settingService: SettingService,
   ) {
     this.clientService.tradeInviteChange.subscribe(invite =>
       this.handleTradeInvite(invite),
@@ -464,7 +466,10 @@ export class TradeUiService {
 
     const player = this.playerMap.get(playerId);
     if (player) {
-      return player.name;
+      return (
+        this.settingService.resolvePlayerName(player, player.name) ||
+        player.name
+      );
     }
 
     return this.transloco.translate('SERVICE.TRADE.UNKNOWN_PLAYER', {

@@ -18,6 +18,7 @@ import { ErrorService } from './error.service';
 import { LoadingService } from './loading.service';
 import { PlayerListService } from './player-list.service';
 import { Sound, SoundService } from './sound.service';
+import { SettingService } from './setting.service';
 
 @Injectable({
   providedIn: 'root',
@@ -45,6 +46,7 @@ export class GroupService implements OnDestroy {
     private readonly playerListService: PlayerListService,
     private readonly loadingService: LoadingService,
     private readonly translocoService: TranslocoService,
+    private readonly settingService: SettingService,
   ) {
     this.onDebug();
     this.onConnectionStateChanged();
@@ -186,7 +188,7 @@ export class GroupService implements OnDestroy {
           if (p) {
             p.level = player.level;
             this.chatService.pushSystemMessage('SERVICE.GROUP.LEVEL_UP', {
-              name: p.name,
+              name: this.settingService.resolvePlayerName(p, p.name),
               level: player.level,
             });
           }
@@ -404,7 +406,7 @@ export class GroupService implements OnDestroy {
     if (group) {
       let player = this.playerListService.getPlayerById(group.owner);
       if (player) {
-        return player.name;
+        return this.settingService.resolvePlayerName(player, player.name);
       }
     }
     return '';

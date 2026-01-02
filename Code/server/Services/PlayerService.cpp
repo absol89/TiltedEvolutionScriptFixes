@@ -23,6 +23,8 @@
 #include <Messages/NotifyPlayerCellChanged.h>
 #include <Messages/PartyMemberDownedRequest.h>
 #include <Messages/NotifyPartyMemberDowned.h>
+#include <Messages/PlayerActorNameUpdateRequest.h>
+#include <Messages/NotifyPlayerActorName.h>
 #include <Messages/PlayerProfileImageUpdateRequest.h>
 #include <Messages/NotifyPlayerProfileImage.h>
 #include <Services/LoginService.h>
@@ -43,6 +45,7 @@ PlayerService::PlayerService(World& aWorld, entt::dispatcher& aDispatcher) noexc
     , m_playerLevelConnection(aDispatcher.sink<PacketEvent<PlayerLevelRequest>>().connect<&PlayerService::OnPlayerLevelRequest>(this))
     , m_partyMemberDownedConnection(aDispatcher.sink<PacketEvent<PartyMemberDownedRequest>>().connect<&PlayerService::OnPartyMemberDownedRequest>(this))
     , m_playerProfileImageUpdateConnection(aDispatcher.sink<PacketEvent<PlayerProfileImageUpdateRequest>>().connect<&PlayerService::OnPlayerProfileImageUpdate>(this))
+    , m_playerActorNameUpdateConnection(aDispatcher.sink<PacketEvent<PlayerActorNameUpdateRequest>>().connect<&PlayerService::OnPlayerActorNameUpdate>(this))
 {
 }
 
@@ -309,4 +312,33 @@ void PlayerService::OnPlayerProfileImageUpdate(const PacketEvent<PlayerProfileIm
         auto& loginService = m_world.ctx().at<LoginService>();
         loginService.SetAvatar(pPlayer->GetUsername(), pPlayer->GetAvatar());
     }
+}
+
+void PlayerService::OnPlayerActorNameUpdate(const PacketEvent<PlayerActorNameUpdateRequest>& acMessage) const noexcept
+{
+    auto* pPlayer = acMessage.pPlayer;
+    if (!pPlayer)
+        return;
+
+    const auto& actorName = acMessage.Packet.ActorName;
+    if (actorName.empty())
+        return;
+
+    constexpr size_t kMaxActorName = 128u;
+    if (actorName.size() > kMaxActorName)
+    {
+        spdlog::warn("[PlayerService] Actor name update from player {} exceeded {} bytes ({} received)", pPlayer->GetId(), kMaxActorName, actorName.size());
+        return;
+    }
+
+    if (actorName == pPlayer->GetActorName())
+        return;
+
+    pPlayer->SetActorName(actorName);
+
+    NotifyPlayerActorName notify{};
+    notify.PlayerId = pPlayer->GetId();
+    notify.ActorName = pPlayer->GetActorName();
+
+    GameServer::Get()->SendToPlayers(notify);
 }

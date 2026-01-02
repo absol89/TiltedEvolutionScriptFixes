@@ -215,10 +215,22 @@ void NameTagService::OnDraw() noexcept
             continue;
 
         auto nameIt = playerDirectory.find(playerComponent.Id);
+        const auto* actorName = m_world.GetPartyService().GetActorName(playerComponent.Id);
         std::string fallbackName;
         std::string_view displayName;
-        if (nameIt != playerDirectory.end() && !nameIt->second.Name.empty())
+
+        if (m_namePreference == NamePreference::Actor && actorName && !actorName->empty())
+        {
+            displayName = actorName->c_str();
+        }
+        else if (nameIt != playerDirectory.end() && !nameIt->second.Name.empty())
+        {
             displayName = nameIt->second.Name.c_str();
+        }
+        else if (actorName && !actorName->empty())
+        {
+            displayName = actorName->c_str();
+        }
         else
         {
             fallbackName = fmt::format("#{}", playerComponent.Id);

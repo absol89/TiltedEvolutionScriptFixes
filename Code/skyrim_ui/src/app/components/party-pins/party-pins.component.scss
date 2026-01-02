@@ -6,16 +6,21 @@
   bottom: 0;
   pointer-events: none; /* never block input */
   z-index: 1000; /* ensure on top of other overlay UI */
+  --pin-size: 36px;
+  --pin-offset: 18px;
 }
 
 .pin {
   position: absolute;
-  width: 36px;
-  height: 36px;
+  width: var(--pin-size);
+  height: var(--pin-size);
   border-radius: 50%;
   border: 2px solid rgba(50, 240, 255, 0.9);
   background: rgba(18, 18, 20, 0.9);
-  transform: translate(-18px, -18px);
+  transform: translate(
+    calc(var(--pin-offset) * -1),
+    calc(var(--pin-offset) * -1)
+  );
   box-shadow: 0 0 6px rgba(0, 0, 0, 0.6);
   overflow: hidden;
   display: flex;
@@ -33,6 +38,36 @@
   border-color: rgba(180, 180, 180, 0.85);
   filter: grayscale(0.6);
   opacity: 0.85;
+}
+
+.pin.no-avatar {
+  background: rgba(10, 10, 12, 0.7);
+  border-color: rgba(50, 240, 255, 0.75);
+}
+
+.pin.no-avatar::after {
+  content: '';
+  position: absolute;
+  inset: calc(var(--pin-size) * 0.22);
+  border-radius: 50%;
+  border: 1px solid rgba(50, 240, 255, 0.4);
+  opacity: 0.8;
+}
+
+.pin-marker {
+  width: calc(var(--pin-size) * 0.28);
+  height: calc(var(--pin-size) * 0.28);
+  border-radius: 50%;
+  background: rgba(50, 240, 255, 0.95);
+  box-shadow: 0 0 8px rgba(50, 240, 255, 0.85);
+}
+
+.pin.oob.no-avatar,
+.pin.oob.no-avatar::after,
+.pin.oob .pin-marker {
+  border-color: rgba(180, 180, 180, 0.7);
+  background: rgba(170, 170, 170, 0.7);
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.4);
 }
 
 .label {
