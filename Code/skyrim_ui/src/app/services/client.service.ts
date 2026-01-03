@@ -1026,6 +1026,10 @@ export class ClientService implements OnDestroy {
           typeof options.syncDeadBodyLoot === 'boolean'
             ? options.syncDeadBodyLoot
             : DEFAULT_PARTY_OPTIONS.syncDeadBodyLoot,
+        lockPartyToLeaderCell:
+          typeof options.lockPartyToLeaderCell === 'boolean'
+            ? options.lockPartyToLeaderCell
+            : DEFAULT_PARTY_OPTIONS.lockPartyToLeaderCell,
       });
     });
   }

@@ -361,6 +361,16 @@ void OverlayClient::ProcessSetTimeCommand(CefRefPtr<CefListValue> aEventArgs)
 
 void OverlayClient::ProcessTeleportRequestMessage(CefRefPtr<CefListValue> aEventArgs)
 {
+    if (!aEventArgs || aEventArgs->GetSize() < 1)
+        return;
+
+    const auto& partyService = World::Get().GetPartyService();
+    if (partyService.IsCellLockActiveForLocal())
+    {
+        World::Get().GetOverlayService().SendSystemMessage("Party is locked to the leader's cell.");
+        return;
+    }
+
     TeleportRequest request{};
     request.PlayerId = aEventArgs->GetInt(0);
 
@@ -369,6 +379,16 @@ void OverlayClient::ProcessTeleportRequestMessage(CefRefPtr<CefListValue> aEvent
 
 void OverlayClient::ProcessTeleportResponseMessage(CefRefPtr<CefListValue> aEventArgs)
 {
+    if (!aEventArgs || aEventArgs->GetSize() < 2)
+        return;
+
+    const auto& partyService = World::Get().GetPartyService();
+    if (partyService.IsCellLockActiveForLocal())
+    {
+        World::Get().GetOverlayService().SendSystemMessage("Party is locked to the leader's cell.");
+        return;
+    }
+
     TeleportResponse response{};
     response.RequesterId = static_cast<uint16_t>(aEventArgs->GetInt(0));
     response.Accepted = aEventArgs->GetBool(1);
@@ -474,6 +494,8 @@ void OverlayClient::ProcessSetPartyOptions(CefRefPtr<CefListValue> aEventArgs)
             options.SetShowPartyMemberMarkers(dict->GetBool("showPartyMemberMarkers"));
         if (dict->HasKey("syncDeadBodyLoot"))
             options.SetSyncDeadBodyLoot(dict->GetBool("syncDeadBodyLoot"));
+        if (dict->HasKey("lockPartyToLeaderCell"))
+            options.SetLockPartyToLeaderCell(dict->GetBool("lockPartyToLeaderCell"));
     }
     else
     {
@@ -482,6 +504,8 @@ void OverlayClient::ProcessSetPartyOptions(CefRefPtr<CefListValue> aEventArgs)
             options.SetShowPartyMemberMarkers(aEventArgs->GetBool(1));
         if (aEventArgs->GetSize() > 2)
             options.SetSyncDeadBodyLoot(aEventArgs->GetBool(2));
+        if (aEventArgs->GetSize() > 3)
+            options.SetLockPartyToLeaderCell(aEventArgs->GetBool(3));
     }
 
     World::Get().GetPartyService().UpdatePartyOptions(options);

@@ -1063,6 +1063,19 @@ bool TP_MAKE_THISCALL(HookActivate, TESObjectREFR, TESObjectREFR* apActivator, u
     }
 
     Actor* pActivator = Cast<Actor>(apActivator);
+    if (pActivator && apThis->baseForm->formType == FormType::Door && entt::locator<World>::has_value())
+    {
+        const auto* pActivatorEx = pActivator->GetExtension();
+        if (pActivatorEx && pActivatorEx->IsLocalPlayer())
+        {
+            auto& partyService = World::Get().GetPartyService();
+            if (partyService.IsCellLockActiveForLocal())
+            {
+                partyService.NotifyCellLockBlocked();
+                return false;
+            }
+        }
+    }
 
     // Exclude books from activation since only reading them removes them from the cell
     // Note: Books are now unsynced 

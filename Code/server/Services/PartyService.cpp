@@ -24,6 +24,7 @@
 #include <Messages/PartyActorNamesRequest.h>
 #include <Messages/PartyOptionsUpdateRequest.h>
 #include <Messages/NotifyPartyOptions.h>
+#include <Messages/NotifyPartyLeaderCellLock.h>
 #include <Messages/NotifyPlayerActorName.h>
 
 #include <Setting.h>
@@ -31,6 +32,8 @@
 namespace
 {
 Console::Setting bAutoPartyJoin{"Gameplay:bAutoPartyJoin", "Join parties automatically, as long as there is only one party in the server", true};
+Console::Setting uPartyCellLockCountdown{"Gameplay:uPartyCellLockCountdown", "Seconds before party members are teleported to the leader's new cell", 3u};
+Console::Setting uPartyCellLockSnapshotDelay{"Gameplay:uPartyCellLockSnapshotDelay", "Milliseconds to wait before capturing leader position for party cell lock", 3000u};
 }
 
 PartyService::PartyService(World& aWorld, entt::dispatcher& aDispatcher) noexcept
@@ -91,6 +94,26 @@ PartyService::Party* PartyService::GetPlayerParty(Player* const apPlayer) noexce
 void PartyService::OnUpdate(const UpdateEvent& acEvent) noexcept
 {
     const auto cCurrentTick = GameServer::Get()->GetTick();
+
+    for (auto it = m_parties.begin(); it != m_parties.end(); ++it)
+    {
+        auto& party = const_cast<Party&>(it->second);
+        if (!party.PendingCellLockNotify || cCurrentTick < party.PendingCellLockNotifyAt)
+            continue;
+
+        party.PendingCellLockNotify = false;
+
+        if (!party.Options.LockPartyToLeaderCell())
+            continue;
+
+        Player* pLeader = m_world.GetPlayerManager().GetById(party.PendingCellLockLeaderId);
+        if (!pLeader)
+            continue;
+
+        UpdateLeaderCellSnapshot(party, pLeader);
+        NotifyPartyLeaderCellLock(party, pLeader, false);
+    }
+
     // Periodic broadcast of party member positions (every ~500ms)
     if (m_nextPositionsBroadcast <= cCurrentTick)
     {
@@ -314,11 +337,22 @@ void PartyService::OnPartyOptionsUpdate(const PacketEvent<PartyOptionsUpdateRequ
     if (pParty->LeaderPlayerId != pSender->GetId())
         return;
 
+    const bool wasCellLockEnabled = pParty->Options.LockPartyToLeaderCell();
     pParty->Options = acPacket.Packet.Options;
 
     NotifyPartyOptions notify{};
     notify.Options = pParty->Options;
     GameServer::Get()->SendToParty(notify, pSender->GetParty());
+
+    if (wasCellLockEnabled && !pParty->Options.LockPartyToLeaderCell())
+    {
+        pParty->PendingCellLockNotify = false;
+        NotifyPartyLeaderCellLock(*pParty, pSender, true);
+    }
+    else if (!wasCellLockEnabled && pParty->Options.LockPartyToLeaderCell())
+    {
+        ScheduleLeaderCellLockNotify(*pParty, pSender);
+    }
 }
 
 void PartyService::OnPartyCreate(const PacketEvent<PartyCreateRequest>& acPacket) noexcept
@@ -711,4 +745,100 @@ void PartyService::SendPartyJoinedEvent(Party& aParty, Player* aPlayer) noexcept
     NotifyPartyOptions optionsMessage{};
     optionsMessage.Options = aParty.Options;
     aPlayer->Send(optionsMessage);
+
+    if (aParty.Options.LockPartyToLeaderCell() && aParty.LeaderCell.HasLocation && aParty.LeaderPlayerId != aPlayer->GetId())
+    {
+        ::NotifyPartyLeaderCellLock notify{};
+        notify.WorldSpaceId = aParty.LeaderCell.WorldSpaceId;
+        notify.CellId = aParty.LeaderCell.CellId;
+        notify.Position = aParty.LeaderCell.Position;
+        notify.CountdownSeconds = uPartyCellLockCountdown.value_as<uint16_t>();
+        notify.Cancelled = false;
+        aPlayer->Send(notify);
+    }
+}
+
+void PartyService::UpdateLeaderCellSnapshot(Party& aParty, Player* apLeader) noexcept
+{
+    if (!apLeader)
+        return;
+
+    const auto& cellComponent = apLeader->GetCellComponent();
+    if (!cellComponent.Cell && !cellComponent.WorldSpaceId)
+        return;
+
+    Vector3_NetQuantize position{};
+    bool hasPosition = false;
+
+    if (auto optCharacter = apLeader->GetCharacter())
+    {
+        if (m_world.valid(*optCharacter) && m_world.any_of<MovementComponent>(*optCharacter))
+        {
+            const auto& move = m_world.get<MovementComponent>(*optCharacter);
+            position.x = move.Position.x;
+            position.y = move.Position.y;
+            position.z = move.Position.z;
+            hasPosition = true;
+        }
+    }
+
+    if (!hasPosition)
+    {
+        PlayerLocation location{};
+        if (m_world.GetPlayerLocationService().TryGetLocation(apLeader->GetId(), location))
+        {
+            if (location.HasPosition)
+            {
+                position = location.Position;
+                hasPosition = true;
+            }
+            else if (location.HasExterior)
+            {
+                position = location.LastExteriorPosition;
+                hasPosition = true;
+            }
+        }
+    }
+
+    if (!hasPosition)
+        return;
+
+    aParty.LeaderCell.WorldSpaceId = cellComponent.WorldSpaceId;
+    aParty.LeaderCell.CellId = cellComponent.Cell;
+    aParty.LeaderCell.Position = position;
+    aParty.LeaderCell.HasLocation = true;
+}
+
+void PartyService::ScheduleLeaderCellLockNotify(Party& aParty, Player* apLeader) noexcept
+{
+    if (!apLeader)
+        return;
+
+    aParty.PendingCellLockNotify = true;
+    aParty.PendingCellLockNotifyAt =
+        GameServer::Get()->GetTick() + uPartyCellLockSnapshotDelay.value_as<uint32_t>();
+    aParty.PendingCellLockLeaderId = apLeader->GetId();
+}
+
+void PartyService::NotifyPartyLeaderCellLock(Party& aParty, Player* apLeader, bool aCancelled) noexcept
+{
+    if (!aParty.LeaderCell.HasLocation && !aCancelled)
+        return;
+
+    ::NotifyPartyLeaderCellLock notify{};
+    notify.WorldSpaceId = aParty.LeaderCell.WorldSpaceId;
+    notify.CellId = aParty.LeaderCell.CellId;
+    notify.Position = aParty.LeaderCell.Position;
+    notify.CountdownSeconds = uPartyCellLockCountdown.value_as<uint16_t>();
+    notify.Cancelled = aCancelled;
+
+    for (auto* pMember : aParty.Members)
+    {
+        if (!pMember)
+            continue;
+        if (apLeader && pMember->GetId() == apLeader->GetId())
+            continue;
+
+        pMember->Send(notify);
+    }
 }

@@ -33,3 +33,8 @@ void PartyOptions::SetSyncDeadBodyLoot(bool aEnabled) noexcept
 {
     SetFlag(kSyncDeadBodyLoot, aEnabled);
 }
+
+void PartyOptions::SetLockPartyToLeaderCell(bool aEnabled) noexcept
+{
+    SetFlag(kLockPartyToLeaderCell, aEnabled);
+}

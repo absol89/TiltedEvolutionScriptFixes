@@ -161,5 +161,6 @@ enum ServerOpcode : unsigned char
     kNotifyCancelEmote,
     kNotifyPlayerActorName,
     kNotifyPartyOptions,
+    kNotifyPartyLeaderCellLock,
     kServerOpcodeMax
 };

@@ -118,6 +118,15 @@ void PlayerService::HandleExteriorCellEnter(const PacketEvent<EnterExteriorCellR
         m_world.GetPlayerLocationService().UpdateCell(pPlayer, cell.WorldSpaceId, cell.Cell, PlayerLocation::Source::CellChange);
 
         SendPlayerCellChanged(pPlayer);
+
+        if (auto* pParty = m_world.GetPartyService().GetPlayerParty(pPlayer))
+        {
+            if (pParty->LeaderPlayerId == pPlayer->GetId())
+            {
+                if (pParty->Options.LockPartyToLeaderCell())
+                    m_world.GetPartyService().ScheduleLeaderCellLockNotify(*pParty, pPlayer);
+            }
+        }
     }
 }
 
@@ -163,6 +172,15 @@ void PlayerService::HandleInteriorCellEnter(const PacketEvent<EnterInteriorCellR
     }
 
     SendPlayerCellChanged(pPlayer);
+
+    if (auto* pParty = m_world.GetPartyService().GetPlayerParty(pPlayer))
+    {
+        if (pParty->LeaderPlayerId == pPlayer->GetId())
+        {
+            if (pParty->Options.LockPartyToLeaderCell())
+                m_world.GetPartyService().ScheduleLeaderCellLockNotify(*pParty, pPlayer);
+        }
+    }
 }
 
 void PlayerService::OnPlayerRespawnRequest(const PacketEvent<PlayerRespawnRequest>& acMessage) const noexcept

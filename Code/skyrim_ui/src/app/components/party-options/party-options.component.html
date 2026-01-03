@@ -59,6 +59,27 @@
           [disabled]="!(isLeader$ | async)"
         />
       </div>
+      <div class="setting">
+        <label for="partyOptionLockCell">
+          {{ 'COMPONENT.PARTY_OPTIONS.LOCK_PARTY_TO_LEADER_CELL' | transloco }}
+        </label>
+        <span class="info-dot" tabindex="0" aria-label="Info">
+          i
+          <span class="tooltip">
+            {{
+              'COMPONENT.PARTY_OPTIONS.LOCK_PARTY_TO_LEADER_CELL_TOOLTIP'
+                | transloco
+            }}
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          id="partyOptionLockCell"
+          [ngModel]="options.lockPartyToLeaderCell"
+          (ngModelChange)="updateOption('lockPartyToLeaderCell', $event)"
+          [disabled]="!(isLeader$ | async)"
+        />
+      </div>
       <div class="section-title">
         {{ 'COMPONENT.PARTY_OPTIONS.EXPERIMENTAL' | transloco }}
       </div>

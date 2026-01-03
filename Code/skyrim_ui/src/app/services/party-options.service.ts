@@ -99,6 +99,10 @@ export class PartyOptionsService implements OnDestroy {
           typeof parsed.syncDeadBodyLoot === 'boolean'
             ? parsed.syncDeadBodyLoot
             : DEFAULT_PARTY_OPTIONS.syncDeadBodyLoot,
+        lockPartyToLeaderCell:
+          typeof parsed.lockPartyToLeaderCell === 'boolean'
+            ? parsed.lockPartyToLeaderCell
+            : DEFAULT_PARTY_OPTIONS.lockPartyToLeaderCell,
       };
     } catch {
       return { ...DEFAULT_PARTY_OPTIONS };
@@ -121,6 +125,7 @@ export class PartyOptionsService implements OnDestroy {
         syncFastTravelMarkers: options.syncFastTravelMarkers,
         showPartyMemberMarkers: options.showPartyMemberMarkers,
         syncDeadBodyLoot: options.syncDeadBodyLoot,
+        lockPartyToLeaderCell: options.lockPartyToLeaderCell,
       });
     }
   }

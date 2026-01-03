@@ -113,6 +113,7 @@ declare namespace SkyrimTogetherTypes {
     syncFastTravelMarkers: boolean;
     showPartyMemberMarkers: boolean;
     syncDeadBodyLoot: boolean;
+    lockPartyToLeaderCell: boolean;
   };
 
   type PartyOptionsCallback = (options: PartyOptionsPayload) => void;

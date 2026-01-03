@@ -121,6 +121,13 @@ void PlayerService::OnNotifyPlayerRespawn(const NotifyPlayerRespawn& acMessage) 
 
 void PlayerService::OnGridCellChangeEvent(const GridCellChangeEvent& acEvent) const noexcept
 {
+    auto& partyService = m_world.GetPartyService();
+    if (partyService.IsCellLockActiveForLocal() && !partyService.AllowCellChangeDuringLock())
+    {
+        partyService.NotifyCellLockBlocked();
+        return;
+    }
+
     uint32_t baseId = 0;
     uint32_t modId = 0;
 
@@ -138,6 +145,13 @@ void PlayerService::OnGridCellChangeEvent(const GridCellChangeEvent& acEvent) co
 
 void PlayerService::OnCellChangeEvent(const CellChangeEvent& acEvent) const noexcept
 {
+    auto& partyService = m_world.GetPartyService();
+    if (partyService.IsCellLockActiveForLocal() && !partyService.AllowCellChangeDuringLock())
+    {
+        partyService.NotifyCellLockBlocked();
+        return;
+    }
+
     if (acEvent.WorldSpaceId)
     {
         EnterExteriorCellRequest message;

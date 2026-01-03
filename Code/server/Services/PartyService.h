@@ -2,6 +2,7 @@
 
 #include <Events/PacketEvent.h>
 #include <Structs/PartyOptions.h>
+#include <Structs/Vector3_NetQuantize.h>
 
 struct World;
 struct UpdateEvent;
@@ -30,6 +31,16 @@ struct PartyService
         Vector<Player*> Members;
         GameId CachedWeather{};
         PartyOptions Options{};
+        struct LeaderCellSnapshot
+        {
+            GameId WorldSpaceId{};
+            GameId CellId{};
+            Vector3_NetQuantize Position{};
+            bool HasLocation{false};
+        } LeaderCell{};
+        bool PendingCellLockNotify{false};
+        uint64_t PendingCellLockNotifyAt{0};
+        uint32_t PendingCellLockLeaderId{0};
     };
 
     PartyService(World& aWorld, entt::dispatcher& aDispatcher) noexcept;
@@ -41,6 +52,9 @@ struct PartyService
     bool IsPlayerInParty(Player* const apPlayer) const noexcept;
     bool IsPlayerLeader(Player* const apPlayer) noexcept;
     Party* GetPlayerParty(Player* const apPlayer) noexcept;
+    void UpdateLeaderCellSnapshot(Party& aParty, Player* apLeader) noexcept;
+    void NotifyPartyLeaderCellLock(Party& aParty, Player* apLeader, bool aCancelled) noexcept;
+    void ScheduleLeaderCellLockNotify(Party& aParty, Player* apLeader) noexcept;
 
 protected:
     void OnUpdate(const UpdateEvent& acEvent) noexcept;
