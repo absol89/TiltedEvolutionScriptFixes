@@ -19,8 +19,10 @@
 #include <Messages/PartyChangeLeaderRequest.h>
 #include <Messages/PartyKickRequest.h>
 #include <Messages/PartyActorNamesRequest.h>
+#include <Messages/PartyOptionsUpdateRequest.h>
 #include <Messages/NotifyPlayerProfileImage.h>
 #include <Messages/NotifyPlayerActorName.h>
+#include <Messages/NotifyPartyOptions.h>
 
 #include <OverlayApp.hpp>
 
@@ -40,6 +42,7 @@ PartyService::PartyService(World& aWorld, entt::dispatcher& aDispatcher, Transpo
     m_partyLeftConnection = aDispatcher.sink<NotifyPartyLeft>().connect<&PartyService::OnPartyLeft>(this);
     m_playerAvatarConnection = aDispatcher.sink<NotifyPlayerProfileImage>().connect<&PartyService::OnPlayerProfileImage>(this);
     m_playerActorNameConnection = aDispatcher.sink<NotifyPlayerActorName>().connect<&PartyService::OnPlayerActorName>(this);
+    m_partyOptionsConnection = aDispatcher.sink<NotifyPartyOptions>().connect<&PartyService::OnPartyOptions>(this);
 }
 
 const String* PartyService::GetActorName(uint32_t aPlayerId) const noexcept
@@ -94,6 +97,18 @@ void PartyService::ChangePartyLeader(const uint32_t aPlayerId) const noexcept
     m_transport.Send(changeMessage);
 }
 
+void PartyService::UpdatePartyOptions(const PartyOptions& aOptions) noexcept
+{
+    if (!m_inParty || !m_isLeader)
+        return;
+
+    m_partyOptions = aOptions;
+
+    PartyOptionsUpdateRequest request{};
+    request.Options = aOptions;
+    m_transport.Send(request);
+}
+
 void PartyService::OnUpdate(const UpdateEvent& acEvent) noexcept
 {
     const auto cCurrentTick = m_transport.GetClock().GetCurrentTick();
@@ -144,6 +159,20 @@ void PartyService::OnPlayerActorName(const NotifyPlayerActorName& acMessage) noe
         return;
 
     m_actorNames[acMessage.PlayerId] = acMessage.ActorName;
+}
+
+void PartyService::OnPartyOptions(const NotifyPartyOptions& acMessage) noexcept
+{
+    m_partyOptions = acMessage.Options;
+
+    auto pOptions = CefDictionaryValue::Create();
+    pOptions->SetBool("syncFastTravelMarkers", m_partyOptions.SyncFastTravelMarkers());
+    pOptions->SetBool("showPartyMemberMarkers", m_partyOptions.ShowPartyMemberMarkers());
+
+    auto pArguments = CefListValue::Create();
+    pArguments->SetDictionary(0, pOptions);
+
+    m_world.GetOverlayService().GetOverlayApp()->ExecuteAsync("partyOptions", pArguments);
 }
 
 void PartyService::OnPartyInfo(const NotifyPartyInfo& acPartyInfo) noexcept
@@ -219,4 +248,5 @@ void PartyService::DestroyParty() noexcept
     m_isLeader = false;
     m_leaderPlayerId = -1;
     m_partyMembers.clear();
+    m_partyOptions = PartyOptions{};
 }

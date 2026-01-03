@@ -109,6 +109,13 @@ declare namespace SkyrimTogetherTypes {
 
   type PartyInfoCallback = (playerIds: Array<number>, leaderId: number) => void;
 
+  type PartyOptionsPayload = {
+    syncFastTravelMarkers: boolean;
+    showPartyMemberMarkers: boolean;
+  };
+
+  type PartyOptionsCallback = (options: PartyOptionsPayload) => void;
+
   type PartyCreatedCallback = () => void;
 
   type PartyLeftCallback = (inviterId: number) => void;
@@ -346,6 +353,11 @@ interface SkyrimTogether {
   on(event: 'partyInfo', callback: SkyrimTogetherTypes.PartyInfoCallback): void;
 
   on(
+    event: 'partyOptions',
+    callback: SkyrimTogetherTypes.PartyOptionsCallback,
+  ): void;
+
+  on(
     event: 'partyCreated',
     callback: SkyrimTogetherTypes.PartyCreatedCallback,
   ): void;
@@ -573,6 +585,11 @@ interface SkyrimTogether {
   off(
     event: 'partyInfo',
     callback?: SkyrimTogetherTypes.PartyInfoCallback,
+  ): void;
+
+  off(
+    event: 'partyOptions',
+    callback?: SkyrimTogetherTypes.PartyOptionsCallback,
   ): void;
 
   off(
@@ -839,6 +856,11 @@ interface SkyrimTogether {
    * @param preference Either "username" or "actor".
    */
   setPlayerNamePreference(preference: string): void;
+
+  /**
+   * Update party leader options for the current party.
+   */
+  setPartyOptions(options: SkyrimTogetherTypes.PartyOptionsPayload): void;
 
   /**
    * Called when the player clicks the respawn button on the death screen.

@@ -62,6 +62,15 @@
       },
       "LEAVE_PARTY": "Leave party"
     },
+    "PARTY_OPTIONS": {
+      "TITLE": "Party options",
+      "LEADER": "Leader",
+      "SYNC_FAST_TRAVEL_MARKERS": "Sync fast travel markers",
+      "SHOW_PARTY_MEMBER_MARKERS": "Party member markers",
+      "SYNC_FAST_TRAVEL_MARKERS_TOOLTIP": "Shares discovered fast travel markers with your party.",
+      "SHOW_PARTY_MEMBER_MARKERS_TOOLTIP": "Shows party member markers on your world map.",
+      "LEADER_ONLY": "Only the party leader can change these."
+    },
     "PARTY_LIST": {
       "NO_OTHER_PLAYERS": "Nobody here but us chickens",
       "TABLE_HEADERS": {

@@ -24,6 +24,7 @@ import { NotificationPopupComponent } from './components/notification-popup/noti
 import { NotificationsComponent } from './components/notifications/notifications.component';
 import { OrderComponent } from './components/order/order.component';
 import { PartyMenuComponent } from './components/party-menu/party-menu.component';
+import { PartyOptionsComponent } from './components/party-options/party-options.component';
 import { PlayerListComponent } from './components/player-list/player-list.component';
 import { PlayerManagerComponent } from './components/player-manager/player-manager.component';
 import { TradePopupComponent } from './components/trade-popup/trade-popup.component';
@@ -71,6 +72,7 @@ import { TranslocoRootModule } from './transloco-root.module';
     NotificationsComponent,
     OrderComponent,
     PartyMenuComponent,
+    PartyOptionsComponent,
     PlayerListComponent,
     PlayerManagerComponent,
     TradePopupComponent,

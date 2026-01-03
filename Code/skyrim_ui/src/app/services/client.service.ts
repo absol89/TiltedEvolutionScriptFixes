@@ -4,6 +4,7 @@ import { AsyncSubject, BehaviorSubject, ReplaySubject, Subject } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { Debug } from '../models/debug';
 import { PartyInfo } from '../models/party-info';
+import { DEFAULT_PARTY_OPTIONS, PartyOptions } from '../models/party-options';
 import { Player } from '../models/player';
 import { View } from '../models/view.enum';
 import { ChatService } from './chat.service';
@@ -110,6 +111,11 @@ export class ClientService implements OnDestroy {
 
   /** Connect party info change. */
   public partyInfoChange = new Subject<PartyInfo>();
+
+  /** Party options change. */
+  public partyOptionsChange = new BehaviorSubject<PartyOptions>(
+    DEFAULT_PARTY_OPTIONS,
+  );
 
   /** Connect party info change. */
   public partyLeftChange = new Subject<void>();
@@ -282,6 +288,7 @@ export class ClientService implements OnDestroy {
     skyrimtogether.on('triggerError', this.onTriggerError.bind(this));
     skyrimtogether.on('dummyData', this.onDummyData.bind(this));
     skyrimtogether.on('partyInfo', this.onPartyInfo.bind(this));
+    skyrimtogether.on('partyOptions', this.onPartyOptions.bind(this));
     skyrimtogether.on('teleportRequest', this.onTeleportRequest.bind(this));
     skyrimtogether.on('teleportCountdown', this.onTeleportCountdown.bind(this));
     skyrimtogether.on('partyCreated', this.onPartyCreated.bind(this));
@@ -364,6 +371,7 @@ export class ClientService implements OnDestroy {
     skyrimtogether.off('triggerError');
     skyrimtogether.off('dummyData');
     skyrimtogether.off('partyInfo');
+    skyrimtogether.off('partyOptions');
     skyrimtogether.off('teleportRequest');
     skyrimtogether.off('teleportCountdown');
     skyrimtogether.off('partyCreated');
@@ -999,6 +1007,25 @@ export class ClientService implements OnDestroy {
     });
   }
 
+  public onPartyOptions(options: PartyOptions) {
+    if (environment.game) {
+      console.log(
+        `%conPartyOptions`,
+        'background: #009688; color: #fff; padding: 3px; font-size: 9px;',
+        ...Array.from(arguments).map(v => JSON.stringify(v)),
+      );
+    }
+    if (!options) {
+      return;
+    }
+    this.zone.run(() => {
+      this.partyOptionsChange.next({
+        syncFastTravelMarkers: !!options.syncFastTravelMarkers,
+        showPartyMemberMarkers: !!options.showPartyMemberMarkers,
+      });
+    });
+  }
+
   private onPartyCreated() {
     if (environment.game) {
       console.log(
@@ -1028,6 +1055,7 @@ export class ClientService implements OnDestroy {
     }
     this.zone.run(() => {
       this.partyLeftChange.next();
+      this.partyOptionsChange.next(DEFAULT_PARTY_OPTIONS);
     });
   }
 

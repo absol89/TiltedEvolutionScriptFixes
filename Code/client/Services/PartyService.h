@@ -1,17 +1,20 @@
 #pragma once
 
+#include <Messages/NotifyPlayerList.h>
+#include <Structs/PartyOptions.h>
+
 struct World;
 struct ImguiService;
 struct TransportService;
 struct UpdateEvent;
 struct DisconnectedEvent;
-#include <Messages/NotifyPlayerList.h>
 struct NotifyPartyInfo;
 struct NotifyPartyInvite;
 struct NotifyPartyJoined;
 struct NotifyPartyLeft;
 struct NotifyPlayerProfileImage;
 struct NotifyPlayerActorName;
+struct NotifyPartyOptions;
 
 /**
  * @brief Manages the party of the local player.
@@ -30,6 +33,7 @@ struct PartyService
     const Vector<uint32_t>& GetPartyMembers() const noexcept { return m_partyMembers; }
     const Map<uint32_t, NotifyPlayerList::PlayerListEntry>& GetPlayers() const noexcept { return m_players; }
     const String* GetActorName(uint32_t aPlayerId) const noexcept;
+    const PartyOptions& GetPartyOptions() const noexcept { return m_partyOptions; }
     Map<uint32_t, uint64_t>& GetInvitations() noexcept { return m_invitations; }
 
     void CreateParty() const noexcept;
@@ -38,6 +42,7 @@ struct PartyService
     void AcceptInvite(const uint32_t aInviterId) const noexcept;
     void KickPartyMember(const uint32_t aPlayerId) const noexcept;
     void ChangePartyLeader(const uint32_t aPlayerId) const noexcept;
+    void UpdatePartyOptions(const PartyOptions& aOptions) noexcept;
 
 protected:
     void OnUpdate(const UpdateEvent& acEvent) noexcept;
@@ -49,6 +54,7 @@ protected:
     void OnPartyLeft(const NotifyPartyLeft& acPartyLeft) noexcept;
     void OnPlayerProfileImage(const NotifyPlayerProfileImage& acMessage) noexcept;
     void OnPlayerActorName(const NotifyPlayerActorName& acMessage) noexcept;
+    void OnPartyOptions(const NotifyPartyOptions& acMessage) noexcept;
 
 private:
     void DestroyParty() noexcept;
@@ -62,6 +68,7 @@ private:
     bool m_isLeader = false;
     uint32_t m_leaderPlayerId;
     Vector<uint32_t> m_partyMembers;
+    PartyOptions m_partyOptions{};
 
     World& m_world;
     TransportService& m_transport;
@@ -75,4 +82,5 @@ private:
     entt::scoped_connection m_partyLeftConnection;
     entt::scoped_connection m_playerAvatarConnection;
     entt::scoped_connection m_playerActorNameConnection;
+    entt::scoped_connection m_partyOptionsConnection;
 };

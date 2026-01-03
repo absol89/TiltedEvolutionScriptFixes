@@ -12,6 +12,7 @@
 
 #include <OverlayApp.hpp>
 #include <Structs/Inventory.h>
+#include <Structs/PartyOptions.h>
 
 #include <DefaultObjectManager.h>
 #include <Games/TES.h>
@@ -218,6 +219,8 @@ bool OverlayClient::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefR
             ProcessSetNameTagMode(eventArgs);
         else if (eventName == "setPlayerNamePreference")
             ProcessSetPlayerNamePreference(eventArgs);
+        else if (eventName == "setPartyOptions")
+            ProcessSetPartyOptions(eventArgs);
         else if (eventName == "teleportToPlayer" || eventName == "requestTeleport")
             ProcessTeleportRequestMessage(eventArgs);
         else if (eventName == "respondTeleportRequest")
@@ -450,6 +453,34 @@ void OverlayClient::ProcessSetPlayerNamePreference(CefRefPtr<CefListValue> aEven
             return;
         world.ctx().at<NameTagService>().SetNamePreference(preference);
     });
+}
+
+void OverlayClient::ProcessSetPartyOptions(CefRefPtr<CefListValue> aEventArgs)
+{
+    if (!aEventArgs || aEventArgs->GetSize() < 1)
+        return;
+
+    PartyOptions options{};
+
+    if (aEventArgs->GetType(0) == VTYPE_DICTIONARY)
+    {
+        auto dict = aEventArgs->GetDictionary(0);
+        if (!dict)
+            return;
+
+        if (dict->HasKey("syncFastTravelMarkers"))
+            options.SetSyncFastTravelMarkers(dict->GetBool("syncFastTravelMarkers"));
+        if (dict->HasKey("showPartyMemberMarkers"))
+            options.SetShowPartyMemberMarkers(dict->GetBool("showPartyMemberMarkers"));
+    }
+    else
+    {
+        options.SetSyncFastTravelMarkers(aEventArgs->GetBool(0));
+        if (aEventArgs->GetSize() > 1)
+            options.SetShowPartyMemberMarkers(aEventArgs->GetBool(1));
+    }
+
+    World::Get().GetPartyService().UpdatePartyOptions(options);
 }
 
 void OverlayClient::ProcessToggleDebugUI()

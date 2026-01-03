@@ -19,6 +19,7 @@
     [@controls]="active$ | async"
     class="app-root-controls"
     [class.background-element]="view$ | async"
+    [class.has-party-options]="partyOptionsVisible$ | async"
   >
     <app-window border="strip" class="app-root-menu">
       <ng-container *ngIf="connected$ | async">
@@ -91,17 +92,25 @@
         {{ 'COMPONENT.ROOT.CONNECTION_IN_PROGRESS' | transloco }}
       </button>
     </app-window>
-    <app-window class="app-root-chat">
-      <app-chat #chat></app-chat>
-      <button
-        class="emote-quick-button"
-        data-style-ornament="inverted"
-        (click)="openEmoteWheel()"
+    <div class="app-root-chat-row">
+      <app-window class="app-root-chat">
+        <app-chat #chat></app-chat>
+        <button
+          class="emote-quick-button"
+          data-style-ornament="inverted"
+          (click)="openEmoteWheel()"
+        >
+          {{ 'COMPONENT.ROOT.EMOTES' | transloco }}
+          <span class="hotkey-tag">B</span>
+        </button>
+      </app-window>
+      <app-window
+        class="app-root-party-options"
+        *ngIf="partyOptionsVisible$ | async"
       >
-        {{ 'COMPONENT.ROOT.EMOTES' | transloco }}
-        <span class="hotkey-tag">B</span>
-      </button>
-    </app-window>
+        <app-party-options></app-party-options>
+      </app-window>
+    </div>
   </div>
   <div [@fadeInOutActive]="active$ | async" class="app-root-popups">
     <app-loading></app-loading>

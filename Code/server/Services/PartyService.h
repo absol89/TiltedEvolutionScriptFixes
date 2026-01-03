@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Events/PacketEvent.h>
+#include <Structs/PartyOptions.h>
 
 struct World;
 struct UpdateEvent;
@@ -16,6 +17,7 @@ struct PartyKickRequest;
 struct PartyPositionUpdateRequest;
 struct PartyPositionsRequest;
 struct PartyActorNamesRequest;
+struct PartyOptionsUpdateRequest;
 
 /**
  * @brief Manages every party in the server.
@@ -27,6 +29,7 @@ struct PartyService
         uint32_t LeaderPlayerId;
         Vector<Player*> Members;
         GameId CachedWeather{};
+        PartyOptions Options{};
     };
 
     PartyService(World& aWorld, entt::dispatcher& aDispatcher) noexcept;
@@ -52,6 +55,7 @@ protected:
     void OnPartyPositionUpdate(const PacketEvent<PartyPositionUpdateRequest>& acPacket) noexcept;
     void OnPartyPositionsRequest(const PacketEvent<PartyPositionsRequest>& acPacket) noexcept;
     void OnPartyActorNamesRequest(const PacketEvent<PartyActorNamesRequest>& acPacket) noexcept;
+    void OnPartyOptionsUpdate(const PacketEvent<PartyOptionsUpdateRequest>& acPacket) noexcept;
     void RemovePlayerFromParty(Player* apPlayer) noexcept;
 
     void BroadcastPlayerList(Player* apPlayer = nullptr) const noexcept;
@@ -77,6 +81,7 @@ private:
     entt::scoped_connection m_partyPositionUpdateConnection;
     entt::scoped_connection m_partyPositionsRequestConnection;
     entt::scoped_connection m_partyActorNamesRequestConnection;
+    entt::scoped_connection m_partyOptionsUpdateConnection;
 
     void SendPartyJoinedEvent(Party& aParty, Player* aPlayer) noexcept;
 };

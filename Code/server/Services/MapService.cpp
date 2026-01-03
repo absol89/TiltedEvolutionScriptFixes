@@ -64,6 +64,8 @@ void MapService::OnPartyFastTravelMarkersRequest(const PacketEvent<PartyFastTrav
     auto* pParty = m_world.GetPartyService().GetById(partyId);
     if (!pParty)
         return;
+    if (!pParty->Options.SyncFastTravelMarkers())
+        return;
 
     // Keep the cached state accurate for the current party membership (avoid leaking markers from players who left).
     TiltedPhoques::Set<uint32_t> memberIds{};

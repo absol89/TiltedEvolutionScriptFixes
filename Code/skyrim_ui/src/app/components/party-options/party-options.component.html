@@ -1,0 +1,67 @@
+<ng-container *ngIf="inParty$ | async">
+  <div class="party-options" *ngIf="options$ | async as options">
+    <button
+      type="button"
+      class="header"
+      (click)="toggleExpanded()"
+      [attr.aria-expanded]="isExpanded"
+    >
+      <span class="title">{{
+        'COMPONENT.PARTY_OPTIONS.TITLE' | transloco
+      }}</span>
+      <span class="header-right">
+        <span class="leader-tag" *ngIf="isLeader$ | async">{{
+          'COMPONENT.PARTY_OPTIONS.LEADER' | transloco
+        }}</span>
+        <span class="toggle-icon" [class.expanded]="isExpanded"></span>
+      </span>
+    </button>
+    <div class="content" *ngIf="isExpanded">
+      <div class="setting">
+        <label for="partyOptionFastTravel">
+          {{ 'COMPONENT.PARTY_OPTIONS.SYNC_FAST_TRAVEL_MARKERS' | transloco }}
+        </label>
+        <span class="info-dot" tabindex="0" aria-label="Info">
+          i
+          <span class="tooltip">
+            {{
+              'COMPONENT.PARTY_OPTIONS.SYNC_FAST_TRAVEL_MARKERS_TOOLTIP'
+                | transloco
+            }}
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          id="partyOptionFastTravel"
+          [ngModel]="options.syncFastTravelMarkers"
+          (ngModelChange)="updateOption('syncFastTravelMarkers', $event)"
+          [disabled]="!(isLeader$ | async)"
+        />
+      </div>
+      <div class="setting">
+        <label for="partyOptionMemberMarkers">
+          {{ 'COMPONENT.PARTY_OPTIONS.SHOW_PARTY_MEMBER_MARKERS' | transloco }}
+        </label>
+        <span class="info-dot" tabindex="0" aria-label="Info">
+          i
+          <span class="tooltip">
+            {{
+              'COMPONENT.PARTY_OPTIONS.SHOW_PARTY_MEMBER_MARKERS_TOOLTIP'
+                | transloco
+            }}
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          id="partyOptionMemberMarkers"
+          [ngModel]="options.showPartyMemberMarkers"
+          (ngModelChange)="updateOption('showPartyMemberMarkers', $event)"
+          [disabled]="!(isLeader$ | async)"
+        />
+      </div>
+      <div class="note" *ngIf="!(isLeader$ | async)">
+        {{ 'COMPONENT.PARTY_OPTIONS.LEADER_ONLY' | transloco }}
+      </div>
+    </div>
+  </div>
+</ng-container>

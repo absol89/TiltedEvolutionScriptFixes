@@ -110,7 +110,6 @@ Console::Setting bSyncPlayerHomes{"Gameplay:bSyncPlayerHomes", "Sync chests and 
 Console::Setting bEnableDeathSystem{"Gameplay:bEnableDeathSystem", "Enables the custom multiplayer death system", true};
 Console::Setting uTimeScale{"Gameplay:uTimeScale", "How many seconds pass ingame for every real second (0 to 1000). Changing this can make the game unstable", 20u};
 Console::Setting bSyncPlayerCalendar{"Gameplay:bSyncPlayerCalendar", "Syncs up all player calendars to be the same day, month, and year. This uses the date of the player with the furthest ahead date at connection.", false};
-Console::Setting bSyncPartyFastTravelMarkers{"Gameplay:bSyncPartyFastTravelMarkers", "Sync discovered fast travel map markers within parties", true};
 Console::Setting bAutoPartyJoin{"Gameplay:bAutoPartyJoin", "Join parties automatically, as long as there is only one party in the server", true};
 // ModPolicy Stuff
 Console::Setting bEnableModCheck{"ModPolicy:bEnableModCheck", "Bypass the checking of mods on the server", false, Console::SettingsFlags::kLocked};
@@ -211,7 +210,7 @@ ServerSettings GetSettings()
     settings.SyncPlayerHomes = bSyncPlayerHomes;
     settings.DeathSystemEnabled = bEnableDeathSystem;
     settings.SyncPlayerCalendar = bSyncPlayerCalendar;
-    settings.SyncPartyFastTravelMarkers = bSyncPartyFastTravelMarkers;
+    settings.SyncPartyFastTravelMarkers = true;
     settings.AutoPartyJoin = bAutoPartyJoin;
     return settings;
 }

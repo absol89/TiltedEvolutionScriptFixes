@@ -22,6 +22,8 @@
 #include <Messages/PartyPositionUpdateRequest.h>
 #include <Messages/PartyPositionsRequest.h>
 #include <Messages/PartyActorNamesRequest.h>
+#include <Messages/PartyOptionsUpdateRequest.h>
+#include <Messages/NotifyPartyOptions.h>
 #include <Messages/NotifyPlayerActorName.h>
 
 #include <Setting.h>
@@ -45,6 +47,7 @@ PartyService::PartyService(World& aWorld, entt::dispatcher& aDispatcher) noexcep
     , m_partyPositionUpdateConnection(aDispatcher.sink<PacketEvent<PartyPositionUpdateRequest>>().connect<&PartyService::OnPartyPositionUpdate>(this))
     , m_partyPositionsRequestConnection(aDispatcher.sink<PacketEvent<PartyPositionsRequest>>().connect<&PartyService::OnPartyPositionsRequest>(this))
     , m_partyActorNamesRequestConnection(aDispatcher.sink<PacketEvent<PartyActorNamesRequest>>().connect<&PartyService::OnPartyActorNamesRequest>(this))
+    , m_partyOptionsUpdateConnection(aDispatcher.sink<PacketEvent<PartyOptionsUpdateRequest>>().connect<&PartyService::OnPartyOptionsUpdate>(this))
 {
 }
 
@@ -299,6 +302,23 @@ void PartyService::OnPartyActorNamesRequest(const PacketEvent<PartyActorNamesReq
         notify.ActorName = actorName;
         pSender->Send(notify);
     }
+}
+
+void PartyService::OnPartyOptionsUpdate(const PacketEvent<PartyOptionsUpdateRequest>& acPacket) noexcept
+{
+    Player* const pSender = acPacket.pPlayer;
+    auto* pParty = GetPlayerParty(pSender);
+    if (!pParty)
+        return;
+
+    if (pParty->LeaderPlayerId != pSender->GetId())
+        return;
+
+    pParty->Options = acPacket.Packet.Options;
+
+    NotifyPartyOptions notify{};
+    notify.Options = pParty->Options;
+    GameServer::Get()->SendToParty(notify, pSender->GetParty());
 }
 
 void PartyService::OnPartyCreate(const PacketEvent<PartyCreateRequest>& acPacket) noexcept
@@ -687,4 +707,8 @@ void PartyService::SendPartyJoinedEvent(Party& aParty, Player* aPlayer) noexcept
     }
     spdlog::debug("[PartyService]: Sending party join event to player");
     aPlayer->Send(joinedMessage);
+
+    NotifyPartyOptions optionsMessage{};
+    optionsMessage.Options = aParty.Options;
+    aPlayer->Send(optionsMessage);
 }

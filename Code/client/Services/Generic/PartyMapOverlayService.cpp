@@ -338,6 +338,12 @@ void PartyMapOverlayService::OnUpdate(const UpdateEvent&) noexcept
         return;
     }
 
+    if (!partyService.GetPartyOptions().ShowPartyMemberMarkers())
+    {
+        m_world.GetOverlayService().SetPartyPinsJson("[]");
+        return;
+    }
+
     const bool fastTravelPromptOpen = HasMenuOpen(pUI, "MessageBoxMenu");
     const bool loadingScreenOpen = HasMenuOpen(pUI, "LoadingMenu") || HasMenuOpen(pUI, "Loading Menu") ||
                                    HasMenuOpen(pUI, "FaderMenu") || HasMenuOpen(pUI, "Fader Menu") ||

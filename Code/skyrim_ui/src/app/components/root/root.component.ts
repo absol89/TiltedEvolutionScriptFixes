@@ -7,6 +7,7 @@ import { fadeInOutActiveAnimation } from '../../animations/fade-in-out-active.an
 import { View } from '../../models/view.enum';
 import { ClientService } from '../../services/client.service';
 import { DestroyService } from '../../services/destroy.service';
+import { PartyOptionsService } from '../../services/party-options.service';
 import {
   SettingService,
   fontSizeToPixels,
@@ -45,6 +46,7 @@ export class RootComponent implements OnInit {
   active$ = this.client.activationStateChange.asObservable();
   connectionInProgress$ =
     this.client.isConnectionInProgressChange.asObservable();
+  partyOptionsVisible$ = this.partyOptions.inParty$;
   revealingInProgress$ = false;
 
   @ViewChild('chat') private chatComp!: ChatComponent;
@@ -57,6 +59,7 @@ export class RootComponent implements OnInit {
     private readonly uiRepository: UiRepository,
     private readonly translocoService: TranslocoService,
     private readonly settingService: SettingService,
+    private readonly partyOptions: PartyOptionsService,
     public readonly overlay: Overlay, // used for mockup
   ) {
     this.translocoService.setActiveLang(

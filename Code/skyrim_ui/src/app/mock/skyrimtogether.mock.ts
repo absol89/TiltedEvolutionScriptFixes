@@ -30,6 +30,10 @@ export class SkyrimtogetherMock extends EventEmitter implements SkyrimTogether {
   private localPlayerId: number;
   private nametagMode = 0;
   private playerNamePreference = 'username';
+  private partyOptions = {
+    syncFastTravelMarkers: true,
+    showPartyMemberMarkers: true,
+  };
   public readonly players$ = playerStore.pipe(selectAllEntities());
   private pendingTeleportRequests = new Set<number>();
 
@@ -216,6 +220,7 @@ export class SkyrimtogetherMock extends EventEmitter implements SkyrimTogether {
   launchParty(): void {
     if (this.connected) {
       this.emit('partyCreated');
+      this.emit('partyOptions', { ...this.partyOptions });
     }
   }
 
@@ -247,6 +252,7 @@ export class SkyrimtogetherMock extends EventEmitter implements SkyrimTogether {
       ],
       inviterId,
     );
+    this.emit('partyOptions', { ...this.partyOptions });
   }
 
   kickPartyMember(playerId: number): void {
@@ -280,6 +286,7 @@ export class SkyrimtogetherMock extends EventEmitter implements SkyrimTogether {
       ],
       playerId,
     );
+    this.emit('partyOptions', { ...this.partyOptions });
   }
 
   sendTradeInvite(playerId: number): void {
@@ -338,6 +345,17 @@ export class SkyrimtogetherMock extends EventEmitter implements SkyrimTogether {
     this.playerNamePreference = preference;
     if (this.showEvents) {
       console.log('[mock] setPlayerNamePreference', preference);
+    }
+  }
+
+  setPartyOptions(options: SkyrimTogetherTypes.PartyOptionsPayload): void {
+    this.partyOptions = {
+      syncFastTravelMarkers: !!options?.syncFastTravelMarkers,
+      showPartyMemberMarkers: !!options?.showPartyMemberMarkers,
+    };
+    this.emit('partyOptions', { ...this.partyOptions });
+    if (this.showEvents) {
+      console.log('[mock] setPartyOptions', this.partyOptions);
     }
   }
 

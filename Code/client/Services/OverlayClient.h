@@ -32,6 +32,7 @@ private:
     void ProcessSetProfilePicture(CefRefPtr<CefListValue> aEventArgs);
     void ProcessSetNameTagMode(CefRefPtr<CefListValue> aEventArgs);
     void ProcessSetPlayerNamePreference(CefRefPtr<CefListValue> aEventArgs);
+    void ProcessSetPartyOptions(CefRefPtr<CefListValue> aEventArgs);
     void ProcessToggleDebugUI();
     void ProcessPlayEmote(CefRefPtr<CefListValue> aEventArgs);
     void SetUIVisible(bool aVisible) noexcept;
