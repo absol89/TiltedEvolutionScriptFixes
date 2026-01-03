@@ -33,6 +33,7 @@ export class SkyrimtogetherMock extends EventEmitter implements SkyrimTogether {
   private partyOptions = {
     syncFastTravelMarkers: true,
     showPartyMemberMarkers: true,
+    syncDeadBodyLoot: false,
   };
   public readonly players$ = playerStore.pipe(selectAllEntities());
   private pendingTeleportRequests = new Set<number>();
@@ -352,6 +353,10 @@ export class SkyrimtogetherMock extends EventEmitter implements SkyrimTogether {
     this.partyOptions = {
       syncFastTravelMarkers: !!options?.syncFastTravelMarkers,
       showPartyMemberMarkers: !!options?.showPartyMemberMarkers,
+      syncDeadBodyLoot:
+        typeof options?.syncDeadBodyLoot === 'boolean'
+          ? options.syncDeadBodyLoot
+          : false,
     };
     this.emit('partyOptions', { ...this.partyOptions });
     if (this.showEvents) {

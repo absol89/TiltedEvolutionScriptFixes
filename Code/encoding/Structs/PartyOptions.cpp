@@ -28,3 +28,8 @@ void PartyOptions::SetShowPartyMemberMarkers(bool aEnabled) noexcept
 {
     SetFlag(kShowPartyMemberMarkers, aEnabled);
 }
+
+void PartyOptions::SetSyncDeadBodyLoot(bool aEnabled) noexcept
+{
+    SetFlag(kSyncDeadBodyLoot, aEnabled);
+}

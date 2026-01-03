@@ -168,6 +168,7 @@ void PartyService::OnPartyOptions(const NotifyPartyOptions& acMessage) noexcept
     auto pOptions = CefDictionaryValue::Create();
     pOptions->SetBool("syncFastTravelMarkers", m_partyOptions.SyncFastTravelMarkers());
     pOptions->SetBool("showPartyMemberMarkers", m_partyOptions.ShowPartyMemberMarkers());
+    pOptions->SetBool("syncDeadBodyLoot", m_partyOptions.SyncDeadBodyLoot());
 
     auto pArguments = CefListValue::Create();
     pArguments->SetDictionary(0, pOptions);

@@ -80,10 +80,22 @@ void InventoryService::OnInventoryChangeEvent(const InventoryChangeEvent& acEven
         return;
     }
 
+    bool updateClients = acEvent.UpdateClients;
+    if (updateClients && acEvent.Item.Count < 0)
+    {
+        const auto& partyService = m_world.GetPartyService();
+        if (partyService.IsInParty() && !partyService.GetPartyOptions().SyncDeadBodyLoot())
+        {
+            Actor* pActor = Cast<Actor>(TESForm::GetById(acEvent.FormId));
+            if (pActor && pActor->IsDead())
+                updateClients = false;
+        }
+    }
+
     RequestInventoryChanges request;
     request.ServerId = serverIdRes.value();
     request.Item = acEvent.Item;
-    request.UpdateClients = acEvent.UpdateClients;
+    request.UpdateClients = updateClients;
 
     m_transport.Send(request);
 

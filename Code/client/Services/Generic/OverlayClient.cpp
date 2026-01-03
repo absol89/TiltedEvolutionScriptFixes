@@ -472,12 +472,16 @@ void OverlayClient::ProcessSetPartyOptions(CefRefPtr<CefListValue> aEventArgs)
             options.SetSyncFastTravelMarkers(dict->GetBool("syncFastTravelMarkers"));
         if (dict->HasKey("showPartyMemberMarkers"))
             options.SetShowPartyMemberMarkers(dict->GetBool("showPartyMemberMarkers"));
+        if (dict->HasKey("syncDeadBodyLoot"))
+            options.SetSyncDeadBodyLoot(dict->GetBool("syncDeadBodyLoot"));
     }
     else
     {
         options.SetSyncFastTravelMarkers(aEventArgs->GetBool(0));
         if (aEventArgs->GetSize() > 1)
             options.SetShowPartyMemberMarkers(aEventArgs->GetBool(1));
+        if (aEventArgs->GetSize() > 2)
+            options.SetSyncDeadBodyLoot(aEventArgs->GetBool(2));
     }
 
     World::Get().GetPartyService().UpdatePartyOptions(options);

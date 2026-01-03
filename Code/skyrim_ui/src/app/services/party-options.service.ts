@@ -2,10 +2,7 @@ import { Injectable, OnDestroy } from '@angular/core';
 import { BehaviorSubject, Subscription } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { PartyInfo } from '../models/party-info';
-import {
-  DEFAULT_PARTY_OPTIONS,
-  PartyOptions,
-} from '../models/party-options';
+import { DEFAULT_PARTY_OPTIONS, PartyOptions } from '../models/party-options';
 import { ClientService } from './client.service';
 import { StoreService } from './store.service';
 
@@ -98,6 +95,10 @@ export class PartyOptionsService implements OnDestroy {
           typeof parsed.showPartyMemberMarkers === 'boolean'
             ? parsed.showPartyMemberMarkers
             : DEFAULT_PARTY_OPTIONS.showPartyMemberMarkers,
+        syncDeadBodyLoot:
+          typeof parsed.syncDeadBodyLoot === 'boolean'
+            ? parsed.syncDeadBodyLoot
+            : DEFAULT_PARTY_OPTIONS.syncDeadBodyLoot,
       };
     } catch {
       return { ...DEFAULT_PARTY_OPTIONS };
@@ -119,6 +120,7 @@ export class PartyOptionsService implements OnDestroy {
       api.setPartyOptions({
         syncFastTravelMarkers: options.syncFastTravelMarkers,
         showPartyMemberMarkers: options.showPartyMemberMarkers,
+        syncDeadBodyLoot: options.syncDeadBodyLoot,
       });
     }
   }

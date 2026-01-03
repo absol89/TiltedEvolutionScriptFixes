@@ -1022,6 +1022,10 @@ export class ClientService implements OnDestroy {
       this.partyOptionsChange.next({
         syncFastTravelMarkers: !!options.syncFastTravelMarkers,
         showPartyMemberMarkers: !!options.showPartyMemberMarkers,
+        syncDeadBodyLoot:
+          typeof options.syncDeadBodyLoot === 'boolean'
+            ? options.syncDeadBodyLoot
+            : DEFAULT_PARTY_OPTIONS.syncDeadBodyLoot,
       });
     });
   }

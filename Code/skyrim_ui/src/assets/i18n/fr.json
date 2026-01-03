@@ -76,6 +76,9 @@
       "SHOW_PARTY_MEMBER_MARKERS": "Party member markers",
       "SYNC_FAST_TRAVEL_MARKERS_TOOLTIP": "Shares discovered fast travel markers with your party.",
       "SHOW_PARTY_MEMBER_MARKERS_TOOLTIP": "Shows party member markers on your world map.",
+      "EXPERIMENTAL": "Experimental (not recommended)",
+      "SYNC_DEAD_BODY_LOOT": "Sync dead body loot",
+      "SYNC_DEAD_BODY_LOOT_TOOLTIP": "When disabled, party members can loot corpses independently. Experimental and not recommended.",
       "LEADER_ONLY": "Only the party leader can change these."
     },
     "PARTY_LIST": {

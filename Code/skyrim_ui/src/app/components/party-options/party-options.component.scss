@@ -88,6 +88,13 @@ $-color-panel-highlight: rgba(50, 240, 255, 0.65);
   gap: rem(16, 8);
 }
 
+.section-title {
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(216, 221, 226, 0.7);
+}
+
 .setting {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
