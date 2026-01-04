@@ -44,6 +44,7 @@ struct SubtitleEvent;
 struct NotifySubtitle;
 struct NotifyActorTeleport;
 struct NotifyRelinquishControl;
+struct NotifyDrawWeapon;
 struct PartyJoinedEvent;
 
 struct Actor;
@@ -91,6 +92,7 @@ struct CharacterService : BSTEventSink<TESLoadGameEvent>
     void OnNotifySubtitle(const NotifySubtitle& acMessage) noexcept;
     void OnNotifyActorTeleport(const NotifyActorTeleport& acMessage) noexcept;
     void OnNotifyRelinquishControl(const NotifyRelinquishControl& acMessage) noexcept;
+    void OnNotifyDrawWeapon(const NotifyDrawWeapon& acMessage) noexcept;
     void OnPartyJoinedEvent(const PartyJoinedEvent& acEvent) noexcept;
     void OnSyncModeChanged(SyncMode aPreviousMode, SyncMode aCurrentMode) noexcept;
     void RefreshRemotePlayer(uint32_t aServerId) noexcept;
@@ -166,5 +168,6 @@ private:
     entt::scoped_connection m_subtitleSyncConnection;
     entt::scoped_connection m_actorTeleportConnection;
     entt::scoped_connection m_relinquishConnection;
+    entt::scoped_connection m_notifyDrawWeaponConnection;
     entt::scoped_connection m_partyJoinedConnection;
 };

@@ -10,6 +10,7 @@
 #include <Messages/RequestEquipmentChanges.h>
 #include <Messages/NotifyEquipmentChanges.h>
 #include <Messages/DrawWeaponRequest.h>
+#include <Messages/NotifyDrawWeapon.h>
 
 
 InventoryService::InventoryService(World& aWorld, entt::dispatcher& aDispatcher)
@@ -131,5 +132,12 @@ void InventoryService::OnWeaponDrawnRequest(const PacketEvent<DrawWeaponRequest>
         auto& characterComponent = characterView.get<CharacterComponent>(*it);
         characterComponent.SetWeaponDrawn(message.IsWeaponDrawn);
         spdlog::debug("Updating weapon drawn state {:x}:{}", message.Id, message.IsWeaponDrawn);
+
+        NotifyDrawWeapon notify{};
+        notify.Id = message.Id;
+        notify.IsWeaponDrawn = message.IsWeaponDrawn;
+
+        if (!GameServer::Get()->SendToPlayersInRange(notify, *entity, acMessage.GetSender()))
+            spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
     }
 }

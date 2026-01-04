@@ -171,9 +171,8 @@ void InventoryService::ApplyEquipmentChange(Actor* pActor, const NotifyEquipment
     // TODO: ExtraData necessary? probably
     const int32_t count = acMessage.Count == 0 ? 1 : acMessage.Count;
 
-    // Quest isolation: remote player ghosts may not have full inventory state.
     // Ensure the item exists locally before attempting to equip, purely for visuals.
-    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost && !acMessage.Unequip && !acMessage.IsSpell && !acMessage.IsShout)
+    if (!acMessage.Unequip && !acMessage.IsSpell && !acMessage.IsShout)
     {
         auto* pExt = pActor->GetExtension();
         if (pExt && pExt->IsRemotePlayer() && !pActor->IsItemInInventory(itemId))

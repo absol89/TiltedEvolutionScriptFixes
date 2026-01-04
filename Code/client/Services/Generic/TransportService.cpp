@@ -398,6 +398,7 @@ bool TransportService::IsAllowedInbound(const ServerMessage& acMessage) const no
     case kServerReferencesMoveRequest:
     // Cosmetic-only: keep remote ghost visuals correct while quest-gated
     case kNotifyEquipmentChanges:
+    case kNotifyDrawWeapon:
     case kNotifyPlayEmote:
     case kNotifyCancelEmote:
         return true;

@@ -3,6 +3,7 @@
 #include "OverlayClient.hpp"
 
 struct TransportService;
+struct EquipmentSnapshot;
 
 namespace TiltedPhoques
 {
@@ -46,3 +47,5 @@ extern std::chrono::steady_clock::time_point g_emoteLastPlayed;
 extern NiPoint3 g_emoteStartPos;
 extern NiPoint3 g_emoteStartRot;
 extern std::atomic<bool> g_emoteStartValid;
+extern std::atomic<bool> g_emoteEquipmentValid;
+extern EquipmentSnapshot g_emoteEquipmentSnapshot;

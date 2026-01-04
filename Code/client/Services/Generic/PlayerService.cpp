@@ -38,6 +38,7 @@
 #include <EquipManager.h>
 #include <DefaultObjectManager.h>
 #include <Forms/TESRace.h>
+#include <Services/Generic/EquipmentSnapshot.h>
 #include <Services/SyncModeService.h>
 
 PlayerService::PlayerService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
@@ -253,6 +254,7 @@ void PlayerService::RunRespawnUpdates(const double acDeltaTime) noexcept
             m_cachedAmmoId = 0;
 
         m_cachedPowerId = pPlayer->equippedShout ? pPlayer->equippedShout->formID : 0;
+        m_cachedWeaponDrawn = pPlayer->actorState.IsWeaponDrawn();
 
         s_startTimer = false;
         m_waitingForRespawn = false;
@@ -359,48 +361,17 @@ void PlayerService::RunRespawnUpdates(const double acDeltaTime) noexcept
         m_knockdownTimer = 1.5;
         m_knockdownStart = true;
 
-        // Restore cached equipment
-        auto* pEquipManager = EquipManager::Get();
-        auto& defaultObjects = DefaultObjectManager::Get();
+        EquipmentSnapshot snapshot{};
+        snapshot.LeftSpellId = m_cachedLeftHandSpellId;
+        snapshot.RightSpellId = m_cachedRightHandSpellId;
+        snapshot.LeftWeaponId = m_cachedLeftHandItemId;
+        snapshot.RightWeaponId = m_cachedRightHandItemId;
+        snapshot.TwoHandWeaponId = m_cachedTwoHandedItemId;
+        snapshot.AmmoId = m_cachedAmmoId;
+        snapshot.ShoutId = m_cachedPowerId;
+        snapshot.WasWeaponDrawn = m_cachedWeaponDrawn;
 
-        if (m_cachedLeftHandSpellId)
-        {
-            if (TESForm* pSpell = TESForm::GetById(m_cachedLeftHandSpellId))
-                pEquipManager->EquipSpell(pPlayer, pSpell, 0);
-        }
-        else if (m_cachedLeftHandItemId && m_cachedTwoHandedItemId == 0)
-        {
-            if (TESForm* pItem = TESForm::GetById(m_cachedLeftHandItemId))
-                pEquipManager->Equip(pPlayer, pItem, nullptr, 1, defaultObjects.leftEquipSlot, false, true, false, false);
-        }
-
-        if (m_cachedRightHandSpellId)
-        {
-            if (TESForm* pSpell = TESForm::GetById(m_cachedRightHandSpellId))
-                pEquipManager->EquipSpell(pPlayer, pSpell, 1);
-        }
-        else if (m_cachedTwoHandedItemId)
-        {
-            if (TESForm* pItem = TESForm::GetById(m_cachedTwoHandedItemId))
-                pEquipManager->Equip(pPlayer, pItem, nullptr, 1, defaultObjects.eitherEquipSlot, false, true, false, false);
-        }
-        else if (m_cachedRightHandItemId)
-        {
-            if (TESForm* pItem = TESForm::GetById(m_cachedRightHandItemId))
-                pEquipManager->Equip(pPlayer, pItem, nullptr, 1, defaultObjects.rightEquipSlot, false, true, false, false);
-        }
-
-        if (m_cachedAmmoId)
-        {
-            if (TESForm* pAmmo = TESForm::GetById(m_cachedAmmoId))
-                pEquipManager->Equip(pPlayer, pAmmo, nullptr, 1, defaultObjects.rightEquipSlot, false, true, false, false);
-        }
-
-        if (m_cachedPowerId)
-        {
-            if (TESForm* pShout = TESForm::GetById(m_cachedPowerId))
-                pEquipManager->EquipShout(pPlayer, pShout);
-        }
+        RestoreEquipmentSnapshot(pPlayer, snapshot, true);
 
         SyncCachedEquipment(pPlayer);
 

@@ -93,6 +93,7 @@ private:
     uint32_t m_cachedTwoHandedItemId = 0;
     uint32_t m_cachedAmmoId = 0;
     uint32_t m_cachedPowerId = 0;
+    bool m_cachedWeaponDrawn = false;
 
     entt::scoped_connection m_updateConnection;
     entt::scoped_connection m_connectedConnection;

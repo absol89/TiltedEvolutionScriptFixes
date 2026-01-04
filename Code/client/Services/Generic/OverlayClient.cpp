@@ -31,6 +31,7 @@
 #include <Messages/TeleportResponse.h>
 #include <Messages/PlayerProfileImageUpdateRequest.h>
 #include <Messages/PlayEmoteRequest.h>
+#include <Services/Generic/EquipmentSnapshot.h>
 
 #include <Events/SetTimeCommandEvent.h>
 #include <Services/SyncModeService.h>
@@ -47,6 +48,8 @@ std::chrono::steady_clock::time_point g_emoteLastPlayed{};
 NiPoint3 g_emoteStartPos{};
 NiPoint3 g_emoteStartRot{};
 std::atomic<bool> g_emoteStartValid{false};
+std::atomic<bool> g_emoteEquipmentValid{false};
+EquipmentSnapshot g_emoteEquipmentSnapshot{};
 
 namespace
 {
@@ -72,6 +75,9 @@ void PlayEmoteInternal(const std::string& acEventName)
         Actor* pPlayer = PlayerCharacter::Get();
         if (!pPlayer)
             return;
+
+        g_emoteEquipmentSnapshot = CaptureEquipmentSnapshot(pPlayer);
+        g_emoteEquipmentValid.store(true);
 
         // Ensure hands/weapons are lowered before playing an emote; raised fists can block graph events.
         pPlayer->SetWeaponDrawnEx(false);

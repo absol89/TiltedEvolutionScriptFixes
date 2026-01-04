@@ -33,6 +33,7 @@
 #include <Messages/NotifyPlayEmote.h>
 #include <Messages/NotifyCancelEmote.h>
 #include <Messages/CancelEmoteRequest.h>
+#include <Services/Generic/EquipmentSnapshot.h>
 
 #include <DefaultObjectManager.h>
 #include <Structs/GridCellCoords.h>
@@ -420,36 +421,9 @@ void OverlayService::OnUpdate(const UpdateEvent&) noexcept
                 }
             }
 
-            // Re-equip current weapons/spells to refresh combat state (prevents stuck hands).
-            if (auto* pEquipManager = EquipManager::Get())
-            {
-                auto& defaults = DefaultObjectManager::Get();
-
-                TESForm* pLeftSpell = pPlayer->magicItems[0];
-                TESForm* pRightSpell = pPlayer->magicItems[1];
-
-                TESForm* pLeftWeapon = pLeftSpell ? nullptr : pPlayer->GetEquippedWeapon(0);
-                TESForm* pRightWeapon = pRightSpell ? nullptr : pPlayer->GetEquippedWeapon(1);
-                TESForm* pTwoHand = (pLeftWeapon && pRightWeapon && pLeftWeapon == pRightWeapon) ? pLeftWeapon : nullptr;
-
-                if (pLeftSpell)
-                    pEquipManager->EquipSpell(pPlayer, pLeftSpell, 0);
-                else if (pLeftWeapon && !pTwoHand)
-                    pEquipManager->Equip(pPlayer, pLeftWeapon, nullptr, 1, defaults.leftEquipSlot, false, true, false, false);
-
-                if (pRightSpell)
-                    pEquipManager->EquipSpell(pPlayer, pRightSpell, 1);
-                else if (pTwoHand)
-                    pEquipManager->Equip(pPlayer, pTwoHand, nullptr, 1, defaults.eitherEquipSlot, false, true, false, false);
-                else if (pRightWeapon)
-                    pEquipManager->Equip(pPlayer, pRightWeapon, nullptr, 1, defaults.rightEquipSlot, false, true, false, false);
-
-                if (auto* pAmmo = pPlayer->GetEquippedAmmo())
-                    pEquipManager->Equip(pPlayer, pAmmo, nullptr, 1, defaults.rightEquipSlot, false, true, false, false);
-
-                if (auto* pShout = pPlayer->equippedShout)
-                    pEquipManager->EquipShout(pPlayer, pShout);
-            }
+            if (g_emoteEquipmentValid.load())
+                RestoreEquipmentSnapshot(pPlayer, g_emoteEquipmentSnapshot, true);
+            g_emoteEquipmentValid.store(false);
 
             if (m_pOverlay)
             {

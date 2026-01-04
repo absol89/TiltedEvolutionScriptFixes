@@ -66,6 +66,7 @@
 #include <Messages/NotifySubtitle.h>
 #include <Messages/NotifyActorTeleport.h>
 #include <Messages/NotifyRelinquishControl.h>
+#include <Messages/NotifyDrawWeapon.h>
 
 #include <World.h>
 #include <Games/TES.h>
@@ -113,6 +114,8 @@ CharacterService::CharacterService(World& aWorld, entt::dispatcher& aDispatcher,
     m_actorTeleportConnection = m_dispatcher.sink<NotifyActorTeleport>().connect<&CharacterService::OnNotifyActorTeleport>(this);
 
     m_relinquishConnection = m_dispatcher.sink<NotifyRelinquishControl>().connect<&CharacterService::OnNotifyRelinquishControl>(this);
+
+    m_notifyDrawWeaponConnection = m_dispatcher.sink<NotifyDrawWeapon>().connect<&CharacterService::OnNotifyDrawWeapon>(this);
 
     m_partyJoinedConnection = aDispatcher.sink<PartyJoinedEvent>().connect<&CharacterService::OnPartyJoinedEvent>(this);
 
@@ -1276,6 +1279,19 @@ void CharacterService::OnNotifyActorTeleport(const NotifyActorTeleport& acMessag
     MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position);
 
     spdlog::info("Successfully teleported actor, form id: {:X}, world space: {:X}, cell: {:X}, position: ({}, {}, {})", pActor->formID, acMessage.WorldSpaceId.BaseId, acMessage.CellId.BaseId, acMessage.Position.x, acMessage.Position.y, acMessage.Position.z);
+}
+
+void CharacterService::OnNotifyDrawWeapon(const NotifyDrawWeapon& acMessage) noexcept
+{
+    Actor* pActor = Utils::GetByServerId<Actor>(acMessage.Id);
+    if (!pActor)
+        return;
+
+    auto* pExt = pActor->GetExtension();
+    if (pExt && pExt->IsLocalPlayer())
+        return;
+
+    m_weaponDrawUpdates[pActor->formID] = {acMessage.IsWeaponDrawn};
 }
 
 void CharacterService::OnPartyJoinedEvent(const PartyJoinedEvent& acEvent) noexcept
