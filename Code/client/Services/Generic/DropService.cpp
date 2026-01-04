@@ -4,6 +4,7 @@
 #include <Components.h>
 #include <Services/TransportService.h>
 #include <Services/RunnerService.h>
+#include <Services/SyncModeService.h>
 #include <Events/UpdateEvent.h>
 #include <Events/DropItemEvent.h>
 #include <Events/PickupDroppedItemEvent.h>
@@ -422,6 +423,8 @@ void DropService::OnDropEvent(const DropItemEvent& acEvent) noexcept
 {
     if (!m_transport.IsConnected())
         return;
+    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
+        return;
 
     auto serverIdRes = ResolveServerId(acEvent.ActorFormId);
     if (!serverIdRes)
@@ -453,6 +456,8 @@ void DropService::OnDropEvent(const DropItemEvent& acEvent) noexcept
 void DropService::OnPickupEvent(const PickupDroppedItemEvent& acEvent) noexcept
 {
     if (!m_transport.IsConnected())
+        return;
+    if (m_world.GetSyncModeService().GetLocalMode() == SyncMode::Ghost)
         return;
 
     uint64_t resolvedDropId = 0;

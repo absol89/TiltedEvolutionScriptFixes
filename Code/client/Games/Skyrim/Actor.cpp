@@ -1331,6 +1331,7 @@ void* TP_MAKE_THISCALL(HookPickUpObject, Actor, TESObjectREFR* apObject, int32_t
     const bool isRemotePickup = DropExecution::GetCurrentMode() == DropExecution::Mode::RemotePickup;
     const bool isLocalPlayer = apThis->GetExtension() && apThis->GetExtension()->IsLocalPlayer();
     const bool isConnected = World::Get().GetTransport().IsConnected();
+    const bool isGhosted = (World::Get().GetSyncModeService().GetLocalMode() == SyncMode::Ghost);
     std::optional<uint64_t> dropId{};
 
     if (apObject)
@@ -1428,6 +1429,7 @@ void* TP_MAKE_THISCALL(HookDropObject, Actor, void* apResult, TESBoundObject* ap
     const bool shouldSend = !ScopedInventoryOverride::IsOverriden();
     const bool isLocalPlayer = apThis->GetExtension() && apThis->GetExtension()->IsLocalPlayer();
     const bool isConnected = World::Get().GetTransport().IsConnected();
+    const bool isGhosted = (World::Get().GetSyncModeService().GetLocalMode() == SyncMode::Ghost);
     const bool isRemoteDrop = DropExecution::GetCurrentMode() == DropExecution::Mode::RemoteDrop;
     std::optional<DropExecution::Scope> localDropScope{};
     if (!isRemoteDrop)
@@ -1473,7 +1475,7 @@ void* TP_MAKE_THISCALL(HookDropObject, Actor, void* apResult, TESBoundObject* ap
         return pReturn;
     }
 
-    if (shouldSend && isLocalPlayer && isConnected)
+    if (shouldSend && isLocalPlayer && isConnected && !isGhosted)
     {
         GameId cellId{};
         GameId worldId{};
