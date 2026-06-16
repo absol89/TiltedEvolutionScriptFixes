@@ -20,7 +20,15 @@
 .save-password {
   width: 100%;
   display: flex;
-  justify-items: start;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.hide-password {
+  width: 100%;
+  display: flex;
+  justify-content: flex-start;
   align-items: center;
   gap: 0.5em;
 }
