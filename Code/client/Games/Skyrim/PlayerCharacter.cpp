@@ -21,6 +21,7 @@
 #include <Forms/TESWorldSpace.h>
 
 #include <Forms/TESObjectCELL.h>
+#include <Games/Skyrim/RespawnOverrides.h>
 
 #include <ModCompat/BehaviorVar.h>
 
