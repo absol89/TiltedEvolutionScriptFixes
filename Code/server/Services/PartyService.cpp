@@ -28,7 +28,7 @@ Console::Setting bAutoPartyJoin{"Gameplay:bAutoPartyJoin", "Join parties automat
 
 // Reuse the canonical server-list announce setting so runtime toggles apply here too.
 // The real variable is defined in ServerListService.cpp. If true, it guards autojoin.
-extern const Console::Setting& bAnnounceServer;
+extern const Console::Setting<bool>& bAnnounceServer;
 
 PartyService::PartyService(World& aWorld, entt::dispatcher& aDispatcher) noexcept
     : m_world(aWorld)
