@@ -4,7 +4,7 @@
 
 #include <Games/Primitives.h>
 
-bool RespawnOverrides::GetRespawnPos(const TESObjectCELL* apCell, NiPoint3& aOutPos) noexcept
+bool RespawnOverrides::GetRespawnPos(TESObjectCELL* apCell, NiPoint3& aOutPos) noexcept
 {
     if (!apCell)
         return false;

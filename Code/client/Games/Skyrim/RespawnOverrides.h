@@ -7,5 +7,5 @@ struct NiPoint3;
 namespace RespawnOverrides
 {
 // If the cell has a known override, write the respawn position into aOutPos and return true.
-bool GetRespawnPos(const TESObjectCELL* apCell, NiPoint3& aOutPos) noexcept;
+bool GetRespawnPos(TESObjectCELL* apCell, NiPoint3& aOutPos) noexcept;
 }
