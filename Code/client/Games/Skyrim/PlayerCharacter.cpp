@@ -113,7 +113,11 @@ NiPoint3 PlayerCharacter::RespawnPlayer() noexcept
 
     NiPoint3 pos{};
     NiPoint3 rot{};
-    pCell->GetCOCPlacementInfo(&pos, &rot, true);
+
+    if (!RespawnOverrides::GetRespawnPos(pCell, pos))
+    {
+        pCell->GetCOCPlacementInfo(&pos, &rot, true);
+    }
 
     MoveTo(pCell, pos);
 
