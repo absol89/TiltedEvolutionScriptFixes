@@ -2,7 +2,7 @@
 
 #include <cstring>
 
-#include <Games/Skyrim/Primitives.h>
+#include <Primitives.h>
 
 bool RespawnOverrides::GetRespawnPos(const TESObjectCELL* apCell, NiPoint3& aOutPos) noexcept
 {
