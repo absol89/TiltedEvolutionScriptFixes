@@ -24,11 +24,8 @@
 namespace
 {
 Console::Setting bAutoPartyJoin{"Gameplay:bAutoPartyJoin", "Join parties automatically, as long as there is only one party in the server", true};
+Console::Setting bAnnounceServer{"LiveServices:bAnnounceServer", "If the server is on the public server list autojoin is guarded against", false};
 }
-
-// Reuse the canonical server-list announce setting so runtime toggles apply here too.
-// The real variable is defined in ServerListService.cpp. If true, it guards autojoin.
-extern const Console::Setting<bool>& bAnnounceServer;
 
 PartyService::PartyService(World& aWorld, entt::dispatcher& aDispatcher) noexcept
     : m_world(aWorld)
