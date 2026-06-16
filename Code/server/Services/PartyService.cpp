@@ -220,7 +220,7 @@ void PartyService::OnPlayerJoin(const PlayerJoinEvent& acEvent) noexcept
 
     GameServer::Get()->SendToPlayers(notify, acEvent.pPlayer);
 
-    if (m_parties.size() == 1 && bAutoPartyJoin)
+    if (m_parties.size() == 1 && bAutoPartyJoin && !bAnnounceServer)
     {
         for (Player* player : m_world.GetPlayerManager())
         {
