@@ -19,7 +19,25 @@ bool RespawnOverrides::GetRespawnPos(TESObjectCELL* apCell, NiPoint3& aOutPos) n
 
 //	and get suitable x, y, z start positions using console commands with format: player.getpos x
 
-    if (std::strcmp(pCellEditorId, "QASmoke") == 0)
+    if (std::strcmp(pCellEditorId, "HaltedStreamCamp01") == 0)
+    {
+        aOutPos = glm::vec3(-515.f, -501.f, 603.f);
+        return true;
+    }
+	
+	if (std::strcmp(pCellEditorId, "Korvanjund01") == 0)
+    {
+        aOutPos = glm::vec3(-287.f, -5619.f, 608.f);
+        return true;
+    }
+	
+	if (std::strcmp(pCellEditorId, "Korvanjund02") == 0)
+    {
+        aOutPos = glm::vec3(-1260.f, -2033.f, -799.f);
+        return true;
+    }
+	
+	if (std::strcmp(pCellEditorId, "QASmoke") == 0)
     {
         aOutPos = glm::vec3(363.f, 2035.f, 7152.f);
         return true;
@@ -39,7 +57,7 @@ bool RespawnOverrides::GetRespawnPos(TESObjectCELL* apCell, NiPoint3& aOutPos) n
 	
 	if (std::strcmp(pCellEditorId, "StillbornCave01") == 0)
     {
-        aOutPos = glm::vec3(1501.f, -699.f, 69.f);
+        aOutPos = glm::vec3(1473.f, -1044.f, -45.f);
         return true;
     }
 	
@@ -50,6 +68,8 @@ bool RespawnOverrides::GetRespawnPos(TESObjectCELL* apCell, NiPoint3& aOutPos) n
     }
 
 //	Add modded or non-special edition cell names in this section below, before the return false;
+	
+	// modded section or cc unique areas
 	
 //	If the game is unable to match the cell name to this list it will not return an override pos
     return false;
