@@ -1,71 +1,65 @@
-@import 'env';
+@import 'env'; 
 
-@import 'functions/mod';
-@import 'mixins/gapped-vertical';
+@import 'functions/mod'; 
+@import 'mixins/gapped-vertical'; 
 
-.container {
-  @include gapped-vertical($-size-gap);
+.container { 
+  @include gapped-vertical($-size-gap); 
 
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  display: flex; 
+  flex-direction: column; 
+  align-items: center; 
 
-  .checkbox-row {
-    display: flex;
-    width: 100%;
-    justify-content: space-between; /* This pushes them to the far left and far right */
-    align-items: center;
-    gap: 1em;
+  .checkbox-row { 
+    display: flex; 
+    width: 100%; 
+    justify-content: space-between; 
+    align-items: center; 
+    gap: 1em; 
 
-    .hide-password,
-    .save-password {
-      /* Do not grow, do not shrink. Stay exactly text-sized */
-      display: flex;
-      align-items: center;
-      gap: 0.5em;
-      white-space: nowrap;  /* Force text onto one line */
+    .hide-password, 
+    .save-password { 
+      flex: 0 1 auto; 
+      display: flex; 
+      justify-content: flex-start; 
+      align-items: center; 
+      gap: 0.5em; 
+      white-space: nowrap; /* 1. Prevent the text from wrapping */
 
-      /* Targets the checkbox input and forces visibility */
-      input[type="checkbox"] {
-        display: inline-block !important; /* Ensure it isn't set to display: none */
-        visibility: visible !important;   /* Ensure it isn't hidden */
-        appearance: checkbox !important;  /* Force native checkbox rendering */
-        -webkit-appearance: checkbox !important;
-        
-        width: 1em !important;            /* Force a visible size */
-        height: 1em !important;
-        margin: 0;
-        flex: 0 0 auto;                   /* Prevent flex engine from crushing it */
+      /* 2. Keep original diamond checkbox look */
+      input[type="checkbox"] { 
+        width: auto;       /* Overrides the global width: 100% */
+        flex: 0 0 auto;    /* Prevents flexbox from flattening UI */
       }
-    }
-  }
+    } 
+  } 
 
-  ::ng-deep {
-    strong {
-      color: mod($-color-background, 1);
-    }
-  }
-}
+  ::ng-deep { 
+    strong { 
+      color: mod($-color-background, 1); 
+    } 
+  } 
+} 
 
-.instructions > * {
-  text-align: center;
-  margin: 0.3em;
-  line-height: $-size-line;
-}
+.instructions > * { 
+  text-align: center; 
+  margin: 0.3em; 
+  line-height: $-size-line; 
+} 
 
-input {
-  width: 100%;
-}
+input { 
+  width: 100%; 
+} 
 
-.warning {
-  color: rgb(247, 54, 54);
-}
+.warning { 
+  color: rgb(247, 54, 54); 
+} 
 
-hr {
-  border: 0;
-  clear: both;
-  display: block;
-  width: 80%;
-  background-color: grey;
-  height: 1px;
+hr { 
+  border: 0; 
+  clear: both; 
+  display: block; 
+  width: 80%; 
+  background-color: grey; 
+  height: 1px; 
 }
