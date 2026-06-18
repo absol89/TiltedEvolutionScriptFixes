@@ -10,27 +10,27 @@
   flex-direction: column;
   align-items: center;
 
+  .checkbox-row {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 1em;
+
+    .hide-password,
+    .save-password {
+      flex: 1 1 auto;
+      display: flex;
+      justify-content: flex-start;
+      align-items: center;
+      gap: 0.5em;
+    }
+  }
+
   ::ng-deep {
     strong {
       color: mod($-color-background, 1);
     }
   }
-}
-
-.save-password {
-  width: 100%;
-  display: flex;
-  justify-content: flex-start;
-  align-items: center;
-  gap: 0.5em;
-}
-
-.hide-password {
-  width: 100%;
-  display: flex;
-  justify-content: flex-start;
-  align-items: center;
-  gap: 0.5em;
 }
 
 .instructions > * {
