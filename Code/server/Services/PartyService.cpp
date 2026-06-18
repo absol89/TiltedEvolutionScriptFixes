@@ -62,8 +62,8 @@ bool PartyService::IsPlayerLeader(const Player* const apPlayer) const noexcept
 >>>>>>> fcdb4c4d (fix: add const Player::GetParty() overload and use it in IsPlayerLeader)
     if (inviterPartyComponent.JoinedPartyId)
     {
-        Party& party = m_parties[*inviterPartyComponent.JoinedPartyId];
-        return party.LeaderPlayerId == apPlayer->GetId();
+        if (const auto* const pParty = GetById(*inviterPartyComponent.JoinedPartyId))
+            return pParty->LeaderPlayerId == apPlayer->GetId();
     }
 
     return false;
