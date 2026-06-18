@@ -19,17 +19,26 @@
 
     .hide-password, 
     .save-password { 
-      flex: 0 1 auto; 
+      /* 1. Force both halves to split the available space equally */
+      flex: 1 1 0%; 
       display: flex; 
-      justify-content: flex-start; 
       align-items: center; 
       gap: 0.5em; 
 
-      /* Target the text container explicitly to prevent wrapping */
       label {
-        white-space: nowrap;
+        white-space: nowrap; /* 2. Prevent text from wrapping */
       }
     } 
+
+    /* 3. Keep the left side glued to the far left edge */
+    .save-password {
+      justify-content: flex-start;
+    }
+
+    /* 4. Keep the right side glued to the far right edge */
+    .hide-password {
+      justify-content: flex-end;
+    }
   } 
 
   ::ng-deep { 
