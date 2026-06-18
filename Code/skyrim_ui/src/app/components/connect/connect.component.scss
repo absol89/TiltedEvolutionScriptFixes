@@ -13,22 +13,29 @@
   .checkbox-row {
     display: flex;
     width: 100%;
-    justify-content: space-between;
+    justify-content: space-between; /* This pushes them to the far left and far right */
     align-items: center;
     gap: 1em;
 
     .hide-password,
     .save-password {
-      flex: 1 1 auto;
+      /* Do not grow, do not shrink. Stay exactly text-sized */
       display: flex;
-      justify-content: flex-start;
       align-items: center;
       gap: 0.5em;
-	  white-space: nowrap;
-	  
-	  input[type="checkbox"] {
-        flex: 0 0 auto;     /* CRITICAL: Force the checkbox to keep its original size */
-        width: auto;        /* Override the global input { width: 100% } rule below */
+      white-space: nowrap;  /* Force text onto one line */
+
+      /* Targets the checkbox input and forces visibility */
+      input[type="checkbox"] {
+        display: inline-block !important; /* Ensure it isn't set to display: none */
+        visibility: visible !important;   /* Ensure it isn't hidden */
+        appearance: checkbox !important;  /* Force native checkbox rendering */
+        -webkit-appearance: checkbox !important;
+        
+        width: 1em !important;            /* Force a visible size */
+        height: 1em !important;
+        margin: 0;
+        flex: 0 0 auto;                   /* Prevent flex engine from crushing it */
       }
     }
   }
