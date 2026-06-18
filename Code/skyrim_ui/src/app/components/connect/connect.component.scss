@@ -19,12 +19,17 @@
 
     .hide-password,
     .save-password {
-      flex: 0 0 auto;
+      flex: 1 1 auto;
       display: flex;
       justify-content: flex-start;
       align-items: center;
       gap: 0.5em;
 	  white-space: nowrap;
+	  
+	  input[type="checkbox"] {
+        flex: 0 0 auto;     /* CRITICAL: Force the checkbox to keep its original size */
+        width: auto;        /* Override the global input { width: 100% } rule below */
+      }
     }
   }
 
