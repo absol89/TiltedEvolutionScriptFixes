@@ -24,12 +24,10 @@
       justify-content: flex-start; 
       align-items: center; 
       gap: 0.5em; 
-      white-space: nowrap; /* 1. Prevent the text from wrapping */
 
-      /* 2. Keep original diamond checkbox look */
-      input[type="checkbox"] { 
-        width: auto;       /* Overrides the global width: 100% */
-        flex: 0 0 auto;    /* Prevents flexbox from flattening UI */
+      /* Target the text container explicitly to prevent wrapping */
+      label {
+        white-space: nowrap;
       }
     } 
   } 
