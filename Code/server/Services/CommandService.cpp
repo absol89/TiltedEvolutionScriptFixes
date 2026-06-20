@@ -9,6 +9,13 @@
 #include <Messages/TeleportCommandRequest.h>
 #include <Messages/TeleportCommandResponse.h>
 
+#include <Setting.h>
+
+namespace
+{
+Console::Setting bAnnounceServer{"LiveServices:bAnnounceServer", "Whether to list the server on the public server list", false};
+}
+
 CommandService::CommandService(World& aWorld, entt::dispatcher& aDispatcher) noexcept
     : m_world(aWorld)
 {
@@ -21,30 +28,27 @@ void CommandService::OnSetTimeCommand(const PacketEvent<SetTimeCommandRequest>& 
     NotifySetTimeResult response{};
 
     const auto cPlayerId = static_cast<uint32_t>(acMessage.Packet.PlayerId);
-    const auto* pSender = acMessage.pPlayer;
 
-    const bool isAdmin = [&]
+    // Admin override: always allowed
+    for (const auto session : GameServer::Get()->GetAdminSessions())
     {
-        for (const auto session : GameServer::Get()->GetAdminSessions())
+        if (PlayerManager::Get()->GetByConnectionId(session)->GetId() == cPlayerId)
         {
-            if (auto* pPlayer = PlayerManager::Get()->GetByConnectionId(session))
-            {
-                if (pPlayer->GetId() == cPlayerId)
-                    return true;
-            }
+            const auto cHours = static_cast<int>(acMessage.Packet.Hours);
+            const auto cMinutes = static_cast<int>(acMessage.Packet.Minutes);
+
+            m_world.GetCalendarService().SetTime(cHours, cMinutes, m_world.GetCalendarService().GetTimeScale());
+
+            response.Result = NotifySetTimeResult::SetTimeResult::kSuccess;
+            acMessage.pPlayer->Send(response);
+
+            return;
         }
-        return false;
-    }();
+    }
 
-    const bool isLeaderAndNotAnnounced = [&]() -> bool
-    {
-        const auto* pPartyService = &m_world.GetPartyService();
-        if (pPartyService->IsPlayerLeader(pSender))
-            return !ServerListService::bAnnounceServer;
-        return false;
-    }();
-
-    if (isAdmin || isLeaderAndNotAnnounced)
+    // Party leader allowed on private servers only
+    const auto* pPartyService = &m_world.GetPartyService();
+    if (pPartyService->IsPlayerLeader(acMessage.pPlayer) && !bAnnounceServer)
     {
         const auto cHours = static_cast<int>(acMessage.Packet.Hours);
         const auto cMinutes = static_cast<int>(acMessage.Packet.Minutes);
@@ -52,13 +56,13 @@ void CommandService::OnSetTimeCommand(const PacketEvent<SetTimeCommandRequest>& 
         m_world.GetCalendarService().SetTime(cHours, cMinutes, m_world.GetCalendarService().GetTimeScale());
 
         response.Result = NotifySetTimeResult::SetTimeResult::kSuccess;
-        pSender->Send(response);
+        acMessage.pPlayer->Send(response);
 
         return;
     }
 
     response.Result = NotifySetTimeResult::SetTimeResult::kNoPermission;
-    pSender->Send(response);
+    acMessage.pPlayer->Send(response);
 }
 
 void CommandService::OnTeleportCommandRequest(const PacketEvent<TeleportCommandRequest>& acMessage) const noexcept
