@@ -21,26 +21,44 @@ void CommandService::OnSetTimeCommand(const PacketEvent<SetTimeCommandRequest>& 
     NotifySetTimeResult response{};
 
     const auto cPlayerId = static_cast<uint32_t>(acMessage.Packet.PlayerId);
+    const auto* pSender = acMessage.pPlayer;
 
-    // Only set time if player is an admin
-    for (const auto session : GameServer::Get()->GetAdminSessions())
+    const bool isAdmin = [&]
     {
-        if (PlayerManager::Get()->GetByConnectionId(session)->GetId() == cPlayerId)
+        for (const auto session : GameServer::Get()->GetAdminSessions())
         {
-            const auto cHours = static_cast<int>(acMessage.Packet.Hours);
-            const auto cMinutes = static_cast<int>(acMessage.Packet.Minutes);
-
-            m_world.GetCalendarService().SetTime(cHours, cMinutes, m_world.GetCalendarService().GetTimeScale());
-
-            response.Result = NotifySetTimeResult::SetTimeResult::kSuccess;
-            acMessage.pPlayer->Send(response);
-
-            return;
+            if (auto* pPlayer = PlayerManager::Get()->GetByConnectionId(session))
+            {
+                if (pPlayer->GetId() == cPlayerId)
+                    return true;
+            }
         }
+        return false;
+    }();
+
+    const bool isLeaderAndNotAnnounced = [&]() -> bool
+    {
+        const auto* pPartyService = &m_world.GetPartyService();
+        if (pPartyService->IsPlayerLeader(pSender))
+            return !ServerListService::bAnnounceServer;
+        return false;
+    }();
+
+    if (isAdmin || isLeaderAndNotAnnounced)
+    {
+        const auto cHours = static_cast<int>(acMessage.Packet.Hours);
+        const auto cMinutes = static_cast<int>(acMessage.Packet.Minutes);
+
+        m_world.GetCalendarService().SetTime(cHours, cMinutes, m_world.GetCalendarService().GetTimeScale());
+
+        response.Result = NotifySetTimeResult::SetTimeResult::kSuccess;
+        pSender->Send(response);
+
+        return;
     }
 
     response.Result = NotifySetTimeResult::SetTimeResult::kNoPermission;
-    acMessage.pPlayer->Send(response);
+    pSender->Send(response);
 }
 
 void CommandService::OnTeleportCommandRequest(const PacketEvent<TeleportCommandRequest>& acMessage) const noexcept
