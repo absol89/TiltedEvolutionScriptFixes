@@ -300,6 +300,7 @@ void PlayerService::RunPostDeathUpdates(const double acDeltaTime) noexcept
             FadeOutGame(false, true, 0.5f, true, 2.f);
 
             m_knockdownStart = false;
+			m_debugRespawnLogStart = false;
         }
     }
 
