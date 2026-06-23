@@ -226,6 +226,20 @@ void PlayerService::RunRespawnUpdates(const double acDeltaTime) noexcept
     }
 
     m_respawnTimer -= acDeltaTime;
+	
+	// Counting down debugtimer until it is below 0
+	if (s_startTimer && (m_debugRespawnLogTimer >0.0))
+	{
+		m_debugRespawnLogTimer -= acDeltaTime;
+	}
+	else if (s_startTimer && m_debugRespawnLogTimer < 0.0) 
+	{
+		//Trigger 3 second unstuck player for edgecase
+		m_debugRespawnLogTimer = 0.0;
+		m_knockdownStart = true;
+		m_debugRespawnLogStart = false;
+		spdlog::info("[RespawnDebug] reached end case");
+	}
 
     if (m_respawnTimer <= 0.0)
     {
@@ -234,9 +248,9 @@ void PlayerService::RunRespawnUpdates(const double acDeltaTime) noexcept
         m_knockdownTimer = 1.5;
         m_knockdownStart = true;
 
-        // Debug: log bleedout + knockdown state 2s after respawn start
+        // Debug: log bleedout + knockdown state 3s after respawn start
         m_debugRespawnLogStart = true;
-        m_debugRespawnLogTimer = 2.0;
+        m_debugRespawnLogTimer = 3.0;
 
         m_transport.Send(PlayerRespawnRequest());
 
@@ -271,13 +285,11 @@ void PlayerService::RunPostDeathUpdates(const double acDeltaTime) noexcept
         }
         else
         {
-            m_debugRespawnLogTimer -= acDeltaTime;
-            if (m_debugRespawnLogTimer <= 0.0)
+            if (m_debugRespawnLogTimer <= 1.6)
             {
                 PlayerCharacter* pPlayer = PlayerCharacter::Get();
                 spdlog::info("[RespawnDebug] IsBleedingOut: {}, m_knockdownStart: {}",
                              pPlayer->actorState.IsBleedingOut(), m_knockdownStart);
-                m_debugRespawnLogStart = false;
             }
         }
     }
@@ -300,7 +312,6 @@ void PlayerService::RunPostDeathUpdates(const double acDeltaTime) noexcept
             FadeOutGame(false, true, 0.5f, true, 2.f);
 
             m_knockdownStart = false;
-			m_debugRespawnLogStart = false;
         }
     }
 
@@ -310,7 +321,7 @@ void PlayerService::RunPostDeathUpdates(const double acDeltaTime) noexcept
         if (m_godmodeTimer <= 0.0)
         {
             PlayerCharacter::SetGodMode(false);
-
+			spdlog::info("[RespawnDebug] m_godmodeStopped {}", m_godmodeStart);
             m_godmodeStart = false;
         }
     }
