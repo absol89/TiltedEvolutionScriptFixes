@@ -234,9 +234,9 @@ void PlayerService::RunRespawnUpdates(const double acDeltaTime) noexcept
         m_knockdownTimer = 1.5;
         m_knockdownStart = true;
 
-        // Debug: log bleedout + knockdown state 1s after respawn start
+        // Debug: log bleedout + knockdown state 2s after respawn start
         m_debugRespawnLogStart = true;
-        m_debugRespawnLogTimer = 1.0;
+        m_debugRespawnLogTimer = 2.0;
 
         m_transport.Send(PlayerRespawnRequest());
 
@@ -263,13 +263,22 @@ void PlayerService::RunPostDeathUpdates(const double acDeltaTime) noexcept
 
     if (m_debugRespawnLogStart)
     {
-        m_debugRespawnLogTimer -= acDeltaTime;
-        if (m_debugRespawnLogTimer <= 0.0)
+        // Normal upstream path already ran; cancel debug log early
+        if (!m_knockdownStart)
         {
-            PlayerCharacter* pPlayer = PlayerCharacter::Get();
-            spdlog::info("[RespawnDebug] IsBleedingOut: {}, m_knockdownStart: {}",
-                         pPlayer->actorState.IsBleedingOut(), m_knockdownStart);
+            spdlog::info("[RespawnDebug] Normal path ran (m_knockdownStart cleared before 2s timer)");
             m_debugRespawnLogStart = false;
+        }
+        else
+        {
+            m_debugRespawnLogTimer -= acDeltaTime;
+            if (m_debugRespawnLogTimer <= 0.0)
+            {
+                PlayerCharacter* pPlayer = PlayerCharacter::Get();
+                spdlog::info("[RespawnDebug] IsBleedingOut: {}, m_knockdownStart: {}",
+                             pPlayer->actorState.IsBleedingOut(), m_knockdownStart);
+                m_debugRespawnLogStart = false;
+            }
         }
     }
 
