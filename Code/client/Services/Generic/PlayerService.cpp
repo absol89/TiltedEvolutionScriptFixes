@@ -234,6 +234,10 @@ void PlayerService::RunRespawnUpdates(const double acDeltaTime) noexcept
         m_knockdownTimer = 1.5;
         m_knockdownStart = true;
 
+        // Debug: log bleedout + knockdown state 1s after respawn start
+        m_debugRespawnLogStart = true;
+        m_debugRespawnLogTimer = 1.0;
+
         m_transport.Send(PlayerRespawnRequest());
 
         s_startTimer = false;
@@ -256,6 +260,18 @@ void PlayerService::RunPostDeathUpdates(const double acDeltaTime) noexcept
 {
     if (!m_isDeathSystemEnabled)
         return;
+
+    if (m_debugRespawnLogStart)
+    {
+        m_debugRespawnLogTimer -= acDeltaTime;
+        if (m_debugRespawnLogTimer <= 0.0)
+        {
+            PlayerCharacter* pPlayer = PlayerCharacter::Get();
+            spdlog::info("[RespawnDebug] IsBleedingOut: {}, m_knockdownStart: {}",
+                         pPlayer->actorState.IsBleedingOut(), m_knockdownStart);
+            m_debugRespawnLogStart = false;
+        }
+    }
 
     // If a player dies in ragdoll, it gets stuck.
     // This code ragdolls the player again upon respawning.

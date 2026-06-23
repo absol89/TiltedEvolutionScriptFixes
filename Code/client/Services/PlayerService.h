@@ -70,6 +70,9 @@ private:
     bool m_godmodeStart = false;
     double m_godmodeTimer = 0.0;
 
+    double m_debugRespawnLogTimer = 0.0;
+    bool m_debugRespawnLogStart = false;
+
     uint32_t m_cachedMainSpellId = 0;
     uint32_t m_cachedSecondarySpellId = 0;
     uint32_t m_cachedPowerId = 0;
