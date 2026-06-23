@@ -234,7 +234,7 @@ void PlayerService::RunRespawnUpdates(const double acDeltaTime) noexcept
         m_knockdownTimer = 1.5;
         m_knockdownStart = true;
 
-        // Debug: log bleedout + knockdown state 3s after respawn start
+        // Debug: fallback knockdown in exteriors
         m_debugRespawnLogStart = true;
         m_debugRespawnLogTimer = 3.0;
 
@@ -302,6 +302,7 @@ void PlayerService::RunPostDeathUpdates(const double acDeltaTime) noexcept
         if (m_godmodeTimer <= 0.0)
         {
             PlayerCharacter::SetGodMode(false);
+			
             m_godmodeStart = false;
         }
     }
