@@ -114,6 +114,9 @@ NiPoint3 PlayerCharacter::RespawnPlayer() noexcept
     NiPoint3 pos{};
     NiPoint3 rot{};
 
+    if (!pCell)
+        return pos;
+
     // If we find an override position for this respawn cell, we will use that instead of COC.
     if (!RespawnOverrides::GetRespawnPos(pCell, pos))
     {
