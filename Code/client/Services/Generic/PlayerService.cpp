@@ -268,11 +268,10 @@ void PlayerService::RunPostDeathUpdates(const double acDeltaTime) noexcept
 	}
 	else if (m_debugRespawnLogTimer <= 0.0 && m_debugRespawnLogStart) 
 	{
-		//Trigger 3 second unstuck player for edgecase
+		//Trigger 3 second unstuck player for edgecases like bug #878
 		m_debugRespawnLogTimer = 0.0;
 		m_knockdownStart = true;
 		m_debugRespawnLogStart = false;
-		spdlog::info("[RespawnDebug] reached end case");
 	}
 
     // If a player dies in ragdoll, it gets stuck.
@@ -302,7 +301,7 @@ void PlayerService::RunPostDeathUpdates(const double acDeltaTime) noexcept
         if (m_godmodeTimer <= 0.0)
         {
             PlayerCharacter::SetGodMode(false);
-			
+
             m_godmodeStart = false;
         }
     }
