@@ -12,7 +12,7 @@
 
 namespace
 {
-constexpr char kConfigPathName[] = "config";
+constexpr char kConfigPathName[] = "Data/SkyrimTogetherReborn/config";
 constexpr char kSettingsFileName[] = "RespawnOverrides.ini";
 constexpr char kSectionName[] = "RespawnOverrides";
 constexpr char kSettingsComment[] =
