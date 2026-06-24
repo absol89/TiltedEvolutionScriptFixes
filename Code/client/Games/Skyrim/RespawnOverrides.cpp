@@ -206,7 +206,7 @@ bool RespawnOverrides::GetRespawnPos(const char* apCellEditorId, NiPoint3& aOutP
     return true;
 }
 
-bool RespawnOverrides::GetRespawnPos(const TESObjectCELL* apCell, NiPoint3& aOutPos) noexcept
+bool RespawnOverrides::GetRespawnPos(TESObjectCELL* apCell, NiPoint3& aOutPos) noexcept
 {
     if (!apCell)
         return false;
