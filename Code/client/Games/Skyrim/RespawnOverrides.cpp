@@ -31,7 +31,7 @@ const std::array kDefaultOverrides{
     // Keep built-in defaults sorted by cell editor ID. Community additions belong in RespawnOverrides.ini.
     RespawnOverride{"HaltedStreamCamp01", glm::vec3(-515.f, -501.f, 603.f)},
     RespawnOverride{"Korvanjund01", glm::vec3(-287.f, -5619.f, 608.f)},
-    RespawnOverride{"Korvanjund02", glm::vec3(-1260.f, -2033.f, -799.f)},
+    RespawnOverride{"Korvanjund02", glm::vec3(1201.f, -636.f, -400.f)},
     RespawnOverride{"QASmoke", glm::vec3(363.f, 2035.f, 7152.f)},
     RespawnOverride{"Saarthal02", glm::vec3(888.f, -269.f, -4.f)},
     RespawnOverride{"ShimmermistCave02", glm::vec3(5009.f, 57.f, -1319.f)},
