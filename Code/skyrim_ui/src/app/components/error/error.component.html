@@ -1,8 +1,8 @@
-<app-popup *ngIf="error$ | async as error" (keydown.enter)="removeError()">
+<app-popup *ngIf="error$ | async as error">
   <div class="error-content">
     <p [innerHTML]="error"></p>
     <app-action-buttons>
-      <button (click)="removeError()" data-style-ornament="simple">
+      <button (click)="removeError()" data-style-ornament="simple" autofocus>
         {{ 'COMPONENT.ERROR.OK' | transloco }}
       </button>
     </app-action-buttons>

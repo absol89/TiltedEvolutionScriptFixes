@@ -1,4 +1,4 @@
-import { Component, SecurityContext } from '@angular/core';
+import { Component, HostListener, SecurityContext } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
@@ -23,6 +23,11 @@ export class ErrorComponent {
         error !== '' ? this.domSanitizer.bypassSecurityTrustHtml(error) : null,
       ),
     );
+  }
+
+  @HostListener('document:keydown.enter', ['$event'])
+  onEnterKeyDown(event: KeyboardEvent) {
+    this.removeError();
   }
 
   removeError() {
