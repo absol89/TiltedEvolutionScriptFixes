@@ -60,8 +60,8 @@ struct D3D11RenderProvider final : OverlayApp::RenderProvider, OverlayRenderHand
     [[nodiscard]] HWND GetWindow() override { return m_pRenderSystem->GetWindow(); }
 
     [[nodiscard]] IDXGISwapChain* GetSwapChain() const noexcept override { return m_pRenderSystem->GetSwapChain(); }
-    [[nodiscard]] ID3D11Device* GetDevice() const noexcept override { return m_pRenderSystem->GetDevice(); }
-    [[nodiscard]] ID3D11DeviceContext* GetDeviceContext() const noexcept override { return m_pRenderSystem->GetDeviceContext(); }
+    [[nodiscard]] ID3D11Device* GetDevice() const noexcept { return m_pRenderSystem->GetDevice(); }
+    [[nodiscard]] ID3D11DeviceContext* GetDeviceContext() const noexcept { return m_pRenderSystem->GetDeviceContext(); }
 
 private:
     RenderSystemD3D11* m_pRenderSystem;
@@ -463,8 +463,8 @@ void OverlayService::RunDebugDataUpdates() noexcept
     auto steamStats = m_transport.GetConnectionStatus();
 
     auto pArguments = CefListValue::Create();
-    pArguments->SetInt(0, steamStats.m_flOutPacketsPerSec);
-    pArguments->SetInt(1, steamStats.m_flInPacketsPerSec);
+    pArguments->SetInt(0, static_cast<int>(steamStats.m_flOutPacketsPerSec));
+    pArguments->SetInt(1, static_cast<int>(steamStats.m_flInPacketsPerSec));
     pArguments->SetInt(2, steamStats.m_nPing);
     pArguments->SetInt(3, 0);
     pArguments->SetInt(4, internalStats.SentBytes);
