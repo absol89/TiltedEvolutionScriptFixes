@@ -30,10 +30,11 @@ static TDebugSendAnimationEvent* RealDebugSendAnimationEvent = nullptr;
 
 static void HookDebugSendAnimationEvent(BSScript::IVirtualMachine* apVm, uint32_t aStackId, void* apTag, TESObjectREFR* apRef, BSFixedString* apEventName)
 {
-    if (apRef && apEventName)
+    const char* pcEventName = apEventName ? apEventName->AsAscii() : nullptr;
+    if (apRef && pcEventName && pcEventName[0] != '\0')
     {
-        spdlog::debug("Debug.SendAnimationEvent captured: ref {:X}, event {}", apRef->formID, apEventName->AsAscii());
-        World::Get().GetRunner().Trigger(ScriptAnimationEvent(apRef->formID, String{}, apEventName->AsAscii()));
+        spdlog::debug("Debug.SendAnimationEvent captured: ref {:X}, event {}", apRef->formID, pcEventName);
+        World::Get().GetRunner().Trigger(ScriptAnimationEvent(apRef->formID, String{}, pcEventName));
     }
 
     RealDebugSendAnimationEvent(apVm, aStackId, apTag, apRef, apEventName);

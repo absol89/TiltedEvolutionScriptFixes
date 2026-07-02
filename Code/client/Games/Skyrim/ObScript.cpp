@@ -13,7 +13,7 @@ static constexpr uint32_t kConsoleCommandCount = 0xB4;
 using TParseParameters = bool(const ObScriptParam* apParamInfo, ObScriptData* apScriptData, uint32_t& arOpcodeOffsetPtr, TESObjectREFR* apThisObj, TESObjectREFR* apContainingObj, Script* apScriptObj, ScriptLocals* apLocals, ...);
 
 static ObScriptCommand::TExecute* RealSendAnimationEventExecute = nullptr;
-static ObScriptCommand* s_pSaeCommand = nullptr;
+static ObScriptCommand* s_pSaeCommand = nullptr; // kept for a future unhook/restore path
 
 static bool HookSendAnimationEventExecute(const ObScriptParam* apParamInfo, ObScriptData* apScriptData, TESObjectREFR* apThisObj, TESObjectREFR* apContainingObj, Script* apScriptObj, ScriptLocals* apLocals, double& arResult, uint32_t& arOpcodeOffsetPtr)
 {
