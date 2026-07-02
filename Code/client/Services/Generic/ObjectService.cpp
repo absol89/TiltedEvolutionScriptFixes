@@ -424,26 +424,20 @@ void ObjectService::OnWaveCommand(const WaveCommandEvent& acEvent) noexcept
 
 void ObjectService::OnNotifyScriptAnimation(const NotifyScriptAnimation& acMessage) noexcept
 {
-    if (acMessage.FormID == 0)
-        return;
-
     // FormID carries a server id; resolve it to whatever local form mirrors that entity
-    Actor* pActor = Utils::GetByServerId<Actor>(acMessage.FormID);
-    if (!pActor)
-    {
-        spdlog::debug("{}: no local actor for server id {:X}", __FUNCTION__, acMessage.FormID);
+    TESObjectREFR* pObject = Utils::GetByServerId<TESObjectREFR>(acMessage.FormID);
+    if (!pObject)
         return;
-    }
 
     BSFixedString eventName(acMessage.EventName.c_str());
     if (acMessage.Animation == String{})
     {
-        pActor->SendAnimationEvent(&eventName);
+        pObject->SendAnimationEvent(&eventName);
     }
     else
     {
         BSFixedString animation(acMessage.Animation.c_str());
-        pActor->PlayAnimationAndWait(&animation, &eventName);
+        pObject->PlayAnimationAndWait(&animation, &eventName);
     }
 }
 

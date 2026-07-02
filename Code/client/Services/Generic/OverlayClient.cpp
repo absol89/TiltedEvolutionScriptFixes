@@ -142,7 +142,7 @@ void OverlayClient::ProcessSetTimeCommand(CefRefPtr<CefListValue> aEventArgs)
 
 void OverlayClient::ProcessWaveCommand()
 {
-    World::Get().GetDispatcher().trigger(WaveCommandEvent());
+    World::Get().GetRunner().Trigger(WaveCommandEvent());
 }
 
 void OverlayClient::ProcessTeleportMessage(CefRefPtr<CefListValue> aEventArgs)
