@@ -7,9 +7,9 @@
 
 #include <World.h>
 
-// Bound from CommonLibSSE-NG SCRIPT_FUNCTION::LocateConsoleCommand, which scans
-// kConsoleCommandsEnd (0x01B4) entries from the first console command.
-static constexpr uint32_t kConsoleCommandCount = 0x1B4;
+// Bound from CommonLibSSE-NG SCRIPT_FUNCTION::LocateScriptCommand, which scans
+// kScriptCommandsEnd (0x02E0) entries from the first script command.
+static constexpr uint32_t kScriptCommandCount = 0x2E0;
 
 using TParseParameters = bool(const ObScriptParam* apParamInfo, ObScriptData* apScriptData, uint32_t& arOpcodeOffsetPtr, TESObjectREFR* apThisObj, TESObjectREFR* apContainingObj, Script* apScriptObj, ScriptLocals* apLocals, ...);
 
@@ -40,33 +40,35 @@ static bool HookSendAnimationEventExecute(const ObScriptParam* apParamInfo, ObSc
 static TiltedPhoques::Initializer s_obScriptHooks(
     []()
     {
-        // First console command, AE address-library id 365650 (CommonLibSSE-NG include/RE/Offsets.h:480).
-        POINTER_SKYRIMSE(ObScriptCommand, s_firstConsoleCommand, 365650);
+        // First script command, AE address-library id 361120 (CommonLibSSE-NG include/RE/Offsets.h:481).
+        // The sae command is a SCRIPT function ("SendAnimEvent"), not a console command —
+        // confirmed via the in-game help listing.
+        POINTER_SKYRIMSE(ObScriptCommand, s_firstScriptCommand, 361120);
 
-        ObScriptCommand* pCommands = s_firstConsoleCommand.Get();
+        ObScriptCommand* pCommands = s_firstScriptCommand.Get();
         if (!pCommands)
         {
-            spdlog::error("ObScript: console command table not found, sae sync disabled");
+            spdlog::error("ObScript: script command table not found, sae sync disabled");
             return;
         }
 
-        for (uint32_t i = 0; i < kConsoleCommandCount; ++i)
+        for (uint32_t i = 0; i < kScriptCommandCount; ++i)
         {
             ObScriptCommand& command = pCommands[i];
 
-            if (command.pFunctionName && _stricmp(command.pFunctionName, "SendAnimationEvent") == 0)
+            if (command.pFunctionName && _stricmp(command.pFunctionName, "SendAnimEvent") == 0)
             {
                 s_pSaeCommand = &command;
                 RealSendAnimationEventExecute = command.pExecuteFunction;
                 command.pExecuteFunction = HookSendAnimationEventExecute;
 
-                spdlog::info("ObScript: hooked console SendAnimationEvent (sae)");
+                spdlog::info("ObScript: hooked script command SendAnimEvent (sae)");
                 return;
             }
         }
 
-        spdlog::error("ObScript: SendAnimationEvent console command not found, sae sync disabled");
-        for (uint32_t i = 0; i < kConsoleCommandCount; ++i)
+        spdlog::error("ObScript: SendAnimEvent script command not found, sae sync disabled");
+        for (uint32_t i = 0; i < kScriptCommandCount; ++i)
         {
             const ObScriptCommand& command = pCommands[i];
             spdlog::debug("ObScript table [{}]: {} ({})", i, command.pFunctionName ? command.pFunctionName : "<null>", command.pShortName ? command.pShortName : "<null>");
