@@ -7,6 +7,7 @@
 #include <Events/ActivateEvent.h>
 #include <Events/LockChangeEvent.h>
 #include <Events/ScriptAnimationEvent.h>
+#include <Events/WaveCommandEvent.h>
 #include <Messages/ServerTimeSettings.h>
 #include <Messages/AssignObjectsRequest.h>
 #include <Messages/AssignObjectsResponse.h>
@@ -37,6 +38,7 @@ ObjectService::ObjectService(World& aWorld, entt::dispatcher& aDispatcher, Trans
     m_assignObjectConnection = aDispatcher.sink<AssignObjectsResponse>().connect<&ObjectService::OnAssignObjectsResponse>(this);
     m_scriptAnimationConnection = aDispatcher.sink<ScriptAnimationEvent>().connect<&ObjectService::OnScriptAnimationEvent>(this);
     m_scriptAnimationNotifyConnection = aDispatcher.sink<NotifyScriptAnimation>().connect<&ObjectService::OnNotifyScriptAnimation>(this);
+    m_waveCommandConnection = aDispatcher.sink<WaveCommandEvent>().connect<&ObjectService::OnWaveCommand>(this);
 
     EventDispatcherManager::Get()->activateEvent.RegisterSink(this);
 }
@@ -388,29 +390,56 @@ void ObjectService::OnScriptAnimationEvent(const ScriptAnimationEvent& acEvent) 
     m_transport.Send(request);
 }
 
+void ObjectService::OnWaveCommand(const WaveCommandEvent& acEvent) noexcept
+{
+    if (!m_transport.IsOnline())
+        return;
+
+    auto view = m_world.view<FormIdComponent>();
+    const auto it = std::find_if(view.begin(), view.end(), [view](auto entity) { return view.get<FormIdComponent>(entity).Id == 0x14; });
+
+    if (it == view.end())
+    {
+        spdlog::debug("{}: local player entity not found", __FUNCTION__);
+        return;
+    }
+
+    std::optional<uint32_t> serverIdRes = Utils::GetServerId(*it);
+    if (!serverIdRes.has_value())
+    {
+        spdlog::debug("{}: local player has no server id yet", __FUNCTION__);
+        return;
+    }
+
+    ScriptAnimationRequest request{};
+    request.FormID = serverIdRes.value();
+    request.EventName = "IdleWave";
+
+    m_transport.Send(request);
+}
+
 void ObjectService::OnNotifyScriptAnimation(const NotifyScriptAnimation& acMessage) noexcept
 {
     if (acMessage.FormID == 0)
         return;
 
-    auto* pForm = TESForm::GetById(acMessage.FormID);
-    auto* pObject = Cast<TESObjectREFR>(pForm);
-
-    if (!pObject)
+    // FormID carries a server id; resolve it to whatever local form mirrors that entity
+    Actor* pActor = Utils::GetByServerId<Actor>(acMessage.FormID);
+    if (!pActor)
     {
-        spdlog::error("Failed to fetch notify script animation object, form id: {:X}", acMessage.FormID);
+        spdlog::debug("{}: no local actor for server id {:X}", __FUNCTION__, acMessage.FormID);
         return;
     }
 
     BSFixedString eventName(acMessage.EventName.c_str());
     if (acMessage.Animation == String{})
     {
-        pObject->PlayAnimation(&eventName);
+        pActor->SendAnimationEvent(&eventName);
     }
     else
     {
         BSFixedString animation(acMessage.Animation.c_str());
-        pObject->PlayAnimationAndWait(&animation, &eventName);
+        pActor->PlayAnimationAndWait(&animation, &eventName);
     }
 }
 
