@@ -7,8 +7,9 @@
 
 #include <World.h>
 
-// Count from CommonLibSSE-NG SCRIPT_FUNCTION::Commands: kConsoleCommandsEnd (0x01B4) - kConsoleOpBase (0x0100).
-static constexpr uint32_t kConsoleCommandCount = 0xB4;
+// Bound from CommonLibSSE-NG SCRIPT_FUNCTION::LocateConsoleCommand, which scans
+// kConsoleCommandsEnd (0x01B4) entries from the first console command.
+static constexpr uint32_t kConsoleCommandCount = 0x1B4;
 
 using TParseParameters = bool(const ObScriptParam* apParamInfo, ObScriptData* apScriptData, uint32_t& arOpcodeOffsetPtr, TESObjectREFR* apThisObj, TESObjectREFR* apContainingObj, Script* apScriptObj, ScriptLocals* apLocals, ...);
 
@@ -53,7 +54,7 @@ static TiltedPhoques::Initializer s_obScriptHooks(
         {
             ObScriptCommand& command = pCommands[i];
 
-            if (command.pFunctionName && !strcmp(command.pFunctionName, "SendAnimationEvent"))
+            if (command.pFunctionName && _stricmp(command.pFunctionName, "SendAnimationEvent") == 0)
             {
                 s_pSaeCommand = &command;
                 RealSendAnimationEventExecute = command.pExecuteFunction;
@@ -65,4 +66,9 @@ static TiltedPhoques::Initializer s_obScriptHooks(
         }
 
         spdlog::error("ObScript: SendAnimationEvent console command not found, sae sync disabled");
+        for (uint32_t i = 0; i < kConsoleCommandCount; ++i)
+        {
+            const ObScriptCommand& command = pCommands[i];
+            spdlog::debug("ObScript table [{}]: {} ({})", i, command.pFunctionName ? command.pFunctionName : "<null>", command.pShortName ? command.pShortName : "<null>");
+        }
     });
