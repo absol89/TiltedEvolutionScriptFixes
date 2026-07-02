@@ -12,6 +12,8 @@ struct ScriptAnimationEvent
     {
     }
 
+    // Local form id of the animating reference. NOTE: ScriptAnimationRequest/
+    // NotifyScriptAnimation.FormID carries a SERVER id — translate before sending.
     uint32_t FormID;
     String Animation;
     String EventName;

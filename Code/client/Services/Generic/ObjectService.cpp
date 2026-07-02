@@ -380,6 +380,10 @@ void ObjectService::OnLockChangeNotify(const NotifyLockChange& acMessage) noexce
     pObject->LockChange();
 }
 
+// WARNING: NotifyScriptAnimation.FormID is resolved as a SERVER id on receive
+// (see OnNotifyScriptAnimation), but ScriptAnimationEvent carries a LOCAL form id.
+// Its trigger sites are compiled out (OBJECT_ANIM_SYNC 0 in TESObjectREFR.cpp);
+// before re-enabling them, translate to server ids here (Utils::GetServerId).
 void ObjectService::OnScriptAnimationEvent(const ScriptAnimationEvent& acEvent) noexcept
 {
     ScriptAnimationRequest request{};
