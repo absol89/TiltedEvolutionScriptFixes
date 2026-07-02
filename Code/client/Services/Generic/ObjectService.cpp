@@ -380,14 +380,29 @@ void ObjectService::OnLockChangeNotify(const NotifyLockChange& acMessage) noexce
     pObject->LockChange();
 }
 
-// WARNING: NotifyScriptAnimation.FormID is resolved as a SERVER id on receive
-// (see OnNotifyScriptAnimation), but ScriptAnimationEvent carries a LOCAL form id.
-// Its trigger sites are compiled out (OBJECT_ANIM_SYNC 0 in TESObjectREFR.cpp);
-// before re-enabling them, translate to server ids here (Utils::GetServerId).
+// ScriptAnimationEvent carries a LOCAL form id; the wire format
+// (ScriptAnimationRequest/NotifyScriptAnimation.FormID) carries a SERVER id.
+// The translation happens here; refs without a server id are local-only.
 void ObjectService::OnScriptAnimationEvent(const ScriptAnimationEvent& acEvent) noexcept
 {
+    if (!m_transport.IsOnline())
+        return;
+
+    auto view = m_world.view<FormIdComponent>();
+    const auto it = std::find_if(view.begin(), view.end(), [view, id = acEvent.FormID](auto entity) { return view.get<FormIdComponent>(entity).Id == id; });
+
+    if (it == view.end())
+    {
+        spdlog::debug("{}: no synced entity for form id {:X}, event {}", __FUNCTION__, acEvent.FormID, acEvent.EventName.c_str());
+        return;
+    }
+
+    std::optional<uint32_t> serverIdRes = Utils::GetServerId(*it);
+    if (!serverIdRes.has_value())
+        return;
+
     ScriptAnimationRequest request{};
-    request.FormID = acEvent.FormID;
+    request.FormID = serverIdRes.value();
     request.Animation = acEvent.Animation;
     request.EventName = acEvent.EventName;
 
@@ -420,6 +435,10 @@ void ObjectService::OnWaveCommand(const WaveCommandEvent& acEvent) noexcept
     request.EventName = "IdleWave";
 
     m_transport.Send(request);
+
+    // The relay no longer echoes to the sender; play the wave locally.
+    BSFixedString eventName("IdleWave");
+    PlayerCharacter::Get()->SendAnimationEvent(&eventName);
 }
 
 void ObjectService::OnNotifyScriptAnimation(const NotifyScriptAnimation& acMessage) noexcept
