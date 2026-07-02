@@ -6,8 +6,14 @@ vs2019
 vs2022
 vsxmake2019
 vsxmake2022
+vsxmake*
 .xmake
 vs2019
+
+# Local working files (not shared)
+CLAUDE.md
+.claude/
+docs/superpowers/
 
 build
 Build
