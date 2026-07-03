@@ -5,56 +5,26 @@
 TP_THIS_FUNCTION(TSetLeveledNpc, TESNPC*, TESNPC, TESNPC*);
 static TSetLeveledNpc* RealSetLeveledNpc = nullptr;
 
-// Temporary investigation probe, removed in the apply task.
-static void DumpNpc(const char* apLabel, TESNPC* apNpc)
-{
-    if (!apNpc)
-    {
-        spdlog::info("[LvlProbe] {}: null", apLabel);
-        return;
-    }
-
-    const char* pName = "<not an npc>";
-    if (apNpc->formType == FormType::Npc && apNpc->fullName.value)
-        pName = apNpc->fullName.value;
-
-    spdlog::info("[LvlProbe] {}: formID={:X}, temp={}, formType={}, name='{}'", apLabel, apNpc->formID, apNpc->IsTemporary(), static_cast<uint8_t>(apNpc->formType), pName);
-}
-
-static void DumpTemplateChain(TESNPC* apNpc)
-{
-    if (!apNpc)
-        return;
-
-    TESNPC* pCurrent = apNpc->npcTemplate;
-    int depth = 0;
-
-    while (pCurrent && depth < 10)
-    {
-        DumpNpc("chain", pCurrent);
-
-        // A chain entry can be a TESLevCharacter posing as TESNPC*; its layout
-        // is too small to hold npcTemplate, so stop before reading past it.
-        if (pCurrent->formType != FormType::Npc)
-            break;
-
-        pCurrent = pCurrent->npcTemplate;
-        ++depth;
-    }
-}
+// The engine resolves a leveled spawn by creating a temporary TESNPC from
+// (placed base, picked NPC); the pick is not reliably recoverable from the
+// temp NPC afterwards, so remember it here. Temp form ids are recycled by
+// the engine, which conveniently overwrites stale entries.
+static TiltedPhoques::Map<uint32_t, uint32_t> s_leveledPicks;
 
 TESNPC* TP_MAKE_THISCALL(HookSetLeveledNpc, TESNPC, TESNPC* apSelectedNpc)
 {
-    DumpNpc("this", apThis);
-    DumpNpc("selected", apSelectedNpc);
-
     TESNPC* pResult = TiltedPhoques::ThisCall(RealSetLeveledNpc, apThis, apSelectedNpc);
 
-    DumpNpc("result", pResult);
-    spdlog::info("[LvlProbe] result == this: {}", pResult == apThis);
-    DumpTemplateChain(pResult);
+    if (pResult && apSelectedNpc)
+        s_leveledPicks[pResult->formID] = apSelectedNpc->formID;
 
     return pResult;
+}
+
+uint32_t TESNPC::GetLeveledPickFormId(uint32_t aTempNpcFormId) noexcept
+{
+    const auto cIt = s_leveledPicks.find(aTempNpcFormId);
+    return cIt != s_leveledPicks.end() ? cIt->second : 0;
 }
 
 static TiltedPhoques::Initializer s_npcInitHooks(

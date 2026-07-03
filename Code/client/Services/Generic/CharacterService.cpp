@@ -1275,7 +1275,15 @@ void CharacterService::RequestServerAssignment(const entt::entity aEntity) const
     message.IsPlayerSummon = pActor->GetCommandingActor() && pActor->GetCommandingActor()->formID == 0x14;
 
     if (pNpc->IsTemporary())
+    {
+        if (const uint32_t cPickFormId = TESNPC::GetLeveledPickFormId(pNpc->formID))
+        {
+            if (!m_world.GetModSystem().GetServerModId(cPickFormId, message.LeveledNpcPickId))
+                spdlog::warn("Leveled NPC pick {:X} has no server id, identity sync skipped", cPickFormId);
+        }
+
         pNpc = pNpc->GetTemplateBase();
+    }
 
     if (isTemporary)
     {

@@ -30,6 +30,8 @@ struct TESNPC : TESActorBase
         return pTemplate;
     }
 
+    static uint32_t GetLeveledPickFormId(uint32_t aTempNpcFormId) noexcept;
+
     struct FaceMorphs
     {
         float option[19];
