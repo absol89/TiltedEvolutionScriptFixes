@@ -100,6 +100,7 @@ private:
 
     Actor* CreateCharacterForEntity(entt::entity aEntity) const noexcept;
     ActorData BuildActorData(Actor* apActor) const noexcept;
+    void ApplyLeveledNpcPick(Actor* apActor, const GameId& acPickId) const noexcept;
 
     void RunLocalUpdates() const noexcept;
     void RunRemoteUpdates() noexcept;

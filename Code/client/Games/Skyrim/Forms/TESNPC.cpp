@@ -11,14 +11,25 @@ static TSetLeveledNpc* RealSetLeveledNpc = nullptr;
 // the engine, which conveniently overwrites stale entries.
 static TiltedPhoques::Map<uint32_t, uint32_t> s_leveledPicks;
 
+// Substituted for the engine's random roll while a remote correction
+// re-resolves an actor (set around DisableImpl/EnableImpl by the applier).
+static thread_local TESNPC* s_pForcedLeveledPick = nullptr;
+
 TESNPC* TP_MAKE_THISCALL(HookSetLeveledNpc, TESNPC, TESNPC* apSelectedNpc)
 {
-    TESNPC* pResult = TiltedPhoques::ThisCall(RealSetLeveledNpc, apThis, apSelectedNpc);
+    TESNPC* pSelected = s_pForcedLeveledPick ? s_pForcedLeveledPick : apSelectedNpc;
 
-    if (pResult && apSelectedNpc)
-        s_leveledPicks[pResult->formID] = apSelectedNpc->formID;
+    TESNPC* pResult = TiltedPhoques::ThisCall(RealSetLeveledNpc, apThis, pSelected);
+
+    if (pResult && pSelected)
+        s_leveledPicks[pResult->formID] = pSelected->formID;
 
     return pResult;
+}
+
+void TESNPC::SetForcedLeveledPick(TESNPC* apPick) noexcept
+{
+    s_pForcedLeveledPick = apPick;
 }
 
 uint32_t TESNPC::GetLeveledPickFormId(uint32_t aTempNpcFormId) noexcept

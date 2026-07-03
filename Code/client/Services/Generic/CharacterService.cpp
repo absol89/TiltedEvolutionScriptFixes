@@ -396,10 +396,15 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
 
         if (acMessage.BaseId != GameId{})
         {
-            const auto cNpcId = World::Get().GetModSystem().GetGameId(acMessage.BaseId);
+            // Prefer the owner's resolved leveled pick over the lossy template base
+            GameId baseId = acMessage.BaseId;
+            if (acMessage.LeveledNpcPickId != GameId{} && World::Get().GetModSystem().GetGameId(acMessage.LeveledNpcPickId) != 0)
+                baseId = acMessage.LeveledNpcPickId;
+
+            const auto cNpcId = World::Get().GetModSystem().GetGameId(baseId);
             if (cNpcId == 0)
             {
-                spdlog::error("Failed to retrieve NPC, it will not be spawned, possibly missing mod, base: {:X}:{:X}, form: {:X}:{:X}", acMessage.BaseId.BaseId, acMessage.BaseId.ModId, acMessage.FormId.BaseId, acMessage.FormId.ModId);
+                spdlog::error("Failed to retrieve NPC, it will not be spawned, possibly missing mod, base: {:X}:{:X}, form: {:X}:{:X}", baseId.BaseId, baseId.ModId, acMessage.FormId.BaseId, acMessage.FormId.ModId);
                 return;
             }
 
@@ -486,6 +491,10 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
         // Prevents remote summons agroing other players.
         pActor->SetCommandingActor(PlayerCharacter::Get()->GetHandle());
     }
+
+    // Static references arrive with their own locally rolled leveled pick; conform to the owner's
+    if (acMessage.FormId != GameId{})
+        ApplyLeveledNpcPick(pActor, acMessage.LeveledNpcPickId);
 
     auto& remoteComponent = m_world.emplace_or_replace<RemoteComponent>(*entity, acMessage.ServerId, pActor->formID);
 
@@ -1409,7 +1418,12 @@ Actor* CharacterService::CreateCharacterForEntity(entt::entity aEntity) const no
 
         if (acMessage.BaseId != GameId{})
         {
-            const uint32_t cNpcId = World::Get().GetModSystem().GetGameId(acMessage.BaseId);
+            // Prefer the owner's resolved leveled pick over the lossy template base
+            GameId baseId = acMessage.BaseId;
+            if (acMessage.LeveledNpcPickId != GameId{} && World::Get().GetModSystem().GetGameId(acMessage.LeveledNpcPickId) != 0)
+                baseId = acMessage.LeveledNpcPickId;
+
+            const uint32_t cNpcId = World::Get().GetModSystem().GetGameId(baseId);
             if (cNpcId == 0)
             {
                 spdlog::error("Failed to retrieve NPC, it will not be spawned, possibly missing mod");
@@ -1467,6 +1481,42 @@ ActorData CharacterService::BuildActorData(Actor* apActor) const noexcept
     actorData.IsWeaponDrawn = apActor->actorState.IsWeaponFullyDrawn();
 
     return actorData;
+}
+
+void CharacterService::ApplyLeveledNpcPick(Actor* apActor, const GameId& acPickId) const noexcept
+{
+    if (acPickId == GameId{})
+        return;
+
+    TESNPC* pBase = Cast<TESNPC>(apActor->baseForm);
+    if (!pBase || !pBase->IsTemporary())
+        return;
+
+    const uint32_t cPickId = World::Get().GetModSystem().GetGameId(acPickId);
+    if (cPickId == 0)
+    {
+        spdlog::warn("Leveled NPC pick {:X}:{:X} not resolvable, possibly missing mod, keeping local pick", acPickId.ModId, acPickId.BaseId);
+        return;
+    }
+
+    TESNPC* pPick = Cast<TESNPC>(TESForm::GetById(cPickId));
+    if (!pPick)
+    {
+        spdlog::warn("Leveled NPC pick {:X} is not an NPC, keeping local pick", cPickId);
+        return;
+    }
+
+    if (TESNPC::GetLeveledPickFormId(pBase->formID) == cPickId)
+        return;
+
+    spdlog::info("Conforming leveled actor {:X} to owner's pick {:X}", apActor->formID, cPickId);
+
+    // Re-run the engine's leveled resolution with our pick forced in;
+    // disable/enable re-rolls the pick and rebuilds the 3D
+    TESNPC::SetForcedLeveledPick(pPick);
+    apActor->DisableImpl();
+    apActor->EnableImpl();
+    TESNPC::SetForcedLeveledPick(nullptr);
 }
 
 void CharacterService::RunLocalUpdates() const noexcept

@@ -31,6 +31,7 @@ struct TESNPC : TESActorBase
     }
 
     static uint32_t GetLeveledPickFormId(uint32_t aTempNpcFormId) noexcept;
+    static void SetForcedLeveledPick(TESNPC* apPick) noexcept;
 
     struct FaceMorphs
     {
