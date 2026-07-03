@@ -106,6 +106,11 @@ void CharacterService::Serialize(World& aRegistry, entt::entity aEntity, Charact
         apSpawnRequest->BaseId = characterComponent.BaseId.Id;
     }
 
+    if (characterComponent.LeveledNpcPickId)
+    {
+        apSpawnRequest->LeveledNpcPickId = characterComponent.LeveledNpcPickId.Id;
+    }
+
     const auto* pMovementComponent = aRegistry.try_get<MovementComponent>(aEntity);
     if (pMovementComponent)
     {
@@ -602,6 +607,7 @@ void CharacterService::CreateCharacter(const PacketEvent<AssignCharacterRequest>
     characterComponent.ChangeFlags = message.ChangeFlags;
     characterComponent.SaveBuffer = std::move(message.AppearanceBuffer);
     characterComponent.BaseId = FormIdComponent(message.FormId);
+    characterComponent.LeveledNpcPickId = FormIdComponent(message.LeveledNpcPickId);
     characterComponent.FaceTints = message.FaceTints;
     characterComponent.FactionsContent = message.FactionsContent;
     characterComponent.SetDead(message.CurrentActorData.IsDead);
