@@ -398,23 +398,23 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
         {
             // Prefer the owner's resolved leveled pick over the lossy template base
             GameId baseId = acMessage.BaseId;
-            uint32_t cNpcId = World::Get().GetModSystem().GetGameId(baseId);
+            uint32_t npcId = World::Get().GetModSystem().GetGameId(baseId);
             if (acMessage.LeveledNpcPickId != GameId{})
             {
                 if (const uint32_t cPickNpcId = World::Get().GetModSystem().GetGameId(acMessage.LeveledNpcPickId))
                 {
                     baseId = acMessage.LeveledNpcPickId;
-                    cNpcId = cPickNpcId;
+                    npcId = cPickNpcId;
                 }
             }
 
-            if (cNpcId == 0)
+            if (npcId == 0)
             {
                 spdlog::error("Failed to retrieve NPC, it will not be spawned, possibly missing mod, base: {:X}:{:X}, form: {:X}:{:X}", baseId.BaseId, baseId.ModId, acMessage.FormId.BaseId, acMessage.FormId.ModId);
                 return;
             }
 
-            pNpc = Cast<TESNPC>(TESForm::GetById(cNpcId));
+            pNpc = Cast<TESNPC>(TESForm::GetById(npcId));
             pNpc->Deserialize(acMessage.AppearanceBuffer, acMessage.ChangeFlags);
         }
         else
@@ -1426,23 +1426,23 @@ Actor* CharacterService::CreateCharacterForEntity(entt::entity aEntity) const no
         {
             // Prefer the owner's resolved leveled pick over the lossy template base
             GameId baseId = acMessage.BaseId;
-            uint32_t cNpcId = World::Get().GetModSystem().GetGameId(baseId);
+            uint32_t npcId = World::Get().GetModSystem().GetGameId(baseId);
             if (acMessage.LeveledNpcPickId != GameId{})
             {
                 if (const uint32_t cPickNpcId = World::Get().GetModSystem().GetGameId(acMessage.LeveledNpcPickId))
                 {
                     baseId = acMessage.LeveledNpcPickId;
-                    cNpcId = cPickNpcId;
+                    npcId = cPickNpcId;
                 }
             }
 
-            if (cNpcId == 0)
+            if (npcId == 0)
             {
                 spdlog::error("Failed to retrieve NPC, it will not be spawned, possibly missing mod");
                 return nullptr;
             }
 
-            pNpc = Cast<TESNPC>(TESForm::GetById(cNpcId));
+            pNpc = Cast<TESNPC>(TESForm::GetById(npcId));
             pNpc->Deserialize(acMessage.AppearanceBuffer, acMessage.ChangeFlags);
         }
         else
