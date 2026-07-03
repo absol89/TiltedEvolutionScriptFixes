@@ -244,6 +244,12 @@ void CharacterService::OnAssignCharacterRequest(const PacketEvent<AssignCharacte
             response.CellId = cellIdComponent.Cell;
             response.WorldSpaceId = cellIdComponent.WorldSpaceId;
 
+            if (characterComponent.LeveledNpcPickId)
+            {
+                response.LeveledNpcPickId = characterComponent.LeveledNpcPickId.Id;
+                spdlog::info("Relaying leveled NPC pick {:x}:{:x} for server id {:X} to {:x}", response.LeveledNpcPickId.ModId, response.LeveledNpcPickId.BaseId, response.ServerId, acMessage.pPlayer->GetConnectionId());
+            }
+
             if (auto* pAnimationComponent = m_world.try_get<AnimationComponent>(*itor))
             {
                 response.ActionsToReplay = pAnimationComponent->ActionsReplayCache.FormRefinedReplayChain();
@@ -609,6 +615,9 @@ void CharacterService::CreateCharacter(const PacketEvent<AssignCharacterRequest>
     characterComponent.BaseId = FormIdComponent(message.FormId);
     // Client-authoritative like BaseId; worst case a forged id changes which NPC identity renders
     characterComponent.LeveledNpcPickId = FormIdComponent(message.LeveledNpcPickId);
+
+    if (characterComponent.LeveledNpcPickId)
+        spdlog::info("Stored leveled NPC pick {:x}:{:x} for FormId {:x}:{:x}", message.LeveledNpcPickId.ModId, message.LeveledNpcPickId.BaseId, gameId.ModId, gameId.BaseId);
     characterComponent.FaceTints = message.FaceTints;
     characterComponent.FactionsContent = message.FactionsContent;
     characterComponent.SetDead(message.CurrentActorData.IsDead);
