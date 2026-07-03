@@ -398,10 +398,16 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
         {
             // Prefer the owner's resolved leveled pick over the lossy template base
             GameId baseId = acMessage.BaseId;
-            if (acMessage.LeveledNpcPickId != GameId{} && World::Get().GetModSystem().GetGameId(acMessage.LeveledNpcPickId) != 0)
-                baseId = acMessage.LeveledNpcPickId;
+            uint32_t cNpcId = World::Get().GetModSystem().GetGameId(baseId);
+            if (acMessage.LeveledNpcPickId != GameId{})
+            {
+                if (const uint32_t cPickNpcId = World::Get().GetModSystem().GetGameId(acMessage.LeveledNpcPickId))
+                {
+                    baseId = acMessage.LeveledNpcPickId;
+                    cNpcId = cPickNpcId;
+                }
+            }
 
-            const auto cNpcId = World::Get().GetModSystem().GetGameId(baseId);
             if (cNpcId == 0)
             {
                 spdlog::error("Failed to retrieve NPC, it will not be spawned, possibly missing mod, base: {:X}:{:X}, form: {:X}:{:X}", baseId.BaseId, baseId.ModId, acMessage.FormId.BaseId, acMessage.FormId.ModId);
@@ -1420,10 +1426,16 @@ Actor* CharacterService::CreateCharacterForEntity(entt::entity aEntity) const no
         {
             // Prefer the owner's resolved leveled pick over the lossy template base
             GameId baseId = acMessage.BaseId;
-            if (acMessage.LeveledNpcPickId != GameId{} && World::Get().GetModSystem().GetGameId(acMessage.LeveledNpcPickId) != 0)
-                baseId = acMessage.LeveledNpcPickId;
+            uint32_t cNpcId = World::Get().GetModSystem().GetGameId(baseId);
+            if (acMessage.LeveledNpcPickId != GameId{})
+            {
+                if (const uint32_t cPickNpcId = World::Get().GetModSystem().GetGameId(acMessage.LeveledNpcPickId))
+                {
+                    baseId = acMessage.LeveledNpcPickId;
+                    cNpcId = cPickNpcId;
+                }
+            }
 
-            const uint32_t cNpcId = World::Get().GetModSystem().GetGameId(baseId);
             if (cNpcId == 0)
             {
                 spdlog::error("Failed to retrieve NPC, it will not be spawned, possibly missing mod");

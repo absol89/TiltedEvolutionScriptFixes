@@ -607,6 +607,7 @@ void CharacterService::CreateCharacter(const PacketEvent<AssignCharacterRequest>
     characterComponent.ChangeFlags = message.ChangeFlags;
     characterComponent.SaveBuffer = std::move(message.AppearanceBuffer);
     characterComponent.BaseId = FormIdComponent(message.FormId);
+    // Client-authoritative like BaseId; worst case a forged id changes which NPC identity renders
     characterComponent.LeveledNpcPickId = FormIdComponent(message.LeveledNpcPickId);
     characterComponent.FaceTints = message.FaceTints;
     characterComponent.FactionsContent = message.FactionsContent;
