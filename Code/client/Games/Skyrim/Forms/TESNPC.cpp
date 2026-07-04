@@ -33,6 +33,8 @@ TESNPC* TP_MAKE_THISCALL(HookSetLeveledNpc, TESNPC, TESNPC* apSelectedNpc)
 
     TESNPC* pResult = TiltedPhoques::ThisCall(RealSetLeveledNpc, apThis, pSelected);
 
+    spdlog::info("Leveled resolution: placed base {:X} -> pick {:X}, temp base {:X}", apThis ? apThis->formID : 0, pSelected ? pSelected->formID : 0, pResult ? pResult->formID : 0);
+
     if (pResult && pSelected)
     {
         std::lock_guard lock(s_leveledPicksLock);

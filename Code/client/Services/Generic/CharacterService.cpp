@@ -1294,15 +1294,23 @@ void CharacterService::RequestServerAssignment(const entt::entity aEntity) const
 
     if (pNpc->IsTemporary())
     {
-        if (const uint32_t cPickFormId = TESNPC::GetLeveledPickFormId(pNpc->formID))
+        uint32_t pickFormId = TESNPC::GetLeveledPickFormId(pNpc->formID);
+        if (pickFormId == 0)
         {
-            if (m_world.GetModSystem().GetServerModId(cPickFormId, message.LeveledNpcPickId))
-                spdlog::info("Captured leveled NPC pick {:X} for actor {:X} (temp base {:X})", cPickFormId, pActor->formID, pNpc->formID);
+            // Not every spawn path goes through the hooked resolver; recover from the template chain
+            if (TESNPC* pChainPick = pNpc->GetLeveledPick())
+                pickFormId = pChainPick->formID;
+        }
+
+        if (pickFormId != 0)
+        {
+            if (m_world.GetModSystem().GetServerModId(pickFormId, message.LeveledNpcPickId))
+                spdlog::info("Captured leveled NPC pick {:X} for actor {:X} (temp base {:X})", pickFormId, pActor->formID, pNpc->formID);
             else
-                spdlog::warn("Leveled NPC pick {:X} has no server id, identity sync skipped", cPickFormId);
+                spdlog::warn("Leveled NPC pick {:X} has no server id, identity sync skipped", pickFormId);
         }
         else
-            spdlog::info("No leveled pick recorded for temp base {:X} (actor {:X}), identity sync unavailable", pNpc->formID, pActor->formID);
+            spdlog::info("No leveled pick recoverable for temp base {:X} (actor {:X}), identity sync unavailable", pNpc->formID, pActor->formID);
 
         pNpc = pNpc->GetTemplateBase();
     }
@@ -1528,13 +1536,20 @@ void CharacterService::ApplyLeveledNpcPick(Actor* apActor, const GameId& acPickI
         return;
     }
 
-    if (TESNPC::GetLeveledPickFormId(pBase->formID) == cPickId)
+    uint32_t localPickId = TESNPC::GetLeveledPickFormId(pBase->formID);
+    if (localPickId == 0)
+    {
+        if (TESNPC* pLocalPick = pBase->GetLeveledPick())
+            localPickId = pLocalPick->formID;
+    }
+
+    if (localPickId == cPickId)
     {
         spdlog::info("Leveled actor {:X} already matches owner's pick {:X}", apActor->formID, cPickId);
         return;
     }
 
-    spdlog::info("Conforming leveled actor {:X} (temp base {:X}, local pick {:X}) to owner's pick {:X}", apActor->formID, pBase->formID, TESNPC::GetLeveledPickFormId(pBase->formID), cPickId);
+    spdlog::info("Conforming leveled actor {:X} (temp base {:X}, local pick {:X}) to owner's pick {:X}", apActor->formID, pBase->formID, localPickId, cPickId);
 
     // Re-run the engine's leveled resolution with our pick forced in;
     // disable/enable re-rolls the pick and rebuilds the 3D
