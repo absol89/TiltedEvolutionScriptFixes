@@ -1296,13 +1296,17 @@ void CharacterService::RequestServerAssignment(const entt::entity aEntity) const
 
     if (pNpc->IsTemporary())
     {
-        uint32_t pickFormId = TESNPC::GetLeveledPickFormId(pNpc->formID);
+        // The chain is derived from the live actor and cannot go stale; the
+        // resolver map is keyed by temp ids the engine recycles, and cell
+        // attach bypasses the hook, so a map hit may describe a previous
+        // occupant of this id. Only named leveled NPCs, whose chain hides
+        // the pick, fall back to the map.
+        uint32_t pickFormId = 0;
+        if (TESNPC* pChainPick = pNpc->GetLeveledPick())
+            pickFormId = pChainPick->formID;
+
         if (pickFormId == 0)
-        {
-            // Not every spawn path goes through the hooked resolver; recover from the template chain
-            if (TESNPC* pChainPick = pNpc->GetLeveledPick())
-                pickFormId = pChainPick->formID;
-        }
+            pickFormId = TESNPC::GetLeveledPickFormId(pNpc->formID);
 
         if (pickFormId != 0)
         {
@@ -1538,12 +1542,13 @@ void CharacterService::ApplyLeveledNpcPick(Actor* apActor, const GameId& acPickI
         return;
     }
 
-    uint32_t localPickId = TESNPC::GetLeveledPickFormId(pBase->formID);
+    // Chain first for the same staleness reason as the capture side
+    uint32_t localPickId = 0;
+    if (TESNPC* pLocalPick = pBase->GetLeveledPick())
+        localPickId = pLocalPick->formID;
+
     if (localPickId == 0)
-    {
-        if (TESNPC* pLocalPick = pBase->GetLeveledPick())
-            localPickId = pLocalPick->formID;
-    }
+        localPickId = TESNPC::GetLeveledPickFormId(pBase->formID);
 
     if (localPickId == cPickId)
     {
