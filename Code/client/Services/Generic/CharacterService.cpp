@@ -11,6 +11,7 @@
 #include <Games/Misc/SubtitleManager.h>
 
 #include <Forms/TESNPC.h>
+#include <Interface/UI.h>
 #include <Forms/TESQuest.h>
 
 #include <BranchInfo.h>
@@ -1565,6 +1566,16 @@ void CharacterService::ConformLeveledActor(uint32_t aFormId, uint32_t aPickFormI
     m_world.GetRunner().Queue(
         [this, aFormId, aPickFormId, aRetries]
         {
+            // Never touch references while the loading screen is up - the cell
+            // attach owns them and mutating mid-stream crashes the loader.
+            // Waiting does not consume the retry budget; loads can run long.
+            UI* pUI = UI::Get();
+            if (pUI && pUI->GetMenuOpen(BSFixedString("Loading Menu")))
+            {
+                ConformLeveledActor(aFormId, aPickFormId, aRetries);
+                return;
+            }
+
             Actor* pActor = Cast<Actor>(TESForm::GetById(aFormId));
             TESNPC* pPick = Cast<TESNPC>(TESForm::GetById(aPickFormId));
             if (!pActor || !pPick)
