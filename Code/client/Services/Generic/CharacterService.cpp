@@ -241,6 +241,7 @@ void CharacterService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
     RunRemoteUpdates();
     RunExperienceUpdates();
     ApplyCachedWeaponDraws(acUpdateEvent);
+    ProcessLeveledConforms();
 }
 
 void CharacterService::OnConnected(const ConnectedEvent& acConnectedEvent) const noexcept
@@ -1552,61 +1553,63 @@ void CharacterService::ApplyLeveledNpcPick(Actor* apActor, const GameId& acPickI
 
     spdlog::info("Conforming leveled actor {:X} (temp base {:X}, local pick {:X}) to owner's pick {:X}", apActor->formID, pBase->formID, localPickId, cPickId);
 
-    // The engine does not re-roll a leveled actor on enable (verified in-game),
-    // so re-point the reference at the pick and rebuild the 3D. All mutation is
-    // deferred until the actor's 3D has settled - touching the reference while
-    // the cell attach is still streaming it crashes the loader - and the enable
-    // runs a frame after the disable so the queued teardown cannot swallow the
-    // rebuilt model.
-    ConformLeveledActor(apActor->formID, cPickId, 300);
+    // Never mutate the reference here: this runs from message handlers, while
+    // the cell attach may still own the reference, and queueing to the runner
+    // from a drained task re-locks the drain mutex (UB). The service update
+    // tick applies pending conforms once the world has settled.
+    m_pendingLeveledConforms[apActor->formID] = {cPickId, 300, false};
 }
 
-void CharacterService::ConformLeveledActor(uint32_t aFormId, uint32_t aPickFormId, int32_t aRetries) const noexcept
+void CharacterService::ProcessLeveledConforms() noexcept
 {
-    m_world.GetRunner().Queue(
-        [this, aFormId, aPickFormId, aRetries]
+    if (m_pendingLeveledConforms.empty())
+        return;
+
+    // Never touch references while the loading screen is up - the cell attach
+    // owns them and mutating mid-stream crashes the loader
+    UI* pUI = UI::Get();
+    if (pUI && pUI->GetMenuOpen(BSFixedString("Loading Menu")))
+        return;
+
+    for (auto it = m_pendingLeveledConforms.begin(); it != m_pendingLeveledConforms.end();)
+    {
+        LeveledConformData& conform = it.value();
+
+        Actor* pActor = Cast<Actor>(TESForm::GetById(it->first));
+        TESNPC* pPick = Cast<TESNPC>(TESForm::GetById(conform.PickFormId));
+        if (!pActor || !pPick)
         {
-            // Never touch references while the loading screen is up - the cell
-            // attach owns them and mutating mid-stream crashes the loader.
-            // Waiting does not consume the retry budget; loads can run long.
-            UI* pUI = UI::Get();
-            if (pUI && pUI->GetMenuOpen(BSFixedString("Loading Menu")))
-            {
-                ConformLeveledActor(aFormId, aPickFormId, aRetries);
-                return;
-            }
+            it = m_pendingLeveledConforms.erase(it);
+            continue;
+        }
 
-            Actor* pActor = Cast<Actor>(TESForm::GetById(aFormId));
-            TESNPC* pPick = Cast<TESNPC>(TESForm::GetById(aPickFormId));
-            if (!pActor || !pPick)
-                return;
-
-            if (!pActor->loadedState)
-            {
-                if (aRetries > 0)
-                    ConformLeveledActor(aFormId, aPickFormId, aRetries - 1);
-                else
-                    spdlog::warn("Leveled actor {:X} never finished loading 3D, conform abandoned", aFormId);
-                return;
-            }
-
-            pActor->DisableImpl();
+        if (conform.Disabled)
+        {
+            // Teardown ran last tick; rebuild the 3D from the pick
             pActor->baseForm = pPick;
+            pActor->EnableImpl();
+            spdlog::info("Re-enabled conformed leveled actor {:X}, base {:X}", it->first, conform.PickFormId);
+            it = m_pendingLeveledConforms.erase(it);
+            continue;
+        }
 
-            m_world.GetRunner().Queue(
-                [aFormId]
-                {
-                    Actor* pEnableActor = Cast<Actor>(TESForm::GetById(aFormId));
-                    if (!pEnableActor)
-                    {
-                        spdlog::warn("Leveled actor {:X} vanished before re-enable", aFormId);
-                        return;
-                    }
+        if (!pActor->loadedState)
+        {
+            if (--conform.RetriesLeft <= 0)
+            {
+                spdlog::warn("Leveled actor {:X} never finished loading 3D, conform abandoned", it->first);
+                it = m_pendingLeveledConforms.erase(it);
+                continue;
+            }
 
-                    pEnableActor->EnableImpl();
-                    spdlog::info("Re-enabled conformed leveled actor {:X}, base {:X}", aFormId, pEnableActor->baseForm ? pEnableActor->baseForm->formID : 0);
-                });
-        });
+            ++it;
+            continue;
+        }
+
+        pActor->DisableImpl();
+        conform.Disabled = true;
+        ++it;
+    }
 }
 
 void CharacterService::RunLocalUpdates() const noexcept
