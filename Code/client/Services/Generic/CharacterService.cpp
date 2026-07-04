@@ -1551,12 +1551,26 @@ void CharacterService::ApplyLeveledNpcPick(Actor* apActor, const GameId& acPickI
 
     spdlog::info("Conforming leveled actor {:X} (temp base {:X}, local pick {:X}) to owner's pick {:X}", apActor->formID, pBase->formID, localPickId, cPickId);
 
-    // Re-run the engine's leveled resolution with our pick forced in;
-    // disable/enable re-rolls the pick and rebuilds the 3D
-    TESNPC::SetForcedLeveledPick(pPick);
+    // The engine does not re-roll a leveled actor on enable (verified in-game),
+    // so point the reference at the pick directly and rebuild the 3D. The
+    // enable must run a frame after the disable, or the queued 3D teardown
+    // swallows the rebuilt model and the actor stays invisible.
+    apActor->baseForm = pPick;
     apActor->DisableImpl();
-    apActor->EnableImpl();
-    TESNPC::SetForcedLeveledPick(nullptr);
+
+    World::Get().GetRunner().Queue(
+        [cFormId = apActor->formID]
+        {
+            Actor* pActor = Cast<Actor>(TESForm::GetById(cFormId));
+            if (!pActor)
+            {
+                spdlog::warn("Leveled actor {:X} vanished before re-enable", cFormId);
+                return;
+            }
+
+            pActor->EnableImpl();
+            spdlog::info("Re-enabled conformed leveled actor {:X}, base {:X}", cFormId, pActor->baseForm ? pActor->baseForm->formID : 0);
+        });
 }
 
 void CharacterService::RunLocalUpdates() const noexcept

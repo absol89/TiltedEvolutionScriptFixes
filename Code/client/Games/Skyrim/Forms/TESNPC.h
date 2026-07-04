@@ -31,7 +31,6 @@ struct TESNPC : TESActorBase
     }
 
     static uint32_t GetLeveledPickFormId(uint32_t aTempNpcFormId) noexcept;
-    static void SetForcedLeveledPick(TESNPC* apPick) noexcept;
 
     // Best-effort pick recovery for temp bases the hooked resolver never saw
     // (some engine spawn paths bypass fn 14375, e.g. live cell attach): the

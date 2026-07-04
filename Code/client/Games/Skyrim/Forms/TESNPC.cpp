@@ -14,39 +14,19 @@ static TSetLeveledNpc* RealSetLeveledNpc = nullptr;
 static std::mutex s_leveledPicksLock;
 static TiltedPhoques::Map<uint32_t, uint32_t> s_leveledPicks;
 
-// Substituted for the engine's random roll while a remote correction
-// re-resolves an actor (set around DisableImpl/EnableImpl by the applier).
-// thread_local scopes it to resolutions made synchronously inside that
-// enable call; consumed one-shot so a batched neighbor resolution in the
-// same window cannot inherit it.
-static thread_local TESNPC* s_pForcedLeveledPick = nullptr;
-
 TESNPC* TP_MAKE_THISCALL(HookSetLeveledNpc, TESNPC, TESNPC* apSelectedNpc)
 {
-    TESNPC* pSelected = apSelectedNpc;
+    TESNPC* pResult = TiltedPhoques::ThisCall(RealSetLeveledNpc, apThis, apSelectedNpc);
 
-    if (s_pForcedLeveledPick)
-    {
-        pSelected = s_pForcedLeveledPick;
-        s_pForcedLeveledPick = nullptr;
-    }
+    spdlog::debug("Leveled resolution: placed base {:X} -> pick {:X}, temp base {:X}", apThis ? apThis->formID : 0, apSelectedNpc ? apSelectedNpc->formID : 0, pResult ? pResult->formID : 0);
 
-    TESNPC* pResult = TiltedPhoques::ThisCall(RealSetLeveledNpc, apThis, pSelected);
-
-    spdlog::info("Leveled resolution: placed base {:X} -> pick {:X}, temp base {:X}", apThis ? apThis->formID : 0, pSelected ? pSelected->formID : 0, pResult ? pResult->formID : 0);
-
-    if (pResult && pSelected)
+    if (pResult && apSelectedNpc)
     {
         std::lock_guard lock(s_leveledPicksLock);
-        s_leveledPicks[pResult->formID] = pSelected->formID;
+        s_leveledPicks[pResult->formID] = apSelectedNpc->formID;
     }
 
     return pResult;
-}
-
-void TESNPC::SetForcedLeveledPick(TESNPC* apPick) noexcept
-{
-    s_pForcedLeveledPick = apPick;
 }
 
 uint32_t TESNPC::GetLeveledPickFormId(uint32_t aTempNpcFormId) noexcept
