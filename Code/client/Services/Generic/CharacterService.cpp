@@ -1552,24 +1552,49 @@ void CharacterService::ApplyLeveledNpcPick(Actor* apActor, const GameId& acPickI
     spdlog::info("Conforming leveled actor {:X} (temp base {:X}, local pick {:X}) to owner's pick {:X}", apActor->formID, pBase->formID, localPickId, cPickId);
 
     // The engine does not re-roll a leveled actor on enable (verified in-game),
-    // so point the reference at the pick directly and rebuild the 3D. The
-    // enable must run a frame after the disable, or the queued 3D teardown
-    // swallows the rebuilt model and the actor stays invisible.
-    apActor->baseForm = pPick;
-    apActor->DisableImpl();
+    // so re-point the reference at the pick and rebuild the 3D. All mutation is
+    // deferred until the actor's 3D has settled - touching the reference while
+    // the cell attach is still streaming it crashes the loader - and the enable
+    // runs a frame after the disable so the queued teardown cannot swallow the
+    // rebuilt model.
+    ConformLeveledActor(apActor->formID, cPickId, 300);
+}
 
-    World::Get().GetRunner().Queue(
-        [cFormId = apActor->formID]
+void CharacterService::ConformLeveledActor(uint32_t aFormId, uint32_t aPickFormId, int32_t aRetries) const noexcept
+{
+    m_world.GetRunner().Queue(
+        [this, aFormId, aPickFormId, aRetries]
         {
-            Actor* pActor = Cast<Actor>(TESForm::GetById(cFormId));
-            if (!pActor)
+            Actor* pActor = Cast<Actor>(TESForm::GetById(aFormId));
+            TESNPC* pPick = Cast<TESNPC>(TESForm::GetById(aPickFormId));
+            if (!pActor || !pPick)
+                return;
+
+            if (!pActor->loadedState)
             {
-                spdlog::warn("Leveled actor {:X} vanished before re-enable", cFormId);
+                if (aRetries > 0)
+                    ConformLeveledActor(aFormId, aPickFormId, aRetries - 1);
+                else
+                    spdlog::warn("Leveled actor {:X} never finished loading 3D, conform abandoned", aFormId);
                 return;
             }
 
-            pActor->EnableImpl();
-            spdlog::info("Re-enabled conformed leveled actor {:X}, base {:X}", cFormId, pActor->baseForm ? pActor->baseForm->formID : 0);
+            pActor->DisableImpl();
+            pActor->baseForm = pPick;
+
+            m_world.GetRunner().Queue(
+                [aFormId]
+                {
+                    Actor* pEnableActor = Cast<Actor>(TESForm::GetById(aFormId));
+                    if (!pEnableActor)
+                    {
+                        spdlog::warn("Leveled actor {:X} vanished before re-enable", aFormId);
+                        return;
+                    }
+
+                    pEnableActor->EnableImpl();
+                    spdlog::info("Re-enabled conformed leveled actor {:X}, base {:X}", aFormId, pEnableActor->baseForm ? pEnableActor->baseForm->formID : 0);
+                });
         });
 }
 
