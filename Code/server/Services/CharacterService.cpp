@@ -226,6 +226,9 @@ void CharacterService::OnAssignCharacterRequest(const PacketEvent<AssignCharacte
                 // Transfer ownership if owning player is in the same party as the owner
                 if (std::find(pParty->Members.begin(), pParty->Members.end(), pOwningPlayer) != pParty->Members.end())
                 {
+                    // The new owner's roll becomes authoritative for the leveled pick;
+                    // empty means unknown, in which case nobody should conform
+                    characterComponent.LeveledNpcPickId = FormIdComponent(message.LeveledNpcPickId);
                     TransferOwnership(acMessage.pPlayer, World::ToInteger(*itor), acMessage.Packet.CurrentActorData);
                     isOwner = true;
                 }
@@ -754,6 +757,12 @@ void CharacterService::BroadcastActorData(Player* apPlayer, const entt::entity a
     NotifySpawnData notifySpawnData;
     notifySpawnData.Id = World::ToInteger(acEntity);
     notifySpawnData.NewActorData = acActorData;
+
+    if (const auto* pCharacterComponent = m_world.try_get<CharacterComponent>(acEntity))
+    {
+        if (pCharacterComponent->LeveledNpcPickId)
+            notifySpawnData.LeveledNpcPickId = pCharacterComponent->LeveledNpcPickId.Id;
+    }
 
     GameServer::Get()->SendToPlayersInRange(notifySpawnData, acEntity, apPlayer);
 }

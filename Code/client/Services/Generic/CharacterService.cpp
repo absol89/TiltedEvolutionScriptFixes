@@ -566,6 +566,10 @@ void CharacterService::OnRemoteSpawnDataReceived(const NotifySpawnData& acMessag
         acMessage.NewActorData.IsDead ? pActor->Kill() : pActor->Respawn();
 
     spdlog::info("Applied remote spawn data, actor form id: {:X}", pActor->formID);
+
+    // Ownership transfers make the new owner's leveled pick authoritative;
+    // the demoted owner conforms like any other remote client
+    ApplyLeveledNpcPick(pActor, acMessage.LeveledNpcPickId);
 }
 
 void CharacterService::OnReferencesMoveRequest(const ServerReferencesMoveRequest& acMessage) const noexcept
