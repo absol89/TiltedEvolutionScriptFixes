@@ -250,7 +250,7 @@ void CharacterService::OnAssignCharacterRequest(const PacketEvent<AssignCharacte
             if (characterComponent.LeveledNpcPickId)
             {
                 response.LeveledNpcPickId = characterComponent.LeveledNpcPickId.Id;
-                spdlog::info("Relaying leveled NPC pick {:x}:{:x} for server id {:X} to {:x}", response.LeveledNpcPickId.ModId, response.LeveledNpcPickId.BaseId, response.ServerId, acMessage.pPlayer->GetConnectionId());
+                spdlog::debug("Relaying leveled NPC pick {:x}:{:x} for server id {:X} to {:x}", response.LeveledNpcPickId.ModId, response.LeveledNpcPickId.BaseId, response.ServerId, acMessage.pPlayer->GetConnectionId());
             }
 
             if (auto* pAnimationComponent = m_world.try_get<AnimationComponent>(*itor))
@@ -620,7 +620,7 @@ void CharacterService::CreateCharacter(const PacketEvent<AssignCharacterRequest>
     characterComponent.LeveledNpcPickId = FormIdComponent(message.LeveledNpcPickId);
 
     if (characterComponent.LeveledNpcPickId)
-        spdlog::info("Stored leveled NPC pick {:x}:{:x} for FormId {:x}:{:x}", message.LeveledNpcPickId.ModId, message.LeveledNpcPickId.BaseId, gameId.ModId, gameId.BaseId);
+        spdlog::debug("Stored leveled NPC pick {:x}:{:x} for FormId {:x}:{:x}", message.LeveledNpcPickId.ModId, message.LeveledNpcPickId.BaseId, gameId.ModId, gameId.BaseId);
     characterComponent.FaceTints = message.FaceTints;
     characterComponent.FactionsContent = message.FactionsContent;
     characterComponent.SetDead(message.CurrentActorData.IsDead);
