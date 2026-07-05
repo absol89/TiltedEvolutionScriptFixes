@@ -100,6 +100,8 @@ private:
 
     Actor* CreateCharacterForEntity(entt::entity aEntity) const noexcept;
     ActorData BuildActorData(Actor* apActor) const noexcept;
+    void ApplyLeveledNpcPick(Actor* apActor, const GameId& acPickId) const noexcept;
+    void ProcessLeveledConforms() noexcept;
 
     void RunLocalUpdates() const noexcept;
     void RunRemoteUpdates() noexcept;
@@ -129,6 +131,16 @@ private:
     };
 
     Map<uint32_t, WeaponDrawData> m_weaponDrawUpdates{};
+
+    struct LeveledConformData
+    {
+        uint32_t PickFormId{};
+        int32_t RetriesLeft{};
+        bool Disabled{};
+    };
+
+    // Written from const message handlers, drained by ProcessLeveledConforms
+    mutable Map<uint32_t, LeveledConformData> m_pendingLeveledConforms{};
 
     entt::scoped_connection m_referenceAddedConnection;
     entt::scoped_connection m_referenceRemovedConnection;

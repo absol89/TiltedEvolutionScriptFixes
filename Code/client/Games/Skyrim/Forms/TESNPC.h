@@ -30,6 +30,31 @@ struct TESNPC : TESActorBase
         return pTemplate;
     }
 
+    static uint32_t GetLeveledPickFormId(uint32_t aTempNpcFormId) noexcept;
+
+    // Best-effort pick recovery for temp bases the hooked resolver never saw
+    // (some engine spawn paths bypass fn 14375, e.g. live cell attach): the
+    // first static NPC in the template chain is the pick - unless it is the
+    // placed shell itself, recognizable by templating off a leveled list.
+    // Chain entries can be TESLevCharacter posing as TESNPC*, whose layout is
+    // too small to hold npcTemplate - hence the formType guards.
+    TESNPC* GetLeveledPick() const noexcept
+    {
+        TESNPC* pTemplate = npcTemplate;
+
+        while (pTemplate && pTemplate->formType == FormType::Npc && pTemplate->IsTemporary())
+            pTemplate = pTemplate->npcTemplate;
+
+        if (!pTemplate || pTemplate->formType != FormType::Npc)
+            return nullptr;
+
+        TESNPC* pShellTemplate = pTemplate->npcTemplate;
+        if (pShellTemplate && pShellTemplate->formType == FormType::LeveledCharacter)
+            return nullptr;
+
+        return pTemplate;
+    }
+
     struct FaceMorphs
     {
         float option[19];
