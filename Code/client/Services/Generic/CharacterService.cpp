@@ -1597,6 +1597,15 @@ void CharacterService::ProcessLeveledConforms() noexcept
             // Teardown ran last tick; rebuild the 3D from the pick
             pActor->baseForm = pPick;
             pActor->EnableImpl();
+
+            // The animation sync caches the graph descriptor per actor. A pick that
+            // crosses animation projects (rabbit -> fox) keeps the old project's
+            // variable indices, and every remote update then scribbles the owner's
+            // values through them into the new graph's variable set - the OOB
+            // variable-index crash. Zero it so the next sync tick recomputes it
+            // from the rebuilt graph, like the werewolf/vampire lord transforms do.
+            pActor->GetExtension()->GraphDescriptorHash = 0;
+
             spdlog::info("Re-enabled conformed leveled actor {:X}, base {:X}", it->first, conform.PickFormId);
             it = m_pendingLeveledConforms.erase(it);
             continue;
