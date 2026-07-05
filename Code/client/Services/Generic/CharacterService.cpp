@@ -285,6 +285,8 @@ void CharacterService::OnDisconnected(const DisconnectedEvent& acDisconnectedEve
     }
 
     m_world.clear<WaitingForAssignmentComponent, LocalComponent, RemoteComponent>();
+
+    m_pendingLeveledConforms.clear();
 }
 
 void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessage) noexcept
@@ -1520,16 +1522,38 @@ ActorData CharacterService::BuildActorData(Actor* apActor) const noexcept
     return actorData;
 }
 
+// A static base still templating onto a leveled list is the placed shell:
+// the local engine has not rolled this actor yet. Shells have no model of
+// their own - such actors render invisible or headless until conformed.
+static bool IsUnresolvedLeveledShell(const TESNPC* apBase) noexcept
+{
+    if (!apBase || apBase->IsTemporary())
+        return false;
+
+    const TESNPC* pTemplate = apBase->npcTemplate;
+    return pTemplate && pTemplate->formType == FormType::LeveledCharacter;
+}
+
 void CharacterService::ApplyLeveledNpcPick(Actor* apActor, const GameId& acPickId) const noexcept
 {
     if (acPickId == GameId{})
         return;
 
     TESNPC* pBase = Cast<TESNPC>(apActor->baseForm);
-    if (!pBase || !pBase->IsTemporary())
-    {
-        spdlog::info("Leveled pick {:x}:{:x} received for actor {:X} whose base is not a leveled temp, skipping", acPickId.ModId, acPickId.BaseId, apActor->formID);
+    if (!pBase)
         return;
+
+    if (!pBase->IsTemporary())
+    {
+        // Conforming a shell is exactly what resolution would have done; any
+        // other static base is an already conformed actor.
+        if (!IsUnresolvedLeveledShell(pBase))
+        {
+            spdlog::info("Leveled pick {:x}:{:x} received for actor {:X} whose base is not a leveled temp, skipping", acPickId.ModId, acPickId.BaseId, apActor->formID);
+            return;
+        }
+
+        spdlog::info("Actor {:X} still carries unresolved shell base {:X}, conforming to owner's pick", apActor->formID, pBase->formID);
     }
 
     const uint32_t cPickId = World::Get().GetModSystem().GetGameId(acPickId);
@@ -1566,7 +1590,7 @@ void CharacterService::ApplyLeveledNpcPick(Actor* apActor, const GameId& acPickI
     // the cell attach may still own the reference, and queueing to the runner
     // from a drained task re-locks the drain mutex (UB). The service update
     // tick applies pending conforms once the world has settled.
-    m_pendingLeveledConforms[apActor->formID] = {cPickId, 300, false};
+    m_pendingLeveledConforms[apActor->formID] = {cPickId, false};
 }
 
 void CharacterService::ProcessLeveledConforms() noexcept
@@ -1611,15 +1635,12 @@ void CharacterService::ProcessLeveledConforms() noexcept
             continue;
         }
 
-        if (!pActor->loadedState)
+        if (!pActor->loadedState && !IsUnresolvedLeveledShell(Cast<TESNPC>(pActor->baseForm)))
         {
-            if (--conform.RetriesLeft <= 0)
-            {
-                spdlog::warn("Leveled actor {:X} never finished loading 3D, conform abandoned", it->first);
-                it = m_pendingLeveledConforms.erase(it);
-                continue;
-            }
-
+            // Distant actors stream their 3D in whenever the player approaches -
+            // possibly minutes later. Stay pending until then; a newer pick
+            // overwrites this entry and a disconnect clears the map. Shell-based
+            // actors are exempt: they have no model to load until conformed.
             ++it;
             continue;
         }

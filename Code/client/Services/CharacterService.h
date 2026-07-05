@@ -135,7 +135,6 @@ private:
     struct LeveledConformData
     {
         uint32_t PickFormId{};
-        int32_t RetriesLeft{};
         bool Disabled{};
     };
 
