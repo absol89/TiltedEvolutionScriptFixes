@@ -2,6 +2,7 @@
 
 #include "Message.h"
 #include <Structs/ActorData.h>
+#include <Structs/GameId.h>
 
 struct NotifySpawnData final : ServerMessage
 {
@@ -17,9 +18,10 @@ struct NotifySpawnData final : ServerMessage
 
     bool operator==(const NotifySpawnData& acRhs) const noexcept
     {
-        return GetOpcode() == acRhs.GetOpcode() && Id == acRhs.Id && NewActorData == acRhs.NewActorData;
+        return GetOpcode() == acRhs.GetOpcode() && Id == acRhs.Id && NewActorData == acRhs.NewActorData && LeveledNpcPickId == acRhs.LeveledNpcPickId;
     }
 
     uint32_t Id{};
     ActorData NewActorData{};
+    GameId LeveledNpcPickId{};
 };

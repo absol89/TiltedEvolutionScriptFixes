@@ -106,6 +106,11 @@ void CharacterService::Serialize(World& aRegistry, entt::entity aEntity, Charact
         apSpawnRequest->BaseId = characterComponent.BaseId.Id;
     }
 
+    if (characterComponent.LeveledNpcPickId)
+    {
+        apSpawnRequest->LeveledNpcPickId = characterComponent.LeveledNpcPickId.Id;
+    }
+
     const auto* pMovementComponent = aRegistry.try_get<MovementComponent>(aEntity);
     if (pMovementComponent)
     {
@@ -221,6 +226,9 @@ void CharacterService::OnAssignCharacterRequest(const PacketEvent<AssignCharacte
                 // Transfer ownership if owning player is in the same party as the owner
                 if (std::find(pParty->Members.begin(), pParty->Members.end(), pOwningPlayer) != pParty->Members.end())
                 {
+                    // The new owner's roll becomes authoritative for the leveled pick;
+                    // empty means unknown, in which case nobody should conform
+                    characterComponent.LeveledNpcPickId = FormIdComponent(message.LeveledNpcPickId);
                     TransferOwnership(acMessage.pPlayer, World::ToInteger(*itor), acMessage.Packet.CurrentActorData);
                     isOwner = true;
                 }
@@ -238,6 +246,12 @@ void CharacterService::OnAssignCharacterRequest(const PacketEvent<AssignCharacte
             response.Position = movementComponent.Position;
             response.CellId = cellIdComponent.Cell;
             response.WorldSpaceId = cellIdComponent.WorldSpaceId;
+
+            if (characterComponent.LeveledNpcPickId)
+            {
+                response.LeveledNpcPickId = characterComponent.LeveledNpcPickId.Id;
+                spdlog::debug("Relaying leveled NPC pick {:x}:{:x} for server id {:X} to {:x}", response.LeveledNpcPickId.ModId, response.LeveledNpcPickId.BaseId, response.ServerId, acMessage.pPlayer->GetConnectionId());
+            }
 
             if (auto* pAnimationComponent = m_world.try_get<AnimationComponent>(*itor))
             {
@@ -602,6 +616,11 @@ void CharacterService::CreateCharacter(const PacketEvent<AssignCharacterRequest>
     characterComponent.ChangeFlags = message.ChangeFlags;
     characterComponent.SaveBuffer = std::move(message.AppearanceBuffer);
     characterComponent.BaseId = FormIdComponent(message.FormId);
+    // Client-authoritative like BaseId; worst case a forged id changes which NPC identity renders
+    characterComponent.LeveledNpcPickId = FormIdComponent(message.LeveledNpcPickId);
+
+    if (characterComponent.LeveledNpcPickId)
+        spdlog::debug("Stored leveled NPC pick {:x}:{:x} for FormId {:x}:{:x}", message.LeveledNpcPickId.ModId, message.LeveledNpcPickId.BaseId, gameId.ModId, gameId.BaseId);
     characterComponent.FaceTints = message.FaceTints;
     characterComponent.FactionsContent = message.FactionsContent;
     characterComponent.SetDead(message.CurrentActorData.IsDead);
@@ -738,6 +757,12 @@ void CharacterService::BroadcastActorData(Player* apPlayer, const entt::entity a
     NotifySpawnData notifySpawnData;
     notifySpawnData.Id = World::ToInteger(acEntity);
     notifySpawnData.NewActorData = acActorData;
+
+    if (const auto* pCharacterComponent = m_world.try_get<CharacterComponent>(acEntity))
+    {
+        if (pCharacterComponent->LeveledNpcPickId)
+            notifySpawnData.LeveledNpcPickId = pCharacterComponent->LeveledNpcPickId.Id;
+    }
 
     GameServer::Get()->SendToPlayersInRange(notifySpawnData, acEntity, apPlayer);
 }

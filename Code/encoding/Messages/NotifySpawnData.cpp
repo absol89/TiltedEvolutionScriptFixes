@@ -4,6 +4,7 @@ void NotifySpawnData::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) const
 {
     Serialization::WriteVarInt(aWriter, Id);
     NewActorData.Serialize(aWriter);
+    LeveledNpcPickId.Serialize(aWriter);
 }
 
 void NotifySpawnData::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) noexcept
@@ -12,4 +13,5 @@ void NotifySpawnData::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) noe
 
     Id = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
     NewActorData.Deserialize(aReader);
+    LeveledNpcPickId.Deserialize(aReader);
 }
