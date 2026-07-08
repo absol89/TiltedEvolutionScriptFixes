@@ -25,6 +25,7 @@
 #include <EquipManager.h>
 #include <Games/ActorExtension.h>
 #include <Forms/TESNPC.h>
+#include <Forms/TESObjectARMO.h>
 #include <Forms/BGSOutfit.h>
 #include <DefaultObjectManager.h>
 
