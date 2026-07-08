@@ -352,7 +352,24 @@ void InventoryService::RunNakedNPCBugChecks() noexcept
 
         if (pActor->GetExtension()->IsRemote())
         {
-            spdlog::debug(__FUNCTION__ ": actorId {:X} naked check canceled, IsRemote(), {}", pActor->formID, pActor->baseForm->GetName());
+            // DIAG (naked-NPC investigation): confirm hypothesis that the naked NPCs the player
+            // sees are Remote and therefore skipped by this backstop, which only re-dresses
+            // locally-owned actors. Logs once per actor, then clears the flag if it later gets
+            // dressed. Remove once the root cause is confirmed/fixed.
+            if (!pActor->IsWearingBodyPiece() && pActor->ShouldWearBodyPiece())
+            {
+                if (!pActor->GetExtension()->nakedLogged)
+                {
+                    pActor->GetExtension()->nakedLogged = true;
+                    spdlog::warn(__FUNCTION__ ": actorId {:X} NAKED + IsRemote -> backstop SKIPS redress (only dresses local-owned NPCs) {}",
+                        pActor->formID, pActor->baseForm ? pActor->baseForm->GetName() : "<no base>");
+                }
+            }
+            else
+            {
+                pActor->GetExtension()->nakedLogged = false;
+                spdlog::debug(__FUNCTION__ ": actorId {:X} naked check canceled, IsRemote(), {}", pActor->formID, pActor->baseForm->GetName());
+            }
             continue;
         }
 

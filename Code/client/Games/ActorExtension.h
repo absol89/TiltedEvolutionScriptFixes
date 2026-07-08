@@ -22,6 +22,7 @@ struct ActorExtension
     ActionEvent LatestAnimation{};
     size_t GraphDescriptorHash = 0;
     std::chrono::steady_clock::time_point nakedDeadline{};
+    bool nakedLogged = false;  // DIAG: logs a naked+Remote actor once; cleared when dressed
 
   private:
     uint32_t onlineFlags{0};
