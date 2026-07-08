@@ -33,6 +33,10 @@ InventoryService::InventoryService(World& aWorld, entt::dispatcher& aDispatcher,
     , m_dispatcher(aDispatcher)
     , m_transport(aTransport)
 {
+    // DIAG self-id banner: proves which binary produced a log. Only the naked-NPC diagnostic
+    // build prints this. Remove with the rest of the diagnostic.
+    spdlog::warn("DIAG naked-npc build active (commit 39efc368+): will log 'NAKED + IsRemote' once per remote naked NPC and track local redress.");
+
     m_updateConnection = m_dispatcher.sink<UpdateEvent>().connect<&InventoryService::OnUpdate>(this);
     m_inventoryConnection = m_dispatcher.sink<InventoryChangeEvent>().connect<&InventoryService::OnInventoryChangeEvent>(this);
     m_equipmentConnection = m_dispatcher.sink<EquipmentChangeEvent>().connect<&InventoryService::OnEquipmentChangeEvent>(this);
@@ -378,8 +382,11 @@ void InventoryService::RunNakedNPCBugChecks() noexcept
         TESNPC* pBase = Cast<TESNPC>(pActor->baseForm);
         if (!pActor->IsWearingBodyPiece() && pBase)
         {
-            spdlog::warn(__FUNCTION__ ": actorId {:X} naked check fires {}", pActor->formID, pActor->baseForm->GetName());
+            spdlog::warn(__FUNCTION__ ": actorId {:X} naked check fires {} (local-owned redress)", pActor->formID, pActor->baseForm->GetName());
             pActor->EquipOutfit();
+            // DIAG: did the redress take? If still naked, EquipOutfit didn't stick (race / missing outfit items).
+            if (!pActor->IsWearingBodyPiece())
+                spdlog::warn(__FUNCTION__ ": actorId {:X} STILL NAKED after EquipOutfit {} (local-owned)", pActor->formID, pActor->baseForm->GetName());
         }
     }
 }
