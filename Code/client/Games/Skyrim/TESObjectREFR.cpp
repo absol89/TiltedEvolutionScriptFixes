@@ -202,7 +202,7 @@ void TESObjectREFR::SaveAnimationVariables(AnimationVariables& aVariables) const
             {
                 const auto idx = pDescriptor->BooleanLookUpTable[i];
 
-                if (pVariableSet->data[idx] != 0)
+                if (pVariableSet->size > idx && pVariableSet->data[idx] != 0)
                     aVariables.Booleans[i] = true;
             }
 
@@ -210,14 +210,16 @@ void TESObjectREFR::SaveAnimationVariables(AnimationVariables& aVariables) const
             {
                 const auto idx = pDescriptor->FloatLookupTable[i];
 
-                aVariables.Floats[i] = *reinterpret_cast<float*>(&pVariableSet->data[idx]);
+                if (pVariableSet->size > idx)
+                    aVariables.Floats[i] = *reinterpret_cast<float*>(&pVariableSet->data[idx]);
             }
 
             for (size_t i = 0; i < pDescriptor->IntegerLookupTable.size(); ++i)
             {
                 const auto idx = pDescriptor->IntegerLookupTable[i];
 
-                aVariables.Integers[i] = *reinterpret_cast<uint32_t*>(&pVariableSet->data[idx]);
+                if (pVariableSet->size > idx)
+                    aVariables.Integers[i] = *reinterpret_cast<uint32_t*>(&pVariableSet->data[idx]);
             }
         }
 
@@ -278,14 +280,20 @@ void TESObjectREFR::LoadAnimationVariables(const AnimationVariables& aVariables)
             {
                 const auto idx = pDescriptor->FloatLookupTable[i];
 
-                *reinterpret_cast<float*>(&pVariableSet->data[idx]) = aVariables.Floats.size() > i ? aVariables.Floats[i] : 0.f;
+                if (pVariableSet->size > idx)
+                {
+                    *reinterpret_cast<float*>(&pVariableSet->data[idx]) = aVariables.Floats.size() > i ? aVariables.Floats[i] : 0.f;
+                }
             }
 
             for (size_t i = 0; i < pDescriptor->IntegerLookupTable.size(); ++i)
             {
                 const auto idx = pDescriptor->IntegerLookupTable[i];
 
-                *reinterpret_cast<uint32_t*>(&pVariableSet->data[idx]) = aVariables.Integers.size() > i ? aVariables.Integers[i] : 0;
+                if (pVariableSet->size > idx)
+                {
+                    *reinterpret_cast<uint32_t*>(&pVariableSet->data[idx]) = aVariables.Integers.size() > i ? aVariables.Integers[i] : 0;
+                }
             }
         }
 
