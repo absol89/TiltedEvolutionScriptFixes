@@ -234,6 +234,11 @@ void PlayerService::RunRespawnUpdates(const double acDeltaTime) noexcept
         m_knockdownTimer = 1.5;
         m_knockdownStart = true;
 
+        // Some respawns can miss the immediate knockdown recovery path, especially exterior fallback
+        // cases like issue #878. Queue a delayed knockdown attempt to keep the player from staying stuck.
+        m_fallbackKnockdownStart = true;
+        m_fallbackKnockdownTimer = 3.0;
+
         m_transport.Send(PlayerRespawnRequest());
 
         s_startTimer = false;
@@ -256,6 +261,18 @@ void PlayerService::RunPostDeathUpdates(const double acDeltaTime) noexcept
 {
     if (!m_isDeathSystemEnabled)
         return;
+
+    // Count down the fallback timer started after respawn before trying the delayed unstuck knockdown.
+    if (m_fallbackKnockdownTimer > 0.0)
+    {
+        m_fallbackKnockdownTimer -= acDeltaTime;
+    }
+    else if (m_fallbackKnockdownTimer <= 0.0 && m_fallbackKnockdownStart)
+    {
+        m_fallbackKnockdownTimer = 0.0;
+        m_knockdownStart = true;
+        m_fallbackKnockdownStart = false;
+    }
 
     // If a player dies in ragdoll, it gets stuck.
     // This code ragdolls the player again upon respawning.

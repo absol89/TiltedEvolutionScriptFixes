@@ -70,6 +70,9 @@ private:
     bool m_godmodeStart = false;
     double m_godmodeTimer = 0.0;
 
+    bool m_fallbackKnockdownStart = false;
+    double m_fallbackKnockdownTimer = 0.0;
+
     uint32_t m_cachedMainSpellId = 0;
     uint32_t m_cachedSecondarySpellId = 0;
     uint32_t m_cachedPowerId = 0;
