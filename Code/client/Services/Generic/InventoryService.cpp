@@ -384,9 +384,35 @@ void InventoryService::RunNakedNPCBugChecks() noexcept
         {
             spdlog::warn(__FUNCTION__ ": actorId {:X} naked check fires {} (local-owned redress)", pActor->formID, pActor->baseForm->GetName());
             pActor->EquipOutfit();
-            // DIAG: did the redress take? If still naked, EquipOutfit didn't stick (race / missing outfit items).
+            // DIAG: did the redress take? If still naked, EquipOutfit didn't stick. Drill into WHY:
+            // - inventory may be missing the outfit's body piece (EquipManager::Equip no-ops on items not in inventory)
+            // - or ShouldWearBodyPiece() is false (no default outfit)
             if (!pActor->IsWearingBodyPiece())
-                spdlog::warn(__FUNCTION__ ": actorId {:X} STILL NAKED after EquipOutfit {} (local-owned)", pActor->formID, pActor->baseForm->GetName());
+            {
+                const bool shouldWear = pActor->ShouldWearBodyPiece();
+                const auto inv = pActor->GetActorInventory();
+                const size_t invCount = inv.Entries.size();
+                // Find the default outfit's body piece (IsBodyPiece flag) and whether it's present in inventory.
+                TESNPC* pNpcBase = Cast<TESNPC>(pActor->baseForm);
+                uint32_t bodyPieceFormId = 0;
+                if (pNpcBase && pNpcBase->outfits[0])
+                {
+                    for (auto* pItem : pNpcBase->outfits[0]->outfitItems)
+                    {
+                        TESObjectARMO* pArmor = (pItem->formType == FormType::Armor) ? Cast<TESObjectARMO>(pItem) : nullptr;
+                        if (pArmor && pArmor->IsBodyPiece())
+                            bodyPieceFormId = pArmor->formID;
+                    }
+                }
+                bool bodyPieceInInv = false;
+                if (bodyPieceFormId != 0)
+                {
+                    GameId id{0, bodyPieceFormId};  // ModId 0 for base-game armor
+                    bodyPieceInInv = inv.GetEntryById(id).has_value();
+                }
+                spdlog::warn(__FUNCTION__ ": actorId {:X} STILL NAKED after EquipOutfit {} (local-owned) shouldWear={} invEntries={} bodyPiece={:X} bodyPieceInInv={}",
+                    pActor->formID, pActor->baseForm->GetName(), shouldWear, invCount, bodyPieceFormId, bodyPieceInInv);
+            }
         }
     }
 }

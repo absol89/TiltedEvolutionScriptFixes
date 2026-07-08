@@ -325,6 +325,11 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
         return;
     }
 
+    // DIAG (naked-NPC): snapshot body-piece state at the moment this actor becomes locally owned.
+    // Catches whether clothes are already missing when assignment completes (root-cause probe).
+    spdlog::warn("DIAG OnAssignCharacter: actorId {:X} {} becomes LOCAL, wearingBodyPiece={}",
+        pActor->formID, pActor->baseForm ? pActor->baseForm->GetName() : "<no base>", pActor->IsWearingBodyPiece());
+
     // TODO: how could this possibly trigger?
     // it's kinda interfering with my WaitingFor3D code
     if (acMessage.PlayerId != 0)
@@ -1426,6 +1431,11 @@ void CharacterService::CancelServerAssignment(const entt::entity aEntity, const 
 {
     Actor* pActor = Cast<Actor>(TESForm::GetById(aFormId));
     const char* pName = !pActor ? "" : pActor->baseForm->GetName();
+
+    // DIAG (naked-NPC): snapshot body-piece state before this actor flips ownership (local<->remote).
+    if (pActor)
+        spdlog::warn("DIAG CancelServerAssignment: actorId {:X} {} wearingBodyPiece={} before flip",
+            aFormId, pName, pActor->IsWearingBodyPiece());
 
     if (m_world.all_of<RemoteComponent>(aEntity))
     {
