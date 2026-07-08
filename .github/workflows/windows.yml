@@ -50,11 +50,22 @@ jobs:
         # Checkout only if the tag was pushed to master
         run: (git rev-parse HEAD) -eq (git rev-parse origin/master) -and (git checkout master)
 
+      - name: Detect VS toolset version
+        id: vs
+        run: |
+          $vsDir = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $ver = (Get-Content (Join-Path $vsDir 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt')).Trim()
+          echo "VS_VERSION=$ver" >> $env:GITHUB_ENV
+          echo "Detected VS toolset: $ver"
+
       - name: Cache xmake dependencies
         uses: actions/cache@v4
         with:
           path: ~/AppData/Local/.xmake/packages
-          key: ${{ runner.os }}-xmake-${{ hashFiles('**/xmake.lua') }}
+          # Include the VS/toolset version in the key so a runner image (VS) update
+          # busts the stale gtest/gmock libs that were compiled against a different
+          # MSVC STL (fixes LNK2019 __std_rotate from gmock.lib).
+          key: ${{ runner.os }}-xmake-${{ hashFiles('**/xmake.lua') }}-vs${{ env.VS_VERSION }}
 
       # Install xmake
       - name: Setup xmake
@@ -65,7 +76,7 @@ jobs:
           actions-cache-key: ${{ matrix.os }}
 
       - name: Configure xmake and install dependencies
-        run: xmake config --arch=${{ matrix.arch }} --mode=${{ inputs.build-mode }} --yes -vD
+        run: xmake config --arch=${{ matrix.arch }} --mode=${{ inputs.build-mode }} --vs=2022 --yes -vD
 
       # Build the client
       - name: Build with xmake
