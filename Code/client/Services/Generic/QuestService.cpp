@@ -124,14 +124,9 @@ BSTEventResult QuestService::OnEvent(const TESQuestStageEvent* apEvent, const Ev
         static_cast<std::underlying_type_t<TESQuest::Type>>(pQuest->type), pQuest->IsStopped(), pQuest->flags, playerString, PlayerId(), pQuest->fullName.value.AsAscii());
 
     // We should not see a stage 0 Update to a started quest, unless it started a long time ago in StageWait.
-    bool isResetUpdate = apEvent->stageId == 0 &&
-        (pQuest->flags & (TESQuest::Flags::Enabled | TESQuest::Flags::StageWait)) != (TESQuest::Flags::Enabled | TESQuest::Flags::StageWait);
-    if (isResetUpdate)
-        spdlog::critical(
-            __FUNCTION__ ": suspected quest reset event NEEDS TEST, quest formId: {:X}, questStage: {}, questType: {}, isStopped: {}, flags {:X}, {} {}, name: {}",
-            apEvent->formId, apEvent->stageId, static_cast<std::underlying_type_t<TESQuest::Type>>(pQuest->type), pQuest->IsStopped(), pQuest->flags, playerString, PlayerId(),
-            pQuest->fullName.value.AsAscii());
-
+    // Reset-detection heuristic disabled per maintainer review: a stage-0 update to a started
+    // quest is treated as a normal StageUpdate, never as Reset. (rfortier features-integration)
+    bool isResetUpdate = false;
     m_world.GetRunner().Queue(
         [&, formId = apEvent->formId, stageId = apEvent->stageId, isReset = isResetUpdate, type = pQuest->type]()
         {
