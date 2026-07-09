@@ -290,7 +290,9 @@ namespace
     // Owner self-heal: if a locally-owned NPC currently renders with no worn items, dress it
     // from its base-form outfit. Idempotent — a correctly-dressed NPC is a no-op, so it never
     // fights legitimate gameplay (a real strip sends worn entries, so HasWornItems() is true).
-    void OwnerSelfHealDress(Actor* apActor, uint32_t aBaseFormId, bool aDeferred) noexcept
+    // aVerbose=false suppresses the "no derivable outfit" log (used by the per-second periodic
+    // re-check, which would otherwise spam for NPCs that genuinely have no base outfit).
+    void OwnerSelfHealDress(Actor* apActor, uint32_t aBaseFormId, bool aDeferred, bool aVerbose = true) noexcept
     {
         if (apActor == nullptr || apActor->GetExtension()->IsPlayer() || apActor->IsDead())
             return;
@@ -304,7 +306,7 @@ namespace
                          aDeferred ? " (re-check)" : "", apActor->formID, aBaseFormId);
             apActor->SetActorInventory(derived);
         }
-        else
+        else if (aVerbose)
         {
             spdlog::info("[NakedFix] owner self-heal{}: no derivable outfit for local actor {:X} (base {:X})",
                          aDeferred ? " (re-check)" : "", apActor->formID, aBaseFormId);
@@ -1518,6 +1520,27 @@ void CharacterService::RunLocalUpdates() const noexcept
         return;
 
     lastSendTimePoint = now;
+
+    // Periodic owner self-heal: the engine can apply its own (naked) visual equipment to a
+    // locally-owned NPC several frames after assignment, after the 3D finishes loading --
+    // well past the single deferred re-check at assignment. Re-dress any locally-owned NPC
+    // that still renders with no worn items. Idempotent: a dressed NPC is a no-op, so this
+    // never fights legitimate gameplay. Throttled to ~1s to keep cost negligible.
+    {
+        static std::chrono::steady_clock::time_point lastNakedCheck;
+        constexpr auto cNakedCheckDelay = std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::seconds(1));
+        if (now - lastNakedCheck >= cNakedCheckDelay)
+        {
+            lastNakedCheck = now;
+            auto localView = m_world.view<LocalComponent, FormIdComponent>();
+            for (auto entity : localView)
+            {
+                auto& formIdComponent = localView.get<FormIdComponent>(entity);
+                if (auto* pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id)))
+                    OwnerSelfHealDress(pActor, pActor->baseForm ? pActor->baseForm->formID : 0, true, false);
+            }
+        }
+    }
 
     ClientReferencesMoveRequest message;
     message.Tick = m_transport.GetClock().GetCurrentTick();
