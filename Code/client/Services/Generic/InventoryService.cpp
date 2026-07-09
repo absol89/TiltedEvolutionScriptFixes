@@ -26,6 +26,7 @@
 #include <Games/ActorExtension.h>
 #include <Forms/TESNPC.h>
 #include <Forms/TESObjectARMO.h>
+#include <Forms/TESLevItem.h>
 #include <Forms/BGSOutfit.h>
 #include <DefaultObjectManager.h>
 
@@ -394,13 +395,22 @@ void InventoryService::RunNakedNPCBugChecks() noexcept
                 const auto inv = pActor->GetActorInventory();
                 const size_t invCount = inv.Entries.size();
                 // Find the default outfit's body piece (IsBodyPiece flag) and whether it's present in inventory.
+                // Resolve LeveledItem entries like EquipOutfit() does, so bodyPiece isn't a false negative.
                 TESNPC* pNpcBase = Cast<TESNPC>(pActor->baseForm);
                 uint32_t bodyPieceFormId = 0;
                 if (pNpcBase && pNpcBase->outfits[0])
                 {
                     for (auto* pItem : pNpcBase->outfits[0]->outfitItems)
                     {
-                        TESObjectARMO* pArmor = (pItem->formType == FormType::Armor) ? Cast<TESObjectARMO>(pItem) : nullptr;
+                        TESObjectARMO* pArmor = nullptr;
+                        if (pItem->formType == FormType::Armor)
+                            pArmor = Cast<TESObjectARMO>(pItem);
+                        else if (pItem->formType == FormType::LeveledItem)
+                        {
+                            TESLevItem* pLevItem = Cast<TESLevItem>(pItem);
+                            if (pLevItem && pLevItem->pLeveledListA && pLevItem->pLeveledListA->pForm)
+                                pArmor = Cast<TESObjectARMO>(pLevItem->pLeveledListA->pForm);
+                        }
                         if (pArmor && pArmor->IsBodyPiece())
                             bodyPieceFormId = pArmor->formID;
                     }
