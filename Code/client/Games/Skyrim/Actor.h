@@ -182,6 +182,7 @@ struct Actor : TESObjectREFR
 
     // Casting
     ActorExtension* GetExtension() noexcept;
+    const ActorExtension* GetExtension() const noexcept;
     ExActor* AsExActor() noexcept;
     ExPlayerCharacter* AsExPlayerCharacter() noexcept;
 
@@ -208,8 +209,6 @@ struct Actor : TESObjectREFR
     [[nodiscard]] Actor* GetCombatTarget() const noexcept;
     [[nodiscard]] bool HasPerk(uint32_t aPerkFormId) const noexcept;
     [[nodiscard]] uint8_t GetPerkRank(uint32_t aPerkFormId) const noexcept;
-    [[nodiscard]] bool IsWearingBodyPiece() const noexcept;
-    [[nodiscard]] bool ShouldWearBodyPiece() const noexcept;
     [[nodiscard]] bool IsVampireLord() const noexcept;
     [[nodiscard]] bool IsTalking() noexcept;
     [[nodiscard]] bool IsInScene() noexcept;

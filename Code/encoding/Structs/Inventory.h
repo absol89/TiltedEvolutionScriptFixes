@@ -85,6 +85,12 @@ struct Inventory
     void UpdateEquipment(const Inventory& acNewInventory) noexcept;
     bool ContainsQuestItems() const noexcept;
 
+    // True when no entry is currently worn. A wholesale InitialInventory snapshot that is fully
+    // naked while the authoritative Content still has worn items is the transient "owner just
+    // reloaded and the engine hasn't re-dressed the actor yet" state that races across clients.
+    bool IsFullyNaked() const noexcept;
+    bool HasWornItems() const noexcept;
+
     Vector<Entry> Entries{};
     MagicEquipment CurrentMagicEquipment{};
 };

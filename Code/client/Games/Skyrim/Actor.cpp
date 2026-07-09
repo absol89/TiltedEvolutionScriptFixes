@@ -5,6 +5,9 @@
 #include <Misc/GameVM.h>
 #include <DefaultObjectManager.h>
 #include <Forms/TESNPC.h>
+#include <Forms/TESObjectARMO.h>
+#include <Forms/TESLevItem.h>
+#include <Forms/BGSOutfit.h>
 #include <Forms/TESFaction.h>
 #include <Forms/TESQuest.h>
 #include <Components/TESActorBaseData.h>
@@ -51,7 +54,6 @@
 #include <Games/Skyrim/BSAnimationGraphManager.h>
 #include <Havok/hkbStateMachine.h>
 #include <Havok/hkbBehaviorGraph.h>
-#include <Forms/BGSOutfit.h>
 #include <Forms/TESObjectARMO.h>
 
 #include <ModCompat/BehaviorVar.h>
@@ -237,6 +239,17 @@ ActorExtension* Actor::GetExtension() noexcept
     {
         return static_cast<ActorExtension*>(AsExPlayerCharacter());
     }
+
+    return nullptr;
+}
+
+const ActorExtension* Actor::GetExtension() const noexcept
+{
+    if (formType == Type && this != PlayerCharacter::Get())
+        return static_cast<const ExActor*>(this);
+
+    if (this == PlayerCharacter::Get())
+        return static_cast<const ExPlayerCharacter*>(this);
 
     return nullptr;
 }
@@ -567,6 +580,7 @@ void Actor::EquipOutfit(bool aIsSleepOutfit) noexcept
     return;
 }
 
+
 // Get owner of a summon or raised corpse
 Actor* Actor::GetCommandingActor() const noexcept
 {
@@ -691,6 +705,104 @@ Inventory Actor::GetActorInventory() const noexcept
 
     inventory.CurrentMagicEquipment = GetMagicEquipment();
 
+    // Root-cause fix for the "naked NPC on reload" race: when a client sends its inventory
+    // snapshot during the transient window right after a cell reload (before the engine has
+    // re-dressed the NPC), GetInventory() reports the actor as wearing nothing. If we forward
+    // that naked snapshot to the server it becomes the authoritative Content and propagates
+    // nakedness to every client. The server can't derive a dressed inventory, so the owner
+    // client - which has engine access - must send correct data instead: fall back to the
+    // NPC's default outfit. This only triggers on the broken fully-naked state, so legitimate
+    // pickpocket removals (incremental path) and dead-NPC loot (the alive check below) are
+    // unaffected.
+    if (!GetExtension()->IsPlayer() && !IsDead() && !inventory.HasWornItems())
+    {
+        spdlog::info("[NakedFix] fallback path for actor {:X} (base {:X})", formID,
+                     baseForm ? baseForm->formID : 0);
+
+        if (const TESNPC* pBase = Cast<TESNPC>(baseForm))
+        {
+            // NPCs may carry their default outfit in either outfits[0] or outfits[1]; some
+            // (e.g. guards) only define outfits[1]. Try both slots before giving up.
+            for (BGSOutfit* pOutfit : {pBase->outfits[0], pBase->outfits[1]})
+            {
+                if (!pOutfit)
+                    continue;
+
+                Inventory fallback{};
+                fallback.CurrentMagicEquipment = inventory.CurrentMagicEquipment;
+
+                size_t wearable = 0;
+                size_t mapped = 0;
+
+                for (TESForm* pItem : pOutfit->outfitItems)
+                {
+                    if (!pItem)
+                        continue;
+
+                    // Collect every armor this outfit item can resolve to: a direct ARMO, or
+                    // any entry in a leveled item list (Skyrim only uses list A).
+                    Vector<TESObjectARMO*> armors;
+
+                    if (pItem->formType == FormType::Armor)
+                    {
+                        if (TESObjectARMO* pArmor = Cast<TESObjectARMO>(pItem))
+                            armors.push_back(pArmor);
+                    }
+                    else if (pItem->formType == FormType::LeveledItem)
+                    {
+                        if (const TESLevItem* pLevItem = Cast<TESLevItem>(pItem))
+                        {
+                            auto* pList = pLevItem->pLeveledListA;
+                            if (pList)
+                            {
+                                // count is stored 8 bytes before the array base.
+                                const auto count = *reinterpret_cast<const int32_t*>(
+                                    reinterpret_cast<const uint8_t*>(pList) - 8);
+                                for (int32_t i = 0; i < count; ++i)
+                                {
+                                    if (pList[i].pForm)
+                                    {
+                                        if (TESObjectARMO* pArmor = Cast<TESObjectARMO>(pList[i].pForm))
+                                            armors.push_back(pArmor);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    for (TESObjectARMO* pArmor : armors)
+                    {
+                        Inventory::Entry entry{};
+                        World::Get().GetModSystem().GetServerModId(pArmor->formID, entry.BaseId);
+                        entry.Count = 1;
+                        entry.ExtraWorn = true;
+                        fallback.Entries.push_back(std::move(entry));
+
+                        ++wearable;
+                        if (entry.BaseId != GameId{})
+                            ++mapped;
+                    }
+                }
+
+                spdlog::info("[NakedFix]   outfit {:X} outfitItems={} wearable={} mapped={} fallbackHasWorn={}",
+                             pOutfit->formID, pOutfit->outfitItems.length, wearable, mapped,
+                             fallback.HasWornItems());
+
+                // Only use the fallback when it actually yields worn items; otherwise keep the
+                // (possibly legitimately empty) live snapshot so we never invent gear.
+                if (fallback.HasWornItems())
+                {
+                    inventory = std::move(fallback);
+                    break;
+                }
+            }
+        }
+        else
+        {
+            spdlog::info("[NakedFix]   pBase is null or not a TESNPC");
+        }
+    }
+
     return inventory;
 }
 
@@ -729,6 +841,20 @@ int32_t Actor::GetGoldAmount() const noexcept
 
 void Actor::SetActorInventory(const Inventory& acInventory) noexcept
 {
+    // If the incoming snapshot has no worn items but this actor is actually dressed, the
+    // snapshot is garbage (e.g. the server propagated a transient/broken naked state). Forcing
+    // it through SetInventory() would call RemoveAllItems() and strip a correctly-dressed NPC
+    // for no reason - there is nothing to unequip, so there is nothing to do. Skip the strip
+    // and the (now-pointless) magic-equip entirely. Dead NPCs and legitimately empty inventory
+    // (pickpocket/stripped alive NPC) snapshots are unaffected because they aren't "dressed".
+    if (!GetExtension()->IsPlayer() && !IsDead() && !acInventory.HasWornItems() &&
+        GetActorInventory().HasWornItems())
+    {
+        spdlog::info("Skipping inventory set for actor {:X}: incoming has no worn items but actor is dressed",
+                     formID);
+        return;
+    }
+
     spdlog::info("Setting inventory for actor {:X}", formID);
 
     // The UnEquipAll() that used to be here is redundant,
