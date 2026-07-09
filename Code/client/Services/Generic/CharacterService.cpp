@@ -285,6 +285,33 @@ void CharacterService::OnDisconnected(const DisconnectedEvent& acDisconnectedEve
     m_world.clear<WaitingForAssignmentComponent, LocalComponent, RemoteComponent>();
 }
 
+namespace
+{
+    // Owner self-heal: if a locally-owned NPC currently renders with no worn items, dress it
+    // from its base-form outfit. Idempotent — a correctly-dressed NPC is a no-op, so it never
+    // fights legitimate gameplay (a real strip sends worn entries, so HasWornItems() is true).
+    void OwnerSelfHealDress(Actor* apActor, uint32_t aBaseFormId, bool aDeferred) noexcept
+    {
+        if (apActor == nullptr || apActor->GetExtension()->IsPlayer() || apActor->IsDead())
+            return;
+        if (apActor->GetActorInventory().HasWornItems())
+            return;
+
+        Inventory derived = apActor->DeriveOutfitInventory();
+        if (derived.HasWornItems())
+        {
+            spdlog::info("[NakedFix] owner self-heal{}: dressing local actor {:X} (base {:X}) from derived outfit",
+                         aDeferred ? " (re-check)" : "", apActor->formID, aBaseFormId);
+            apActor->SetActorInventory(derived);
+        }
+        else
+        {
+            spdlog::info("[NakedFix] owner self-heal{}: no derivable outfit for local actor {:X} (base {:X})",
+                         aDeferred ? " (re-check)" : "", apActor->formID, aBaseFormId);
+        }
+    }
+}
+
 void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessage) noexcept
 {
     spdlog::info(__FUNCTION__ ": Received for cookie {:X}, server id {:X}", acMessage.Cookie, acMessage.ServerId);
@@ -348,21 +375,19 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
         // owner never receives its own snapshot, so its own 3D render stays naked while the
         // network (and thus party members) is correct. Dress it from the base outfit here.
         // PART 1+2 already ensured what we UPLOAD is dressed; this corrects what we SEE.
+        // Apply immediately this frame, then re-check next tick: if the engine hiccuped and
+        // overwrote the apply, re-dress once. (Same-tick overwrite is possible because the
+        // actor's 3D/equipment may not be fully settled at assignment.)
         if (!pActor->GetExtension()->IsPlayer() && !pActor->IsDead() &&
             !pActor->GetActorInventory().HasWornItems())
         {
-            Inventory derived = pActor->DeriveOutfitInventory();
-            if (derived.HasWornItems())
-            {
-                spdlog::info("[NakedFix] owner self-heal: dressing local actor {:X} (base {:X}) from derived outfit",
-                             pActor->formID, pActor->baseForm ? pActor->baseForm->formID : 0);
-                pActor->SetActorInventory(derived);
-            }
-            else
-            {
-                spdlog::info("[NakedFix] owner self-heal: no derivable outfit for local actor {:X} (base {:X})",
-                             pActor->formID, pActor->baseForm ? pActor->baseForm->formID : 0);
-            }
+            const uint32_t baseFormId = pActor->baseForm ? pActor->baseForm->formID : 0;
+            OwnerSelfHealDress(pActor, baseFormId, false);
+            const uint32_t actorFormId = pActor->formID;
+            m_world.GetRunner().Queue([actorFormId, baseFormId]() {
+                if (auto* pLocal = Cast<Actor>(TESForm::GetById(actorFormId)))
+                    OwnerSelfHealDress(pLocal, baseFormId, true);
+            });
         }
     }
     else
