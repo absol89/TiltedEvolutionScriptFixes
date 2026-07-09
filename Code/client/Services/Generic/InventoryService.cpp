@@ -347,7 +347,7 @@ void InventoryService::RunNakedNPCBugChecks() noexcept
             spdlog::debug(__FUNCTION__ ": actorId {:X} naked check deadline expires {}", pActor->formID, pActor->baseForm->GetName());
             if (m_world.try_get<WaitingForAssignmentComponent>(entity))
             {
-                spdlog::debug(__FUNCTION__ ": but still WaitingForAssignment", pActor->formID, pActor->baseForm->GetName());
+                spdlog::debug(__FUNCTION__ ": actorId {:X} but still WaitingForAssignment {}", pActor->formID, pActor->baseForm->GetName());
                 pActor->GetExtension()->SetNakedDeadline();
                 continue;
             }
