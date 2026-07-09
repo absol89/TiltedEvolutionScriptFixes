@@ -342,6 +342,28 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
             }
         }
         m_world.remove<EarlyAnimationBufferComponent>(cEntity);
+
+        // Owner self-heal: a locally-owned NPC can spawn with no worn items (the vanilla ST
+        // naked-spawn race). PART 3 only fixes REMOTE clients that receive a snapshot; the
+        // owner never receives its own snapshot, so its own 3D render stays naked while the
+        // network (and thus party members) is correct. Dress it from the base outfit here.
+        // PART 1+2 already ensured what we UPLOAD is dressed; this corrects what we SEE.
+        if (!pActor->GetExtension()->IsPlayer() && !pActor->IsDead() &&
+            !pActor->GetActorInventory().HasWornItems())
+        {
+            Inventory derived = pActor->DeriveOutfitInventory();
+            if (derived.HasWornItems())
+            {
+                spdlog::info("[NakedFix] owner self-heal: dressing local actor {:X} (base {:X}) from derived outfit",
+                             pActor->formID, pActor->baseForm ? pActor->baseForm->formID : 0);
+                pActor->SetActorInventory(derived);
+            }
+            else
+            {
+                spdlog::info("[NakedFix] owner self-heal: no derivable outfit for local actor {:X} (base {:X})",
+                             pActor->formID, pActor->baseForm ? pActor->baseForm->formID : 0);
+            }
+        }
     }
     else
     {
