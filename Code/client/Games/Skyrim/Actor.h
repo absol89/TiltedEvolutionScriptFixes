@@ -181,6 +181,7 @@ struct Actor : TESObjectREFR
 
     // Casting
     ActorExtension* GetExtension() noexcept;
+    const ActorExtension* GetExtension() const noexcept;
     ExActor* AsExActor() noexcept;
     ExPlayerCharacter* AsExPlayerCharacter() noexcept;
 

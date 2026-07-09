@@ -5,6 +5,9 @@
 #include <Misc/GameVM.h>
 #include <DefaultObjectManager.h>
 #include <Forms/TESNPC.h>
+#include <Forms/TESObjectARMO.h>
+#include <Forms/TESLevItem.h>
+#include <Forms/BGSOutfit.h>
 #include <Forms/TESFaction.h>
 #include <Components/TESActorBaseData.h>
 #include <ExtraData/ExtraFactionChanges.h>
@@ -233,6 +236,17 @@ ActorExtension* Actor::GetExtension() noexcept
     {
         return static_cast<ActorExtension*>(AsExPlayerCharacter());
     }
+
+    return nullptr;
+}
+
+const ActorExtension* Actor::GetExtension() const noexcept
+{
+    if (formType == Type && this != PlayerCharacter::Get())
+        return static_cast<const ExActor*>(this);
+
+    if (this == PlayerCharacter::Get())
+        return static_cast<const ExPlayerCharacter*>(this);
 
     return nullptr;
 }
@@ -599,6 +613,59 @@ Inventory Actor::GetActorInventory() const noexcept
     Inventory inventory = GetInventory();
 
     inventory.CurrentMagicEquipment = GetMagicEquipment();
+
+    // Root-cause fix for the "naked NPC on reload" race: when a client sends its inventory
+    // snapshot during the transient window right after a cell reload (before the engine has
+    // re-dressed the NPC), GetInventory() reports the actor as wearing nothing. If we forward
+    // that naked snapshot to the server it becomes the authoritative Content and propagates
+    // nakedness to every client. The server can't derive a dressed inventory, so the owner
+    // client - which has engine access - must send correct data instead: fall back to the
+    // NPC's default outfit. This only triggers on the broken fully-naked state, so legitimate
+    // pickpocket removals (incremental path) and dead-NPC loot (the alive check below) are
+    // unaffected.
+    if (!GetExtension()->IsPlayer() && !IsDead() && !inventory.HasWornItems())
+    {
+        if (const TESNPC* pBase = Cast<TESNPC>(baseForm))
+        {
+            if (BGSOutfit* pDefaultOutfit = pBase->outfits[0])
+            {
+                Inventory fallback{};
+                fallback.CurrentMagicEquipment = inventory.CurrentMagicEquipment;
+
+                for (TESForm* pItem : pDefaultOutfit->outfitItems)
+                {
+                    if (!pItem)
+                        continue;
+
+                    TESObjectARMO* pArmor = nullptr;
+                    if (pItem->formType == FormType::Armor)
+                        pArmor = Cast<TESObjectARMO>(pItem);
+                    else if (pItem->formType == FormType::LeveledItem)
+                    {
+                        if (const TESLevItem* pLevItem = Cast<TESLevItem>(pItem))
+                        {
+                            if (pLevItem->pLeveledListA && pLevItem->pLeveledListA->pForm)
+                                pArmor = Cast<TESObjectARMO>(pLevItem->pLeveledListA->pForm);
+                        }
+                    }
+
+                    if (!pArmor)
+                        continue;
+
+                    Inventory::Entry entry{};
+                    World::Get().GetModSystem().GetServerModId(pArmor->formID, entry.BaseId);
+                    entry.Count = 1;
+                    entry.ExtraWorn = true;
+                    fallback.Entries.push_back(std::move(entry));
+                }
+
+                // Only use the fallback when it actually yields worn items; otherwise keep the
+                // (possibly legitimately empty) live snapshot so we never invent gear.
+                if (fallback.HasWornItems())
+                    inventory = std::move(fallback);
+            }
+        }
+    }
 
     return inventory;
 }
