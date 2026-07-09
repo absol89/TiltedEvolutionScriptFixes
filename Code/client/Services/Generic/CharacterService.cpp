@@ -1511,6 +1511,12 @@ void CharacterService::CancelServerAssignment(const entt::entity aEntity, const 
 
         m_transport.Send(request);
 
+        // Dress the NPC before it flips to Remote so the (former) owner's view stays clothed.
+        // EquipOutfit equips directly from the base outfit form, so it works even when the synced
+        // inventory is missing the body piece (the upstream bug that strips it on resync).
+        if (pActor && !pActor->GetExtension()->IsPlayer())
+            pActor->EquipOutfit();
+
         m_world.remove<LocalAnimationComponent, LocalComponent>(aEntity);
     }
 
