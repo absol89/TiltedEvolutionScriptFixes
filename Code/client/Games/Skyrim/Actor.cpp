@@ -694,7 +694,7 @@ Inventory Actor::GetActorInventory() const noexcept
                 }
 
                 spdlog::info("[NakedFix]   outfit {:X} outfitItems={} wearable={} mapped={} fallbackHasWorn={}",
-                             pOutfit->formID, pOutfit->outfitItems.size(), wearable, mapped,
+                             pOutfit->formID, pOutfit->outfitItems.length, wearable, mapped,
                              fallback.HasWornItems());
 
                 // Only use the fallback when it actually yields worn items; otherwise keep the
