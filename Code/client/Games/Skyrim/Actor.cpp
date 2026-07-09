@@ -788,7 +788,10 @@ void Actor::SetActorInventory(const Inventory& acInventory) noexcept
 
             spdlog::info("Setting inventory for actor {:X}", formID);
             if (!this->GetExtension()->IsPlayer() && toApply.ContainsQuestItems())
-                SetInventoryRetainingQuestItems(GetActorInventory(), toApply);
+            {
+                Inventory currentInventory = GetActorInventory();
+                SetInventoryRetainingQuestItems(currentInventory, toApply);
+            }
             else
                 SetInventory(toApply);
 
