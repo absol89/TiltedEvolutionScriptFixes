@@ -569,12 +569,6 @@ void CharacterService::OnRemoteSpawnDataReceived(const NotifySpawnData& acMessag
 
     pActor->SetActorValues(acMessage.NewActorData.InitialActorValues);
     pActor->SetActorInventory(acMessage.NewActorData.InitialInventory);
-    // Dress the actor on the REMOTE viewer's client. SetActorInventory only stores the items in
-    // the container; it does not equip armor, so a Remote NPC would stay naked until ownership
-    // flips locally (otsffs: "set as Remote before initialization completes"). Apply the base
-    // outfit here so the viewer sees the NPC clothed at spawn. Players handle their own gear.
-    if (!pActor->GetExtension()->IsPlayer())
-        pActor->EquipOutfit();
     m_weaponDrawUpdates[pActor->formID] = {acMessage.NewActorData.IsWeaponDrawn};
 
     if (pActor->IsDead() != acMessage.NewActorData.IsDead)
@@ -1510,12 +1504,6 @@ void CharacterService::CancelServerAssignment(const entt::entity aEntity, const 
             aFormId, request.ServerId, request.WorldSpaceId.BaseId, request.CellId.BaseId, request.Position.x, request.Position.y, request.Position.z, pName);
 
         m_transport.Send(request);
-
-        // Dress the NPC before it flips to Remote so the (former) owner's view stays clothed.
-        // EquipOutfit equips directly from the base outfit form, so it works even when the synced
-        // inventory is missing the body piece (the upstream bug that strips it on resync).
-        if (pActor && !pActor->GetExtension()->IsPlayer())
-            pActor->EquipOutfit();
 
         m_world.remove<LocalAnimationComponent, LocalComponent>(aEntity);
     }
