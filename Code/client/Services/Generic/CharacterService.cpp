@@ -1525,10 +1525,10 @@ void CharacterService::RunLocalUpdates() const noexcept
     // locally-owned NPC several frames after assignment, after the 3D finishes loading --
     // well past the single deferred re-check at assignment. Re-dress any locally-owned NPC
     // that still renders with no worn items. Idempotent: a dressed NPC is a no-op, so this
-    // never fights legitimate gameplay. Throttled to ~1s to keep cost negligible.
+    // never fights legitimate gameplay. Throttled to ~3s to keep cost negligible.
     {
         static std::chrono::steady_clock::time_point lastNakedCheck;
-        constexpr auto cNakedCheckDelay = std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::seconds(1));
+        constexpr auto cNakedCheckDelay = std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::seconds(3));
         if (now - lastNakedCheck >= cNakedCheckDelay)
         {
             lastNakedCheck = now;
