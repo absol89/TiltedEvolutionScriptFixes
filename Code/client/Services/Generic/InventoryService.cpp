@@ -25,7 +25,6 @@
 #include <EquipManager.h>
 #include <Games/ActorExtension.h>
 #include <Forms/TESNPC.h>
-#include <Forms/BGSOutfit.h>
 #include <DefaultObjectManager.h>
 
 InventoryService::InventoryService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
@@ -43,7 +42,6 @@ InventoryService::InventoryService(World& aWorld, entt::dispatcher& aDispatcher,
 void InventoryService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
 {
     RunWeaponStateUpdates();
-    RunNakedNPCBugChecks();
 }
 
 void InventoryService::OnInventoryChangeEvent(const InventoryChangeEvent& acEvent) noexcept
@@ -289,80 +287,6 @@ void InventoryService::RunWeaponStateUpdates() noexcept
             request.IsWeaponDrawn = isWeaponDrawn;
 
             m_transport.Send(request);
-        }
-    }
-}
-
-void InventoryService::RunNakedNPCBugChecks() noexcept
-{
-    if (!m_transport.IsConnected())
-        return;
-
-    static std::chrono::steady_clock::time_point lastSendTimePoint;
-    constexpr auto cDelayBetweenUpdates = 1000ms;
-    constexpr auto cDelayAfterAssignment = 3s;
-    constexpr auto cNoDeadline = std::chrono::steady_clock::time_point{};
-
-    const auto now = std::chrono::steady_clock::now();
-    if (now - lastSendTimePoint < cDelayBetweenUpdates)
-        return;
-
-    lastSendTimePoint = now;
-
-    auto view = m_world.view<FormIdComponent>();
-
-    for (auto entity : view)
-    {
-        const auto& formIdComponent = view.get<FormIdComponent>(entity);
-        Actor* pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
-        if (!pActor)
-            continue;
-
-        if (pActor->GetExtension()->IsPlayer())
-            continue;
-
-        if (pActor->GetExtension()->nakedDeadline == cNoDeadline)
-            continue;
-
-        if (pActor->IsDead() || !pActor->ShouldWearBodyPiece())
-        {
-            pActor->GetExtension()->nakedDeadline = cNoDeadline;
-            spdlog::debug(__FUNCTION__ ": actorId {:X} naked check is irrelevant {}", pActor->formID, pActor->baseForm->GetName());
-            continue; 
-        }
-
-        if (now < pActor->GetExtension()->nakedDeadline + cDelayAfterAssignment)
-        {
-            spdlog::debug(__FUNCTION__ ": actorId {:X} with naked check deadline {}", pActor->formID, pActor->baseForm->GetName());
-            continue; 
-        }
-
-        else
-        {
-            spdlog::debug(__FUNCTION__ ": actorId {:X} naked check deadline expires {}", pActor->formID, pActor->baseForm->GetName());
-            if (m_world.try_get<WaitingForAssignmentComponent>(entity))
-            {
-                spdlog::debug(__FUNCTION__ ": but still WaitingForAssignment", pActor->formID, pActor->baseForm->GetName());
-                pActor->GetExtension()->SetNakedDeadline();
-                continue;
-            }
-
-            pActor->GetExtension()->nakedDeadline = cNoDeadline;   
-        }
-
-        if (pActor->GetExtension()->IsRemote())
-        {
-            spdlog::debug(__FUNCTION__ ": actorId {:X} naked check canceled, IsRemote(), {}", pActor->formID, pActor->baseForm->GetName());
-            continue;
-        }
-
-        // If somehow inventory was damaged despite fixes, dress actor. Belt and suspenders.
-        // Note if the outfit items have been removed from inventory, they aren't regenerated.
-        TESNPC* pBase = Cast<TESNPC>(pActor->baseForm);
-        if (!pActor->IsWearingBodyPiece() && pBase)
-        {
-            spdlog::warn(__FUNCTION__ ": actorId {:X} naked check fires {}", pActor->formID, pActor->baseForm->GetName());
-            pActor->EquipOutfit();
         }
     }
 }

@@ -142,7 +142,6 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
     }
 
     pExtension->SetRemote(false);
-    pExtension->SetNakedDeadline();
 
     // TODO(cosideci): this should be done differently.
     // Send an ownership claim request, and have the server broadcast the result.
@@ -371,7 +370,6 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
 
         MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position);
     }
-    pActor->GetExtension()->SetNakedDeadline();
 }
 
 void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) const noexcept
@@ -1370,7 +1368,6 @@ void CharacterService::CancelServerAssignment(const entt::entity aEntity, const 
             }
         }
 
-
         spdlog::info(
             __FUNCTION__ ": transferring ownership of local actor, formId: {:X}, server id: {:X}, worldspace: {:X}, cell: {:X}, position: "
                          "({}, {}, {}), name: {}",
@@ -1380,9 +1377,6 @@ void CharacterService::CancelServerAssignment(const entt::entity aEntity, const 
 
         m_world.remove<LocalAnimationComponent, LocalComponent>(aEntity);
     }
-
-    if (pActor)
-        pActor->GetExtension()->SetNakedDeadline();
 }
 
 Actor* CharacterService::CreateCharacterForEntity(entt::entity aEntity) const noexcept
@@ -1577,9 +1571,6 @@ void CharacterService::RunRemoteUpdates() noexcept
 
         if (pActor->IsVampireLord())
             pActor->FixVampireLordModel();
-
-        // (Re)start naked NPC deadline. Actor MUST be fully constructed before check clock starts.
-        pActor->GetExtension()->SetNakedDeadline();
 
         toRemove.push_back(entity);
 

@@ -22,7 +22,6 @@ struct ActorExtension;
 struct AIProcess;
 struct CombatController;
 struct TESIdleForm;
-struct BGSOutfit;
 
 struct Actor : TESObjectREFR
 {
@@ -208,8 +207,6 @@ struct Actor : TESObjectREFR
     [[nodiscard]] Actor* GetCombatTarget() const noexcept;
     [[nodiscard]] bool HasPerk(uint32_t aPerkFormId) const noexcept;
     [[nodiscard]] uint8_t GetPerkRank(uint32_t aPerkFormId) const noexcept;
-    [[nodiscard]] bool IsWearingBodyPiece() const noexcept;
-    [[nodiscard]] bool ShouldWearBodyPiece() const noexcept;
     [[nodiscard]] bool IsVampireLord() const noexcept;
 
     // Setters
@@ -252,8 +249,6 @@ struct Actor : TESObjectREFR
     bool PlayIdle(TESIdleForm* apIdle) noexcept;
     void FixVampireLordModel() noexcept;
     bool RemoveSpell(MagicItem* apSpell) noexcept;
-    void SetOutfit(BGSOutfit* apOutfit, bool aIsSleepOutfit = false);
-    void EquipOutfit(bool aIsSleepOutfit = false) noexcept;
 
     enum ActorFlags
     {
