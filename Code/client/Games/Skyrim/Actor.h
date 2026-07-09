@@ -195,6 +195,11 @@ struct Actor : TESObjectREFR
     float GetActorValue(uint32_t aId) const noexcept;
     float GetActorPermanentValue(uint32_t aId) const noexcept;
     Inventory GetActorInventory() const noexcept;
+    // Derives a dressed inventory from this NPC's default outfit (outfits[0]/[1], leveled
+    // list A). Returns an inventory with worn entries, or empty if the base has no wearable
+    // outfit (e.g. genuinely empty outfit, animals, or missing base form). Used to substitute
+    // a garbage-naked server snapshot with the author's local engine-derived outfit.
+    Inventory DeriveOutfitInventory() const noexcept;
     MagicEquipment GetMagicEquipment() const noexcept;
     Inventory GetEquipment() const noexcept;
     int32_t GetGoldAmount() const noexcept;
