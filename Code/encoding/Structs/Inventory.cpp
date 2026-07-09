@@ -203,3 +203,25 @@ bool Inventory::ContainsQuestItems() const noexcept
     }
     return false;
 }
+
+bool Inventory::IsFullyNaked() const noexcept
+{
+    for (const auto& entry : Entries)
+    {
+        if (entry.IsWorn())
+            return false;
+    }
+
+    return true;
+}
+
+bool Inventory::HasWornItems() const noexcept
+{
+    for (const auto& entry : Entries)
+    {
+        if (entry.IsWorn())
+            return true;
+    }
+
+    return false;
+}

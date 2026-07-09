@@ -738,7 +738,19 @@ void CharacterService::ApplyActorData(const entt::entity acEntity, const ActorDa
     auto* pInventoryComponent = m_world.try_get<InventoryComponent>(acEntity);
     if (pInventoryComponent)
     {
-        pInventoryComponent->Content = acActorData.InitialInventory;
+        // Guard against a destructive fully-naked overwrite racing in from a transient owner state
+        // (e.g. the owner just reloaded the cell and the engine hasn't re-dressed the NPC yet).
+        // If the authoritative Content is still dressed but the incoming snapshot is fully naked,
+        // ignore the bad update instead of stripping the NPC. A later real inventory interaction
+        // (server InventoryService incremental change) will send correct data, so there is no need
+        // to mix in the stale naked snapshot.
+        // The only legitimate fully-empty cases are: a player steals all items from a living NPC
+        // (pickpocket, which syncs incrementally and empties Content first) or loots all items
+        // from a dead NPC. So a dead NPC's naked overwrite is allowed through.
+        const auto& incoming = acActorData.InitialInventory;
+        const bool isDestructiveNaked = incoming.IsFullyNaked() && pInventoryComponent->Content.HasWornItems() && !acActorData.IsDead;
+        if (!isDestructiveNaked)
+            pInventoryComponent->Content = incoming;
     }
 
     auto* pCharacterComponent = m_world.try_get<CharacterComponent>(acEntity);
