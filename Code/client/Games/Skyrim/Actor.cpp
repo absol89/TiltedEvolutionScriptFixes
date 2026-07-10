@@ -651,9 +651,21 @@ Inventory Actor::DeriveOutfitInventory() const noexcept
     if (!pBase)
         return fallback;
 
+    // Templated NPCs (FF-prefixed leveled-character spawns) carry no outfit on the
+    // leaf base -- the default outfit lives on the template base. Try the leaf first,
+    // then walk to the template base if the leaf defines no outfit at all. Without this
+    // the owner self-heal derives an empty inventory and leaves the NPC naked on the
+    // owner's own screen (remote clients are unaffected: they dress from the snapshot).
+    const TESNPC* pOutfitSource = pBase;
+    if (!pBase->outfits[0] && !pBase->outfits[1])
+    {
+        if (const TESNPC* pTemplate = pBase->GetTemplateBase())
+            pOutfitSource = pTemplate;
+    }
+
     // NPCs may carry their default outfit in either outfits[0] or outfits[1]; some
     // (e.g. guards) only define outfits[1]. Try both slots before giving up.
-    for (BGSOutfit* pOutfit : {pBase->outfits[0], pBase->outfits[1]})
+    for (BGSOutfit* pOutfit : {pOutfitSource->outfits[0], pOutfitSource->outfits[1]})
     {
         if (!pOutfit)
             continue;
