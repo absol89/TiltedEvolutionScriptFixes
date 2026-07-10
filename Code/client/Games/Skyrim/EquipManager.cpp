@@ -136,6 +136,22 @@ void EquipManager::UnequipAll(Actor* apActor)
     TP_THIS_FUNCTION(TUnEquipAll, void, EquipManager, Actor*);
     POINTER_SKYRIMSE(TUnEquipAll, s_unequipAll, 38899);
 
+    // Root-cause guard for the naked-NPC race: when a locally-owned NPC's 3D finishes loading,
+    // the engine runs an equip pass that calls UnequipAll (strips everything) and then re-equips
+    // from the NPC's engine-side equipment -- which is empty/incomplete for a remotely-spawned
+    // NPC, leaving it naked/partial. A full unequip of a LIVING non-player NPC that currently
+    // has worn items is never legitimate (dead-NPC loot clears and single-item unequips use
+    // other paths; the player is excluded). Skip the engine unequip so the NPC cannot be
+    // undressed this way. This is the actual stripper for the guard-naked cases (the
+    // SetInventory guard did not catch them).
+    if (apActor && !apActor->GetExtension()->IsPlayer() && !apActor->IsDead() &&
+        apActor->GetActorInventory().HasWornItems())
+    {
+        spdlog::info("[NakedFix] UnequipAll: skipping full unequip of living actor {:X} (base {:X})",
+                     apActor->formID, apActor->baseForm ? apActor->baseForm->formID : 0);
+        return;
+    }
+
     ScopedEquipOverride equipOverride;
 
     TiltedPhoques::ThisCall(s_unequipAll, this, apActor);

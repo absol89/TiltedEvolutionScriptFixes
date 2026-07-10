@@ -625,7 +625,7 @@ Inventory Actor::GetActorInventory() const noexcept
     // unaffected.
     if (!GetExtension()->IsPlayer() && !IsDead() && !inventory.HasWornItems())
     {
-        spdlog::info("[NakedFix] fallback path for actor {:X} (base {:X})", formID,
+        spdlog::debug("[NakedFix] fallback path for actor {:X} (base {:X})", formID,
                      baseForm ? baseForm->formID : 0);
 
         Inventory fallback = DeriveOutfitInventory();
@@ -635,7 +635,7 @@ Inventory Actor::GetActorInventory() const noexcept
         }
         else
         {
-            spdlog::info("[NakedFix]   no wearable outfit derived (base {:X})",
+            spdlog::debug("[NakedFix]   no wearable outfit derived (base {:X})",
                          baseForm ? baseForm->formID : 0);
         }
     }
@@ -711,7 +711,7 @@ Inventory Actor::DeriveOutfitInventory() const noexcept
             }
         }
 
-        spdlog::info("[NakedFix]   outfit {:X} outfitItems={} wearable={} mapped={} fallbackHasWorn={}",
+        spdlog::debug("[NakedFix]   outfit {:X} outfitItems={} wearable={} mapped={} fallbackHasWorn={}",
                      pOutfit->formID, pOutfit->outfitItems.length, wearable, mapped,
                      fallback.HasWornItems());
 
