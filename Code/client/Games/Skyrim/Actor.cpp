@@ -735,6 +735,33 @@ Inventory Actor::DeriveOutfitInventory() const noexcept
     return fallback;
 }
 
+void Actor::ForceEquipWornArmor() noexcept
+{
+    // Read the RAW container worn state (GetArmor, not GetActorInventory -- the latter would
+    // substitute a derived outfit when empty and mask the true state). For every armor piece
+    // the container has flagged worn, re-issue the engine Equip with abForceEquip=true so the
+    // item is actually applied to the biped. This repairs the "container says dressed, render
+    // is naked" desync without inventing gear: only items already owned+flagged are equipped.
+    auto& modSystem = World::Get().GetModSystem();
+    auto* pEquipManager = EquipManager::Get();
+    auto& defaultObjects = DefaultObjectManager::Get();
+
+    Inventory armor = GetArmor();
+    for (const Inventory::Entry& entry : armor.Entries)
+    {
+        if (!entry.IsWorn())
+            continue;
+
+        const uint32_t objectId = modSystem.GetGameId(entry.BaseId);
+        TESBoundObject* pObject = Cast<TESBoundObject>(TESForm::GetById(objectId));
+        if (!pObject)
+            continue;
+
+        TESForm* pSlot = entry.ExtraWornLeft ? defaultObjects.leftEquipSlot : defaultObjects.rightEquipSlot;
+        pEquipManager->Equip(this, pObject, nullptr, 1, pSlot, false, true, false, false);
+    }
+}
+
 MagicEquipment Actor::GetMagicEquipment() const noexcept
 {
     MagicEquipment equipment;

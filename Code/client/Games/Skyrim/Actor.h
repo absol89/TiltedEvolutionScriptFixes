@@ -200,6 +200,12 @@ struct Actor : TESObjectREFR
     // outfit (e.g. genuinely empty outfit, animals, or missing base form). Used to substitute
     // a garbage-naked server snapshot with the author's local engine-derived outfit.
     Inventory DeriveOutfitInventory() const noexcept;
+    // Force the engine to re-equip every container item flagged worn onto the actor's biped.
+    // Fixes the case where the logical inventory reports worn armor but the actor's actual
+    // equip/render state is empty (naked render despite a "dressed" container) -- e.g. a
+    // locally-owned templated NPC after spawn or an ownership change. Idempotent on the render:
+    // re-equipping an already-worn piece is a visual no-op.
+    void ForceEquipWornArmor() noexcept;
     MagicEquipment GetMagicEquipment() const noexcept;
     Inventory GetEquipment() const noexcept;
     int32_t GetGoldAmount() const noexcept;
