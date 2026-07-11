@@ -2,6 +2,7 @@
 
 #include <Games/References.h>
 #include <Games/Overrides.h>
+#include <Forms/TESObjectARMO.h>
 
 #include <World.h>
 #include <Services/PapyrusService.h>
@@ -794,11 +795,53 @@ void TESObjectREFR::SetInventory(const Inventory& aInventory) noexcept
         }
     }
 
+    // Remote body-slot fallback: Skyrim's nude body skin is never synced (SaveSkinFar is
+    // disabled), so a remote actor only gets a torso/legs/feet mesh if its inventory carries
+    // a body-slot (cuirass) ARMO. A player wearing e.g. helmet+boots but no body armor - or a
+    // fully nude player - renders with no body on other clients (and no feet, since feet are
+    // part of the body-slot model). Inject a worn body ARMO so the remote client has a body
+    // model to render. Server inventory is untouched (we only mutate the local working copy).
+    Inventory applied = aInventory;
+    if (auto* pActor = Cast<Actor>(this))
+    {
+        bool hasBody = false;
+        if (pActor->GetExtension()->IsRemote())
+        {
+            for (const auto& entry : applied.Entries)
+            {
+                if (!entry.IsWorn())
+                    continue;
+                const uint32_t id = World::Get().GetModSystem().GetGameId(entry.BaseId);
+                if (TESObjectARMO* pArmor = Cast<TESObjectARMO>(TESForm::GetById(id)))
+                {
+                    if (pArmor->IsBodyPiece())
+                    {
+                        hasBody = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!hasBody)
+        {
+            Inventory::Entry bodyEntry{};
+            // Vampire Lord armor (Dawnguard, mod index 0x02) - an ARMO whose body model
+            // renders the actor's nude body. Stand-in until a load-order-independent nude
+            // body is found.
+            bodyEntry.BaseId = GameId{0x02, 0x11A85};
+            bodyEntry.Count = 1;
+            bodyEntry.ExtraWorn = true;
+            applied.Entries.push_back(bodyEntry);
+            spdlog::info("[NakedFix] SetInventory: injected body ARMO for remote actor {:X} (no body-slot armor worn)", formID);
+        }
+    }
+
     ScopedInventoryOverride _;
 
     RemoveAllItems();
 
-    for (const Inventory::Entry& entry : aInventory.Entries)
+    for (const Inventory::Entry& entry : applied.Entries)
     {
         if (entry.Count != 0)
             AddOrRemoveItem(entry, true);
