@@ -778,6 +778,22 @@ void TESObjectREFR::SetInventory(const Inventory& aInventory) noexcept
 {
     spdlog::debug("Setting inventory for {:X}", formID);
 
+    // Root-cause guard for the naked-NPC race: when a locally-owned NPC's 3D finishes loading,
+    // the engine runs its own equip pass that calls SetInventory with an EMPTY/incomplete
+    // inventory, and this function does RemoveAllItems() first -- stripping the NPC. A fully
+    // naked overwrite of a LIVING non-player actor is never legitimate (dead-NPC loot clears
+    // and incremental pickpocket both send non-empty worn entries, and the player is excluded).
+    // Skip the strip+reapply so the engine cannot undress a living NPC this way.
+    if (auto* pActor = Cast<Actor>(this))
+    {
+        if (!pActor->GetExtension()->IsPlayer() && !pActor->IsDead() && !aInventory.HasWornItems())
+        {
+            spdlog::info("[NakedFix] SetInventory: skipping fully-naked strip of living actor {:X} (base {:X})",
+                         formID, baseForm ? baseForm->formID : 0);
+            return;
+        }
+    }
+
     ScopedInventoryOverride _;
 
     RemoveAllItems();

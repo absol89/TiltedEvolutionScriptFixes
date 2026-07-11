@@ -494,92 +494,6 @@ TESForm* Actor::GetEquippedAmmo() const noexcept
     return nullptr;
 }
 
-bool Actor::IsWearingBodyPiece() const noexcept
-{
-    return GetContainerChanges()->GetArmor(32) != nullptr;
-}
-
-bool Actor::ShouldWearBodyPiece() const noexcept
-{
-    TESNPC* pBase = Cast<TESNPC>(baseForm);
-    if (!pBase)
-        return false;
-
-    BGSOutfit* pDefaultOutfit = pBase->outfits[0];
-    if (!pDefaultOutfit)
-        return false;
-
-    for (auto* pItem : pDefaultOutfit->outfitItems)
-    {
-        TESObjectARMO* pArmor = nullptr;
-
-        if (pItem->formType == FormType::Armor)
-            pArmor = Cast<TESObjectARMO>(pItem);
-        else if (pItem->formType == FormType::LeveledItem)
-        {
-            TESLevItem* pLevItem = Cast<TESLevItem>(pItem);
-            if (!pLevItem || !pLevItem->pLeveledListA || !pLevItem->pLeveledListA->pForm)
-                continue;
-
-            pArmor = Cast<TESObjectARMO>(pLevItem->pLeveledListA->pForm);
-        }
-        else
-            continue;
-
-        if (!pArmor)
-            continue;
-
-        if (pArmor->IsBodyPiece()) 
-            return true;
-    }
-
-    return false;
-}
-
-void Actor::SetOutfit(BGSOutfit* apOutfit, bool aIsSleepOutfit) 
-{
-    PAPYRUS_FUNCTION(void, Actor, SetOutfit, const BGSOutfit*, bool);
-    s_pSetOutfit(this, apOutfit, aIsSleepOutfit);
-}
-
-void Actor::EquipOutfit(bool aIsSleepOutfit) noexcept
-{
-    auto* pBase = Cast<TESNPC>(baseForm);
-    if (!pBase)
-        return;
-
-    BGSOutfit* pDefaultOutfit = pBase->outfits[aIsSleepOutfit ? 1:0];
-    if (!pDefaultOutfit)
-        return;
-
-    auto* pEquipManager = EquipManager::Get();
-    for (auto* pItem : pDefaultOutfit->outfitItems)
-    {
-        TESObjectARMO* pArmor = nullptr;
-
-        if (pItem->formType == FormType::Armor)
-            pArmor = Cast<TESObjectARMO>(pItem);
-        else if (pItem->formType == FormType::LeveledItem)
-        {
-            TESLevItem* pLevItem = Cast<TESLevItem>(pItem);
-            if (!pLevItem || !pLevItem->pLeveledListA || !pLevItem->pLeveledListA->pForm)
-                continue;
-
-            pArmor = Cast<TESObjectARMO>(pLevItem->pLeveledListA->pForm);
-        }
-        else
-            continue;
-
-        if (!pArmor)
-            continue;
-
-        spdlog::debug(__FUNCTION__ ": equipping {:X} on actor {:X} {}", pArmor->formID, formID, baseForm->GetName());
-        pEquipManager->Equip(this, pArmor, nullptr, 1, nullptr, false, true, false, false);  
-    }
-
-    return;
-}
-
 
 // Get owner of a summon or raised corpse
 Actor* Actor::GetCommandingActor() const noexcept
@@ -796,7 +710,7 @@ Inventory Actor::GetActorInventory() const noexcept
     // unaffected.
     if (!GetExtension()->IsPlayer() && !IsDead() && !inventory.HasWornItems())
     {
-        spdlog::info("[NakedFix] fallback path for actor {:X} (base {:X})", formID,
+        spdlog::debug("[NakedFix] fallback path for actor {:X} (base {:X})", formID,
                      baseForm ? baseForm->formID : 0);
 
         Inventory fallback = DeriveOutfitInventory();
@@ -806,12 +720,104 @@ Inventory Actor::GetActorInventory() const noexcept
         }
         else
         {
-            spdlog::info("[NakedFix]   no wearable outfit derived (base {:X})",
+            spdlog::debug("[NakedFix]   no wearable outfit derived (base {:X})",
                          baseForm ? baseForm->formID : 0);
         }
     }
 
     return inventory;
+}
+
+Inventory Actor::DeriveOutfitInventory() const noexcept
+{
+    Inventory fallback{};
+
+    const TESNPC* pBase = Cast<TESNPC>(baseForm);
+    if (!pBase)
+        return fallback;
+
+    // Templated NPCs (FF-prefixed leveled-character spawns) carry no outfit on the
+    // leaf base -- the default outfit lives on the template base. Try the leaf first,
+    // then walk to the template base if the leaf defines no outfit at all. Without this
+    // the owner self-heal derives an empty inventory and leaves the NPC naked on the
+    // owner's own screen (remote clients are unaffected: they dress from the snapshot).
+    const TESNPC* pOutfitSource = pBase;
+    if (!pBase->outfits[0] && !pBase->outfits[1])
+    {
+        if (const TESNPC* pTemplate = pBase->GetTemplateBase())
+            pOutfitSource = pTemplate;
+    }
+
+    // NPCs may carry their default outfit in either outfits[0] or outfits[1]; some
+    // (e.g. guards) only define outfits[1]. Try both slots before giving up.
+    for (BGSOutfit* pOutfit : {pOutfitSource->outfits[0], pOutfitSource->outfits[1]})
+    {
+        if (!pOutfit)
+            continue;
+
+        size_t wearable = 0;
+        size_t mapped = 0;
+
+        for (TESForm* pItem : pOutfit->outfitItems)
+        {
+            if (!pItem)
+                continue;
+
+            // Collect every armor this outfit item can resolve to: a direct ARMO, or
+            // any entry in a leveled item list (Skyrim only uses list A).
+            Vector<TESObjectARMO*> armors;
+
+            if (pItem->formType == FormType::Armor)
+            {
+                if (TESObjectARMO* pArmor = Cast<TESObjectARMO>(pItem))
+                    armors.push_back(pArmor);
+            }
+            else if (pItem->formType == FormType::LeveledItem)
+            {
+                if (const TESLevItem* pLevItem = Cast<TESLevItem>(pItem))
+                {
+                    auto* pList = pLevItem->pLeveledListA;
+                    if (pList)
+                    {
+                        // count is stored 8 bytes before the array base.
+                        const auto count = *reinterpret_cast<const int32_t*>(
+                            reinterpret_cast<const uint8_t*>(pList) - 8);
+                        for (int32_t i = 0; i < count; ++i)
+                        {
+                            if (pList[i].pForm)
+                            {
+                                if (TESObjectARMO* pArmor = Cast<TESObjectARMO>(pList[i].pForm))
+                                    armors.push_back(pArmor);
+                            }
+                        }
+                    }
+                }
+            }
+
+            for (TESObjectARMO* pArmor : armors)
+            {
+                Inventory::Entry entry{};
+                World::Get().GetModSystem().GetServerModId(pArmor->formID, entry.BaseId);
+                entry.Count = 1;
+                entry.ExtraWorn = true;
+                fallback.Entries.push_back(std::move(entry));
+
+                ++wearable;
+                if (entry.BaseId != GameId{})
+                    ++mapped;
+            }
+        }
+
+        spdlog::debug("[NakedFix]   outfit {:X} outfitItems={} wearable={} mapped={} fallbackHasWorn={}",
+                     pOutfit->formID, pOutfit->outfitItems.length, wearable, mapped,
+                     fallback.HasWornItems());
+
+        // Use the first outfit slot that yields worn items; otherwise keep trying.
+        if (fallback.HasWornItems())
+            break;
+    }
+
+    return fallback;
 }
 
 MagicEquipment Actor::GetMagicEquipment() const noexcept
@@ -879,7 +885,10 @@ void Actor::SetActorInventory(const Inventory& acInventory) noexcept
 
             spdlog::info("Setting inventory for actor {:X}", formID);
             if (!this->GetExtension()->IsPlayer() && toApply.ContainsQuestItems())
-                SetInventoryRetainingQuestItems(GetActorInventory(), toApply);
+            {
+                Inventory currentInventory = GetActorInventory();
+                SetInventoryRetainingQuestItems(currentInventory, toApply);
+            }
             else
                 SetInventory(toApply);
 
