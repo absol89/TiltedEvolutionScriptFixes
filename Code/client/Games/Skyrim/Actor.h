@@ -262,11 +262,6 @@ struct Actor : TESObjectREFR
     bool PlayIdle(TESIdleForm* apIdle) noexcept;
     void FixVampireLordModel() noexcept;
     bool RemoveSpell(MagicItem* apSpell) noexcept;
-    // Derives a dressed inventory from this NPC's default outfit (outfits[0]/[1], leveled
-    // list A). Returns an inventory with worn entries, or empty if the base has no wearable
-    // outfit (e.g. genuinely empty outfit, animals, or missing base form). Used to substitute
-    // a garbage-naked server snapshot with the author's local engine-derived outfit.
-    Inventory DeriveOutfitInventory() const noexcept;
 
     enum ActorBoolBits
     {
