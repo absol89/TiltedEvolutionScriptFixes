@@ -795,17 +795,19 @@ void TESObjectREFR::SetInventory(const Inventory& aInventory) noexcept
         }
     }
 
-    // Remote body-slot fallback: Skyrim's nude body skin is never synced (SaveSkinFar is
-    // disabled), so a remote actor only gets a torso/legs/feet mesh if its inventory carries
-    // a body-slot (cuirass) ARMO. A player wearing e.g. helmet+boots but no body armor - or a
-    // fully nude player - renders with no body on other clients (and no feet, since feet are
-    // part of the body-slot model). Inject a worn body ARMO so the remote client has a body
-    // model to render. Server inventory is untouched (we only mutate the local working copy).
+    // Remote body-slot fallback (players only): Skyrim's nude body skin is never synced
+    // (SaveSkinFar is disabled), so a remote player only gets a torso/legs/feet mesh if its
+    // inventory carries a body-slot (cuirass) ARMO. A player wearing e.g. helmet+boots but no
+    // body armor - or a fully nude player - renders with no body on other clients (and no feet,
+    // since feet are part of the body-slot model). Inject a worn body ARMO so the remote client
+    // has a body model to render. Server inventory is untouched (we only mutate the local working
+    // copy). NPCs are deliberately excluded: the stand-in body ARMO does not fit NPC bodies and
+    // would leave them naked, and NPCs normally carry a body via their base outfit/worn armor.
     Inventory applied = aInventory;
     if (auto* pActor = Cast<Actor>(this))
     {
         bool hasBody = false;
-        if (pActor->GetExtension()->IsRemote())
+        if (pActor->GetExtension()->IsRemotePlayer())
         {
             for (const auto& entry : applied.Entries)
             {
@@ -833,7 +835,7 @@ void TESObjectREFR::SetInventory(const Inventory& aInventory) noexcept
             bodyEntry.Count = 1;
             bodyEntry.ExtraWorn = true;
             applied.Entries.push_back(bodyEntry);
-            spdlog::info("[NakedFix] SetInventory: injected body ARMO for remote actor {:X} (no body-slot armor worn)", formID);
+            spdlog::info("[NakedFix] SetInventory: injected body ARMO for remote player {:X} (no body-slot armor worn)", formID);
         }
     }
 
