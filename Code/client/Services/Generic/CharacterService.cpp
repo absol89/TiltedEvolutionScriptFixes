@@ -9,6 +9,7 @@
 
 #include <Games/References.h>
 #include <Games/Misc/SubtitleManager.h>
+#include <Games/Overrides.h>
 
 #include <Forms/TESNPC.h>
 #include <Interface/UI.h>
@@ -120,6 +121,56 @@ void CharacterService::DeleteRemoteEntityComponents(entt::entity aEntity) const 
     m_world.remove<FaceGenComponent, InterpolationComponent, RemoteAnimationComponent, RemoteComponent, CacheComponent, WaitingFor3D, PlayerComponent>(aEntity);
 }
 
+namespace
+{
+    // Owner self-heal: the owner never receives a network inventory snapshot for its own NPCs,
+    // so unlike remotes (which get SetActorInventory from the assign/spawn payload) a locally-
+    // owned NPC can be left rendering naked when the engine didn't equip its worn items onto
+    // the biped. Reconcile by running the SAME proven path the remote branch uses: reapply the
+    // actor's own current inventory via SetActorInventory. GetActorInventory() already derives a
+    // base outfit when the container is genuinely empty (templated/leveled spawns), and
+    // SetActorInventory re-equips worn items onto the biped. This must run on the same thread
+    // the remote SetActorInventory runs on (the assign/ownership handlers) -- never off-thread.
+    //
+    // Dedup: ownership flits between clients (nearest-player assignment) and re-triggers this on
+    // every re-claim, running a full RemoveAllItems + re-add + re-equip on actors that are ALREADY
+    // dressed. Skip the expensive re-apply when the biped already reports worn armor -- the
+    // genuinely-naked case (biped empty) still goes through, so naked NPCs still get fixed.
+    void OwnerSelfHealDress(Actor* apActor, uint32_t aBaseFormId) noexcept
+    {
+        if (apActor == nullptr || apActor->GetExtension()->IsPlayer() || apActor->IsDead())
+            return;
+
+        // Honest signal: is the biped already wearing something? (GetEquipment reads worn items,
+        // not the logical container, so it reflects the actual render state.)
+        if (apActor->GetEquipment().HasWornItems())
+        {
+            spdlog::debug("[NakedFix] owner self-heal: local actor {:X} (base {:X}) already dressed, skipping",
+                          apActor->formID, aBaseFormId);
+            return;
+        }
+
+        Inventory current = apActor->GetActorInventory();
+        if (current.HasWornItems())
+        {
+            spdlog::info("[NakedFix] owner self-heal: reapplying inventory for local actor {:X} (base {:X})",
+                         apActor->formID, aBaseFormId);
+            // SetActorInventory re-dresses the NPC by equipping each worn item through
+            // EquipManager::Equip. For a LOCAL actor that per-item Equip would otherwise fire an
+            // OnEquipmentChangeEvent to the server for every piece (a self-heal broadcast storm).
+            // Suppress the sync: the server already has this NPC's inventory, and the owner client
+            // is only repairing its own render. The engine equip still runs, so the NPC is dressed.
+            ScopedEquipOverride equipOverride;
+            apActor->SetActorInventory(current);
+        }
+        else
+        {
+            spdlog::info("[NakedFix] owner self-heal: local actor {:X} (base {:X}) is naked with no derivable outfit",
+                         apActor->formID, aBaseFormId);
+        }
+    }
+}
+
 bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acServerId, const entt::entity acEntity) const noexcept
 {
     Actor* pActor = Cast<Actor>(TESForm::GetById(acFormId));
@@ -157,6 +208,15 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
     request.NewActorData = BuildActorData(pActor);
 
     m_transport.Send(request);
+
+    // Ownership change: we just became the owner of this NPC. Reapply its inventory so the
+    // local render is dressed (the owner won't get a network snapshot for it). Runs on this
+    // handler's thread, matching the remote SetActorInventory path.
+    if (!pExtension->IsPlayer() && !pActor->IsDead())
+    {
+        const uint32_t baseFormId = pActor->baseForm ? pActor->baseForm->formID : 0;
+        OwnerSelfHealDress(pActor, baseFormId);
+    }
 
     return true;
 }
@@ -352,6 +412,16 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
             }
         }
         m_world.remove<EarlyAnimationBufferComponent>(cEntity);
+
+        // Owner self-heal: the owner never receives its own network inventory snapshot, so
+        // while remotes get dressed via SetActorInventory from the payload, a locally-owned
+        // NPC's own 3D render can stay naked. Reconcile here on the assign thread (same thread
+        // the remote SetActorInventory runs on) by reapplying the actor's own inventory.
+        if (!pActor->GetExtension()->IsPlayer() && !pActor->IsDead())
+        {
+            const uint32_t baseFormId = pActor->baseForm ? pActor->baseForm->formID : 0;
+            OwnerSelfHealDress(pActor, baseFormId);
+        }
     }
     else
     {

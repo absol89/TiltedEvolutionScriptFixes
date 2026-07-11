@@ -716,94 +716,114 @@ Inventory Actor::GetActorInventory() const noexcept
     // unaffected.
     if (!GetExtension()->IsPlayer() && !IsDead() && !inventory.HasWornItems())
     {
-        spdlog::info("[NakedFix] fallback path for actor {:X} (base {:X})", formID,
+        spdlog::debug("[NakedFix] fallback path for actor {:X} (base {:X})", formID,
                      baseForm ? baseForm->formID : 0);
 
-        if (const TESNPC* pBase = Cast<TESNPC>(baseForm))
+        Inventory fallback = DeriveOutfitInventory();
+        if (fallback.HasWornItems())
         {
-            // NPCs may carry their default outfit in either outfits[0] or outfits[1]; some
-            // (e.g. guards) only define outfits[1]. Try both slots before giving up.
-            for (BGSOutfit* pOutfit : {pBase->outfits[0], pBase->outfits[1]})
-            {
-                if (!pOutfit)
-                    continue;
-
-                Inventory fallback{};
-                fallback.CurrentMagicEquipment = inventory.CurrentMagicEquipment;
-
-                size_t wearable = 0;
-                size_t mapped = 0;
-
-                for (TESForm* pItem : pOutfit->outfitItems)
-                {
-                    if (!pItem)
-                        continue;
-
-                    // Collect every armor this outfit item can resolve to: a direct ARMO, or
-                    // any entry in a leveled item list (Skyrim only uses list A).
-                    Vector<TESObjectARMO*> armors;
-
-                    if (pItem->formType == FormType::Armor)
-                    {
-                        if (TESObjectARMO* pArmor = Cast<TESObjectARMO>(pItem))
-                            armors.push_back(pArmor);
-                    }
-                    else if (pItem->formType == FormType::LeveledItem)
-                    {
-                        if (const TESLevItem* pLevItem = Cast<TESLevItem>(pItem))
-                        {
-                            auto* pList = pLevItem->pLeveledListA;
-                            if (pList)
-                            {
-                                // count is stored 8 bytes before the array base.
-                                const auto count = *reinterpret_cast<const int32_t*>(
-                                    reinterpret_cast<const uint8_t*>(pList) - 8);
-                                for (int32_t i = 0; i < count; ++i)
-                                {
-                                    if (pList[i].pForm)
-                                    {
-                                        if (TESObjectARMO* pArmor = Cast<TESObjectARMO>(pList[i].pForm))
-                                            armors.push_back(pArmor);
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    for (TESObjectARMO* pArmor : armors)
-                    {
-                        Inventory::Entry entry{};
-                        World::Get().GetModSystem().GetServerModId(pArmor->formID, entry.BaseId);
-                        entry.Count = 1;
-                        entry.ExtraWorn = true;
-                        fallback.Entries.push_back(std::move(entry));
-
-                        ++wearable;
-                        if (entry.BaseId != GameId{})
-                            ++mapped;
-                    }
-                }
-
-                spdlog::info("[NakedFix]   outfit {:X} outfitItems={} wearable={} mapped={} fallbackHasWorn={}",
-                             pOutfit->formID, pOutfit->outfitItems.length, wearable, mapped,
-                             fallback.HasWornItems());
-
-                // Only use the fallback when it actually yields worn items; otherwise keep the
-                // (possibly legitimately empty) live snapshot so we never invent gear.
-                if (fallback.HasWornItems())
-                {
-                    inventory = std::move(fallback);
-                    break;
-                }
-            }
+            inventory = std::move(fallback);
         }
         else
         {
-            spdlog::info("[NakedFix]   pBase is null or not a TESNPC");
+            spdlog::debug("[NakedFix]   no wearable outfit derived (base {:X})",
+                         baseForm ? baseForm->formID : 0);
         }
     }
 
     return inventory;
+}
+
+Inventory Actor::DeriveOutfitInventory() const noexcept
+{
+    Inventory fallback{};
+
+    const TESNPC* pBase = Cast<TESNPC>(baseForm);
+    if (!pBase)
+        return fallback;
+
+    // Templated NPCs (FF-prefixed leveled-character spawns) carry no outfit on the
+    // leaf base -- the default outfit lives on the template base. Try the leaf first,
+    // then walk to the template base if the leaf defines no outfit at all. Without this
+    // the owner self-heal derives an empty inventory and leaves the NPC naked on the
+    // owner's own screen (remote clients are unaffected: they dress from the snapshot).
+    const TESNPC* pOutfitSource = pBase;
+    if (!pBase->outfits[0] && !pBase->outfits[1])
+    {
+        if (const TESNPC* pTemplate = pBase->GetTemplateBase())
+            pOutfitSource = pTemplate;
+    }
+
+    // NPCs may carry their default outfit in either outfits[0] or outfits[1]; some
+    // (e.g. guards) only define outfits[1]. Try both slots before giving up.
+    for (BGSOutfit* pOutfit : {pOutfitSource->outfits[0], pOutfitSource->outfits[1]})
+    {
+        if (!pOutfit)
+            continue;
+
+        size_t wearable = 0;
+        size_t mapped = 0;
+
+        for (TESForm* pItem : pOutfit->outfitItems)
+        {
+            if (!pItem)
+                continue;
+
+            // Collect every armor this outfit item can resolve to: a direct ARMO, or
+            // any entry in a leveled item list (Skyrim only uses list A).
+            Vector<TESObjectARMO*> armors;
+
+            if (pItem->formType == FormType::Armor)
+            {
+                if (TESObjectARMO* pArmor = Cast<TESObjectARMO>(pItem))
+                    armors.push_back(pArmor);
+            }
+            else if (pItem->formType == FormType::LeveledItem)
+            {
+                if (const TESLevItem* pLevItem = Cast<TESLevItem>(pItem))
+                {
+                    auto* pList = pLevItem->pLeveledListA;
+                    if (pList)
+                    {
+                        // count is stored 8 bytes before the array base.
+                        const auto count = *reinterpret_cast<const int32_t*>(
+                            reinterpret_cast<const uint8_t*>(pList) - 8);
+                        for (int32_t i = 0; i < count; ++i)
+                        {
+                            if (pList[i].pForm)
+                            {
+                                if (TESObjectARMO* pArmor = Cast<TESObjectARMO>(pList[i].pForm))
+                                    armors.push_back(pArmor);
+                            }
+                        }
+                    }
+                }
+            }
+
+            for (TESObjectARMO* pArmor : armors)
+            {
+                Inventory::Entry entry{};
+                World::Get().GetModSystem().GetServerModId(pArmor->formID, entry.BaseId);
+                entry.Count = 1;
+                entry.ExtraWorn = true;
+                fallback.Entries.push_back(std::move(entry));
+
+                ++wearable;
+                if (entry.BaseId != GameId{})
+                    ++mapped;
+            }
+        }
+
+        spdlog::debug("[NakedFix]   outfit {:X} outfitItems={} wearable={} mapped={} fallbackHasWorn={}",
+                     pOutfit->formID, pOutfit->outfitItems.length, wearable, mapped,
+                     fallback.HasWornItems());
+
+        // Use the first outfit slot that yields worn items; otherwise keep trying.
+        if (fallback.HasWornItems())
+            break;
+    }
+
+    return fallback;
 }
 
 MagicEquipment Actor::GetMagicEquipment() const noexcept
@@ -841,25 +861,55 @@ int32_t Actor::GetGoldAmount() const noexcept
 
 void Actor::SetActorInventory(const Inventory& acInventory) noexcept
 {
-    // If the incoming snapshot has no worn items but this actor is actually dressed, the
-    // snapshot is garbage (e.g. the server propagated a transient/broken naked state). Forcing
-    // it through SetInventory() would call RemoveAllItems() and strip a correctly-dressed NPC
-    // for no reason - there is nothing to unequip, so there is nothing to do. Skip the strip
-    // and the (now-pointless) magic-equip entirely. Dead NPCs and legitimately empty inventory
-    // (pickpocket/stripped alive NPC) snapshots are unaffected because they aren't "dressed".
-    if (!GetExtension()->IsPlayer() && !IsDead() && !acInventory.HasWornItems() &&
-        GetActorInventory().HasWornItems())
+    // Garbage-naked server snapshot (no worn items at all). This is the high-frequency naked-
+    // NPC race: an NPC receives an empty-worn snapshot during an ownership flip / spawn, and
+    // would otherwise be stripped (or left undressed if it was a leveled/temp-base spawn that
+    // was never dressed yet). Per the project's naked-NPC domain rule, a fully-empty inventory
+    // is only legitimate for a DEAD NPC (loot all) or an alive NPC being incrementally
+    // pickpocketed/looted (which sends non-empty WORN entries, so it never reaches here).
+    // So a naked snapshot on a living, non-player NPC is always broken and we substitute the
+    // local engine-derived outfit instead of applying the empty one.
+    if (!GetExtension()->IsPlayer() && !IsDead() && !acInventory.HasWornItems())
     {
-        spdlog::info("Skipping inventory set for actor {:X}: incoming has no worn items but actor is dressed",
+        Inventory derived = DeriveOutfitInventory();
+        if (derived.HasWornItems())
+        {
+            spdlog::info("[NakedFix] substituting derived outfit for actor {:X} (base {:X}) "
+                         "instead of applying naked snapshot",
+                         formID, baseForm ? baseForm->formID : 0);
+
+            // Supplement: keep any non-worn inventory the server did send (e.g. gold, quest
+            // items, food) and add the derived worn items on top. Preserves legit contents
+            // while guaranteeing the NPC ends up dressed.
+            Inventory toApply = acInventory;
+            for (auto& entry : derived.Entries)
+            {
+                if (entry.IsWorn())
+                    toApply.Entries.push_back(entry);
+            }
+            toApply.CurrentMagicEquipment = acInventory.CurrentMagicEquipment;
+
+            spdlog::info("Setting inventory for actor {:X}", formID);
+            if (!this->GetExtension()->IsPlayer() && toApply.ContainsQuestItems())
+            {
+                Inventory currentInventory = GetActorInventory();
+                SetInventoryRetainingQuestItems(currentInventory, toApply);
+            }
+            else
+                SetInventory(toApply);
+
+            SetMagicEquipment(toApply.CurrentMagicEquipment);
+            return;
+        }
+
+        // No wearable outfit could be derived (genuinely empty base outfit, animal, missing
+        // base form, etc.). Nothing we can do locally; let the normal path run so we don't
+        // invent gear.
+        spdlog::info("[NakedFix] actor {:X} has no derivable outfit; applying snapshot as-is",
                      formID);
-        return;
     }
 
     spdlog::info("Setting inventory for actor {:X}", formID);
-
-    // The UnEquipAll() that used to be here is redundant,
-    // as RemoveAllItems() unequips every item if needed.
-    // Placing this UnEquipAll() here seems to trigger a Skyrim bug/race.
 
     Inventory currentInventory = GetActorInventory();
 
