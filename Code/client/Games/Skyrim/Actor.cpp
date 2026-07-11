@@ -737,6 +737,17 @@ Inventory Actor::DeriveOutfitInventory() const noexcept
 
 void Actor::ForceEquipWornArmor() noexcept
 {
+    // Only touch actors whose 3D + AI process are actually present; forcing an engine equip on
+    // an actor that isn't fully loaded (e.g. a just-spawned dynamic FE summon during the
+    // deferred re-check) dereferences uninitialised biped/process state and crashes.
+    if (!GetNiNode() || !currentProcess)
+        return;
+
+    // Suppress the equip hook's network sync + re-entrancy: every internal engine-side equip in
+    // this codebase runs under ScopedEquipOverride. Without it each forced equip fires
+    // OnEquipmentChangeEvent (spamming the server) and re-enters the equip path, which crashed.
+    ScopedEquipOverride equipOverride;
+
     // Read the RAW container worn state (GetArmor, not GetActorInventory -- the latter would
     // substitute a derived outfit when empty and mask the true state). For every armor piece
     // the container has flagged worn, re-issue the engine Equip with abForceEquip=true so the
