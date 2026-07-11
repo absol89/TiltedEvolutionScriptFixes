@@ -796,23 +796,20 @@ void TESObjectREFR::SetInventory(const Inventory& aInventory) noexcept
     // copy). NPCs are deliberately excluded: the stand-in body ARMO does not fit NPC bodies and
     // would leave them naked, and NPCs normally carry a body via their base outfit/worn armor.
     Inventory applied = aInventory;
-    if (auto* pActor = Cast<Actor>(this))
+    if (auto* pActor = Cast<Actor>(this); pActor && pActor->GetExtension()->IsRemotePlayer())
     {
         bool hasBody = false;
-        if (pActor->GetExtension()->IsRemotePlayer())
+        for (const auto& entry : applied.Entries)
         {
-            for (const auto& entry : applied.Entries)
+            if (!entry.IsWorn())
+                continue;
+            const uint32_t id = World::Get().GetModSystem().GetGameId(entry.BaseId);
+            if (TESObjectARMO* pArmor = Cast<TESObjectARMO>(TESForm::GetById(id)))
             {
-                if (!entry.IsWorn())
-                    continue;
-                const uint32_t id = World::Get().GetModSystem().GetGameId(entry.BaseId);
-                if (TESObjectARMO* pArmor = Cast<TESObjectARMO>(TESForm::GetById(id)))
+                if (pArmor->IsBodyPiece())
                 {
-                    if (pArmor->IsBodyPiece())
-                    {
-                        hasBody = true;
-                        break;
-                    }
+                    hasBody = true;
+                    break;
                 }
             }
         }
