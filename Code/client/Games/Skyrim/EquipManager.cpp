@@ -173,7 +173,12 @@ void* TP_MAKE_THISCALL(EquipHook, EquipManager, Actor* apActor, TESForm* apItem,
     // Consumables are "equipped" as well. We don't want this to sync, for several reasons.
     // The right hand item on the server would be overridden by the consumable.
     // Furthermore, the equip action on the other clients would doubly subtract the consumables.
-    if (pExtension->IsLocal() && !apItem->IsConsumable() && !apData->bQueueEquip)
+    // Also suppress the sync when an internal equip is in progress (ScopedEquipOverride):
+    // SetInventory/SetActorInventory re-dress a locally-owned NPC by calling Equip per item,
+    // and that would otherwise broadcast one EquipmentChangeEvent per worn piece to the server
+    // (a self-heal storm on the owner client). Player-driven equips are not under the override,
+    // so genuine user/AI equip stays synced.
+    if (pExtension->IsLocal() && !apItem->IsConsumable() && !apData->bQueueEquip && !ScopedEquipOverride::IsOverriden())
     {
         EquipmentChangeEvent evt{};
         evt.ActorId = apActor->formID;

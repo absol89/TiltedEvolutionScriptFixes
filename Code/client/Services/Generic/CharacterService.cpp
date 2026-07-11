@@ -9,6 +9,7 @@
 
 #include <Games/References.h>
 #include <Games/Misc/SubtitleManager.h>
+#include <Games/Overrides.h>
 
 #include <Forms/TESNPC.h>
 #include <Forms/TESQuest.h>
@@ -129,16 +130,36 @@ namespace
     // base outfit when the container is genuinely empty (templated/leveled spawns), and
     // SetActorInventory re-equips worn items onto the biped. This must run on the same thread
     // the remote SetActorInventory runs on (the assign/ownership handlers) -- never off-thread.
+    //
+    // Dedup: ownership flits between clients (nearest-player assignment) and re-triggers this on
+    // every re-claim, running a full RemoveAllItems + re-add + re-equip on actors that are ALREADY
+    // dressed. Skip the expensive re-apply when the biped already reports worn armor -- the
+    // genuinely-naked case (biped empty) still goes through, so naked NPCs still get fixed.
     void OwnerSelfHealDress(Actor* apActor, uint32_t aBaseFormId) noexcept
     {
         if (apActor == nullptr || apActor->GetExtension()->IsPlayer() || apActor->IsDead())
             return;
+
+        // Honest signal: is the biped already wearing something? (GetEquipment reads worn items,
+        // not the logical container, so it reflects the actual render state.)
+        if (apActor->GetEquipment().HasWornItems())
+        {
+            spdlog::debug("[NakedFix] owner self-heal: local actor {:X} (base {:X}) already dressed, skipping",
+                          apActor->formID, aBaseFormId);
+            return;
+        }
 
         Inventory current = apActor->GetActorInventory();
         if (current.HasWornItems())
         {
             spdlog::info("[NakedFix] owner self-heal: reapplying inventory for local actor {:X} (base {:X})",
                          apActor->formID, aBaseFormId);
+            // SetActorInventory re-dresses the NPC by equipping each worn item through
+            // EquipManager::Equip. For a LOCAL actor that per-item Equip would otherwise fire an
+            // OnEquipmentChangeEvent to the server for every piece (a self-heal broadcast storm).
+            // Suppress the sync: the server already has this NPC's inventory, and the owner client
+            // is only repairing its own render. The engine equip still runs, so the NPC is dressed.
+            ScopedEquipOverride equipOverride;
             apActor->SetActorInventory(current);
         }
         else
