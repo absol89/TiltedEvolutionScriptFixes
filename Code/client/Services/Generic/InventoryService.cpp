@@ -37,13 +37,11 @@ InventoryService::InventoryService(World& aWorld, entt::dispatcher& aDispatcher,
 {
     // DIAG self-id banner: proves which binary produced a log. Only the naked-NPC diagnostic
     // build prints this. Remove with the rest of the diagnostic.
-    spdlog::warn("DIAG naked-npc build active (commit 39efc368+): will log 'NAKED + IsRemote' once per remote naked NPC and track local redress.");
-
+    m_equipmentChangeConnection = m_dispatcher.sink<NotifyEquipmentChanges>().connect<&InventoryService::OnNotifyEquipmentChanges>(this);
     m_updateConnection = m_dispatcher.sink<UpdateEvent>().connect<&InventoryService::OnUpdate>(this);
     m_inventoryConnection = m_dispatcher.sink<InventoryChangeEvent>().connect<&InventoryService::OnInventoryChangeEvent>(this);
     m_equipmentConnection = m_dispatcher.sink<EquipmentChangeEvent>().connect<&InventoryService::OnEquipmentChangeEvent>(this);
     m_inventoryChangeConnection = m_dispatcher.sink<NotifyInventoryChanges>().connect<&InventoryService::OnNotifyInventoryChanges>(this);
-    m_equipmentChangeConnection = m_dispatcher.sink<NotifyEquipmentChanges>().connect<&InventoryService::OnNotifyEquipmentChanges>(this);
 }
 
 void InventoryService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
@@ -294,135 +292,6 @@ void InventoryService::RunWeaponStateUpdates() noexcept
             request.IsWeaponDrawn = isWeaponDrawn;
 
             m_transport.Send(request);
-        }
-    }
-}
-
-void InventoryService::RunNakedNPCBugChecks() noexcept
-{
-    if (!m_transport.IsConnected())
-        return;
-
-    static std::chrono::steady_clock::time_point lastSendTimePoint;
-    constexpr auto cDelayBetweenUpdates = 1000ms;
-    constexpr auto cDelayAfterAssignment = 3s;
-    constexpr auto cNoDeadline = std::chrono::steady_clock::time_point{};
-
-    const auto now = std::chrono::steady_clock::now();
-    if (now - lastSendTimePoint < cDelayBetweenUpdates)
-        return;
-
-    lastSendTimePoint = now;
-
-    auto view = m_world.view<FormIdComponent>();
-
-    for (auto entity : view)
-    {
-        const auto& formIdComponent = view.get<FormIdComponent>(entity);
-        Actor* pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
-        if (!pActor)
-            continue;
-
-        if (pActor->GetExtension()->IsPlayer())
-            continue;
-
-        if (pActor->GetExtension()->nakedDeadline == cNoDeadline)
-            continue;
-
-        if (pActor->IsDead() || !pActor->ShouldWearBodyPiece())
-        {
-            pActor->GetExtension()->nakedDeadline = cNoDeadline;
-            spdlog::debug(__FUNCTION__ ": actorId {:X} naked check is irrelevant {}", pActor->formID, pActor->baseForm->GetName());
-            continue; 
-        }
-
-        if (now < pActor->GetExtension()->nakedDeadline + cDelayAfterAssignment)
-        {
-            spdlog::debug(__FUNCTION__ ": actorId {:X} with naked check deadline {}", pActor->formID, pActor->baseForm->GetName());
-            continue; 
-        }
-
-        else
-        {
-            spdlog::debug(__FUNCTION__ ": actorId {:X} naked check deadline expires {}", pActor->formID, pActor->baseForm->GetName());
-            if (m_world.try_get<WaitingForAssignmentComponent>(entity))
-            {
-                spdlog::debug(__FUNCTION__ ": actorId {:X} but still WaitingForAssignment {}", pActor->formID, pActor->baseForm->GetName());
-                pActor->GetExtension()->SetNakedDeadline();
-                continue;
-            }
-
-            pActor->GetExtension()->nakedDeadline = cNoDeadline;   
-        }
-
-        if (pActor->GetExtension()->IsRemote())
-        {
-            // DIAG (naked-NPC investigation): confirm hypothesis that the naked NPCs the player
-            // sees are Remote and therefore skipped by this backstop, which only re-dresses
-            // locally-owned actors. Logs once per actor, then clears the flag if it later gets
-            // dressed. Remove once the root cause is confirmed/fixed.
-            if (!pActor->IsWearingBodyPiece() && pActor->ShouldWearBodyPiece())
-            {
-                if (!pActor->GetExtension()->nakedLogged)
-                {
-                    pActor->GetExtension()->nakedLogged = true;
-                    spdlog::warn(__FUNCTION__ ": actorId {:X} NAKED + IsRemote -> backstop SKIPS redress (only dresses local-owned NPCs) {}",
-                        pActor->formID, pActor->baseForm ? pActor->baseForm->GetName() : "<no base>");
-                }
-            }
-            else
-            {
-                pActor->GetExtension()->nakedLogged = false;
-                spdlog::debug(__FUNCTION__ ": actorId {:X} naked check canceled, IsRemote(), {}", pActor->formID, pActor->baseForm->GetName());
-            }
-            continue;
-        }
-
-        // If somehow inventory was damaged despite fixes, dress actor. Belt and suspenders.
-        // Note if the outfit items have been removed from inventory, they aren't regenerated.
-        TESNPC* pBase = Cast<TESNPC>(pActor->baseForm);
-        if (!pActor->IsWearingBodyPiece() && pBase)
-        {
-            spdlog::warn(__FUNCTION__ ": actorId {:X} naked check fires {} (local-owned redress)", pActor->formID, pActor->baseForm->GetName());
-            pActor->EquipOutfit();
-            // DIAG: did the redress take? If still naked, EquipOutfit didn't stick. Drill into WHY:
-            // - inventory may be missing the outfit's body piece (EquipManager::Equip no-ops on items not in inventory)
-            // - or ShouldWearBodyPiece() is false (no default outfit)
-            if (!pActor->IsWearingBodyPiece())
-            {
-                const bool shouldWear = pActor->ShouldWearBodyPiece();
-                const auto inv = pActor->GetActorInventory();
-                const size_t invCount = inv.Entries.size();
-                // Find the default outfit's body piece (IsBodyPiece flag) and whether it's present in inventory.
-                // Resolve LeveledItem entries like EquipOutfit() does, so bodyPiece isn't a false negative.
-                TESNPC* pNpcBase = Cast<TESNPC>(pActor->baseForm);
-                uint32_t bodyPieceFormId = 0;
-                if (pNpcBase && pNpcBase->outfits[0])
-                {
-                    for (auto* pItem : pNpcBase->outfits[0]->outfitItems)
-                    {
-                        TESObjectARMO* pArmor = nullptr;
-                        if (pItem->formType == FormType::Armor)
-                            pArmor = Cast<TESObjectARMO>(pItem);
-                        else if (pItem->formType == FormType::LeveledItem)
-                        {
-                            TESLevItem* pLevItem = Cast<TESLevItem>(pItem);
-                            if (pLevItem && pLevItem->pLeveledListA && pLevItem->pLeveledListA->pForm)
-                                pArmor = Cast<TESObjectARMO>(pLevItem->pLeveledListA->pForm);
-                        }
-                        if (pArmor && pArmor->IsBodyPiece())
-                            bodyPieceFormId = pArmor->formID;
-                    }
-                }
-                bool bodyPieceInInv = false;
-                if (bodyPieceFormId != 0)
-                {
-                    GameId id{0, bodyPieceFormId};  // ModId 0 for base-game armor
-                    bodyPieceInInv = inv.GetEntryById(id).has_value();
-                }
-                spdlog::warn(__FUNCTION__ ": actorId {:X} STILL NAKED after EquipOutfit {} (local-owned) shouldWear={} invEntries={} bodyPiece={:X} bodyPieceInInv={}",
-                    pActor->formID, pActor->baseForm->GetName(), shouldWear, invCount, bodyPieceFormId, bodyPieceInInv);
-            }
         }
     }
 }

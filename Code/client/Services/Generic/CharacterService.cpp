@@ -194,7 +194,6 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
     }
 
     pExtension->SetRemote(false);
-    pExtension->SetNakedDeadline();
 
     // TODO(cosideci): this should be done differently.
     // Send an ownership claim request, and have the server broadcast the result.
@@ -385,11 +384,6 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
         return;
     }
 
-    // DIAG (naked-NPC): snapshot body-piece state at the moment this actor becomes locally owned.
-    // Catches whether clothes are already missing when assignment completes (root-cause probe).
-    spdlog::warn("DIAG OnAssignCharacter: actorId {:X} {} becomes LOCAL, wearingBodyPiece={}",
-        pActor->formID, pActor->baseForm ? pActor->baseForm->GetName() : "<no base>", pActor->IsWearingBodyPiece());
-
     // TODO: how could this possibly trigger?
     // it's kinda interfering with my WaitingFor3D code
     if (acMessage.PlayerId != 0)
@@ -453,7 +447,6 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
         // The owner's leveled pick rides the assignment response for actors we discovered ourselves
         ApplyLeveledNpcPick(pActor, acMessage.LeveledNpcPickId);
     }
-    pActor->GetExtension()->SetNakedDeadline();
 }
 
 void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) const noexcept
@@ -639,12 +632,6 @@ void CharacterService::OnRemoteSpawnDataReceived(const NotifySpawnData& acMessag
 
     pActor->SetActorValues(acMessage.NewActorData.InitialActorValues);
     pActor->SetActorInventory(acMessage.NewActorData.InitialInventory);
-    // Dress the actor on the REMOTE viewer's client. SetActorInventory only stores the items in
-    // the container; it does not equip armor, so a Remote NPC would stay naked until ownership
-    // flips locally (otsffs: "set as Remote before initialization completes"). Apply the base
-    // outfit here so the viewer sees the NPC clothed at spawn. Players handle their own gear.
-    if (!pActor->GetExtension()->IsPlayer())
-        pActor->EquipOutfit();
     m_weaponDrawUpdates[pActor->formID] = {acMessage.NewActorData.IsWeaponDrawn};
 
     if (pActor->IsDead() != acMessage.NewActorData.IsDead)
@@ -1508,11 +1495,6 @@ void CharacterService::CancelServerAssignment(const entt::entity aEntity, const 
     Actor* pActor = Cast<Actor>(TESForm::GetById(aFormId));
     const char* pName = !pActor ? "" : pActor->baseForm->GetName();
 
-    // DIAG (naked-NPC): snapshot body-piece state before this actor flips ownership (local<->remote).
-    if (pActor)
-        spdlog::warn("DIAG CancelServerAssignment: actorId {:X} {} wearingBodyPiece={} before flip",
-            aFormId, pName, pActor->IsWearingBodyPiece());
-
     if (m_world.all_of<RemoteComponent>(aEntity))
     {
         if (pActor)
@@ -1581,17 +1563,8 @@ void CharacterService::CancelServerAssignment(const entt::entity aEntity, const 
 
         m_transport.Send(request);
 
-        // Dress the NPC before it flips to Remote so the (former) owner's view stays clothed.
-        // EquipOutfit equips directly from the base outfit form, so it works even when the synced
-        // inventory is missing the body piece (the upstream bug that strips it on resync).
-        if (pActor && !pActor->GetExtension()->IsPlayer())
-            pActor->EquipOutfit();
-
         m_world.remove<LocalAnimationComponent, LocalComponent>(aEntity);
     }
-
-    if (pActor)
-        pActor->GetExtension()->SetNakedDeadline();
 }
 
 Actor* CharacterService::CreateCharacterForEntity(entt::entity aEntity) const noexcept
@@ -1926,9 +1899,6 @@ void CharacterService::RunRemoteUpdates() noexcept
 
         if (pActor->IsVampireLord())
             pActor->FixVampireLordModel();
-
-        // (Re)start naked NPC deadline. Actor MUST be fully constructed before check clock starts.
-        pActor->GetExtension()->SetNakedDeadline();
 
         toRemove.push_back(entity);
 

@@ -262,10 +262,6 @@ struct Actor : TESObjectREFR
     bool PlayIdle(TESIdleForm* apIdle) noexcept;
     void FixVampireLordModel() noexcept;
     bool RemoveSpell(MagicItem* apSpell) noexcept;
-    void SetOutfit(BGSOutfit* apOutfit, bool aIsSleepOutfit = false);
-    void EquipOutfit(bool aIsSleepOutfit = false) noexcept;
-    bool IsWearingBodyPiece() const noexcept;
-    bool ShouldWearBodyPiece() const noexcept;
 
     enum ActorBoolBits
     {
