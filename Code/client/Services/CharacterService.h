@@ -142,14 +142,20 @@ private:
     // Written from const message handlers, drained by ProcessLeveledConforms
     mutable Map<uint32_t, LeveledConformData> m_pendingLeveledConforms{};
 
-    // Owner self-heal deferred retry: at ownership-claim time a locally-owned NPC's 3D/biped
-    // may not be ready, so the immediate re-dress can no-op and leave it naked on the owner's
-    // screen. Retry the dress a moment later on the update tick (2 passes, like weapon draws,
-    // because Skyrim biped state is finnicky). mutable: enqueued from const TakeOwnership.
+    // Owner self-heal deferred retry: at ownership-claim/transfer time a locally-owned NPC can
+    // end up naked on the owner's screen. Two causes: (1) the biped 3D isn't ready yet at claim
+    // time, or (2) an ownership TRANSFER strips the biped but leaves the container's worn flags
+    // set, so a plain re-dress is a diff no-op (SetInventory sees "already worn" and equips
+    // nothing). Retry on the update tick: first re-dress gently (covers case 1), and if the biped
+    // is still naked while its container claims worn items, escalate to a DisableImpl()/EnableImpl()
+    // 3D rebuild (covers case 2 - the same "rebuild the render" primitive the leveled-conform path
+    // uses; EnableImpl(false) keeps the inventory intact and just re-attaches worn armor).
+    // mutable: enqueued from const TakeOwnership.
     struct SelfHealData
     {
         double m_timer = 0.0;
-        bool m_isFirstPass = true;
+        int m_pass = 0;             // 0/1 = gentle re-dress passes, 2 = post-disable re-enable
+        bool m_rebuildPending = false; // DisableImpl() issued, EnableImpl() due next pass
     };
 
     mutable Map<uint32_t, SelfHealData> m_selfHealRetries{};

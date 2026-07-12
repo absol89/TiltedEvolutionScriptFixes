@@ -2060,10 +2060,9 @@ void CharacterService::ApplyCachedSelfHeals(const UpdateEvent& acUpdateEvent) co
 
         data.m_timer += acUpdateEvent.Delta;
 
-        // Two passes (like weapon draws): retry ~0.5s after claim, then once more ~1.5s later,
-        // by which point the biped is reliably loaded and the worn armor attaches.
-        double maxTime = data.m_isFirstPass ? 0.5 : 1.5;
-        if (data.m_timer <= maxTime)
+        // Stage cadence: pass 0 at ~0.5s, pass 1 at ~1.5s, rebuild re-enable one tick later.
+        double maxTime = data.m_pass == 0 ? 0.5 : 1.5;
+        if (!data.m_rebuildPending && data.m_timer <= maxTime)
             continue;
 
         Actor* pActor = Cast<Actor>(TESForm::GetById(cId));
@@ -2073,21 +2072,61 @@ void CharacterService::ApplyCachedSelfHeals(const UpdateEvent& acUpdateEvent) co
             continue;
         }
 
-        // OwnerSelfHealDress self-dedups: it skips when the biped already reports worn armor,
-        // so a retry on an already-dressed actor is a cheap no-op.
+        // Stage 3: a DisableImpl() was issued last tick; re-enable to rebuild the 3D from the
+        // (intact) container. EnableImpl(false) does NOT reset inventory, so the worn armor is
+        // re-attached to the freshly built biped.
+        if (data.m_rebuildPending)
+        {
+            if (pActor->IsDisabled())
+                pActor->EnableImpl();
+
+            const bool wornAfter = pActor->GetEquipment().HasWornItems();
+            spdlog::info("[NakedFix] self-heal 3D-rebuild re-enable for actor {:X}: wornAfter={}",
+                         pActor->formID, wornAfter);
+            toRemove.push_back(cId);
+            continue;
+        }
+
+        // Stages 1-2: gentle re-dress. OwnerSelfHealDress self-dedups on HasWornItems, so this is
+        // a cheap no-op once the biped is dressed.
         const bool wornBefore = pActor->GetEquipment().HasWornItems();
         const uint32_t baseFormId = pActor->baseForm ? pActor->baseForm->formID : 0;
         OwnerSelfHealDress(pActor, baseFormId);
         const bool wornAfter = pActor->GetEquipment().HasWornItems();
 
         spdlog::info("[NakedFix] self-heal retry (pass {}) for actor {:X} (base {:X}): wornBefore={} wornAfter={}",
-                     data.m_isFirstPass ? 1 : 2, pActor->formID, baseFormId, wornBefore, wornAfter);
+                     data.m_pass + 1, pActor->formID, baseFormId, wornBefore, wornAfter);
 
-        // Stop early once dressed; otherwise let the second pass run, then give up.
-        if (wornAfter || !data.m_isFirstPass)
+        if (wornAfter)
+        {
             toRemove.push_back(cId);
+            continue;
+        }
 
-        data.m_isFirstPass = false;
+        // Still naked after the final gentle pass. If the container claims worn items but the
+        // biped isn't wearing them (the ownership-transfer no-op case), the plain re-dress can't
+        // fix it - the container diff sees "already worn" and equips nothing. Escalate to a 3D
+        // rebuild: strip the render now, re-enable next tick. Guard on loadedState so we only
+        // rebuild actors whose 3D is actually present (distant/unloaded actors stay pending).
+        if (data.m_pass >= 1)
+        {
+            const bool containerWorn = pActor->GetActorInventory().HasWornItems();
+            if (containerWorn && pActor->loadedState && !pActor->IsDisabled())
+            {
+                spdlog::info("[NakedFix] self-heal escalating to 3D rebuild for actor {:X} (base {:X}): "
+                             "container worn but biped naked", pActor->formID, baseFormId);
+                pActor->DisableImpl();
+                data.m_rebuildPending = true;
+                data.m_timer = 0.0;
+                continue; // re-enable next tick
+            }
+
+            // Nothing more we can safely do (no container items, or 3D not loaded).
+            toRemove.push_back(cId);
+            continue;
+        }
+
+        data.m_pass++;
     }
 
     for (uint32_t id : toRemove)
