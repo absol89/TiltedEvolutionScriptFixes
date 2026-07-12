@@ -109,6 +109,7 @@ private:
     void RunSpawnUpdates() const noexcept;
     void RunExperienceUpdates() noexcept;
     void ApplyCachedWeaponDraws(const UpdateEvent& acUpdateEvent) noexcept;
+    void ApplyCachedSelfHeals(const UpdateEvent& acUpdateEvent) const noexcept;
 
     World& m_world;
     entt::dispatcher& m_dispatcher;
@@ -140,6 +141,18 @@ private:
 
     // Written from const message handlers, drained by ProcessLeveledConforms
     mutable Map<uint32_t, LeveledConformData> m_pendingLeveledConforms{};
+
+    // Owner self-heal deferred retry: at ownership-claim time a locally-owned NPC's 3D/biped
+    // may not be ready, so the immediate re-dress can no-op and leave it naked on the owner's
+    // screen. Retry the dress a moment later on the update tick (2 passes, like weapon draws,
+    // because Skyrim biped state is finnicky). mutable: enqueued from const TakeOwnership.
+    struct SelfHealData
+    {
+        double m_timer = 0.0;
+        bool m_isFirstPass = true;
+    };
+
+    mutable Map<uint32_t, SelfHealData> m_selfHealRetries{};
 
     entt::scoped_connection m_referenceAddedConnection;
     entt::scoped_connection m_referenceRemovedConnection;
