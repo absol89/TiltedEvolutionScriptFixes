@@ -1846,6 +1846,14 @@ void CharacterService::ApplyCachedSelfHeals(const UpdateEvent& acUpdateEvent) co
             if (pActor->IsDisabled())
                 pActor->EnableImpl();
 
+            // Re-enabling rebuilds the 3D/anim graph. The old GraphDescriptorHash can index the
+            // rebuilt graph's variable set out of bounds (the same OOB variable-index crash the
+            // leveled-conform re-enable guards against, and what werewolf/VL transforms reset).
+            // Zero it so the next sync tick recomputes it from the fresh graph. Without this, the
+            // actor can hang/crash when its graph is next driven -- notably during a save near
+            // dense static-NPC clusters (e.g. Riverwood's Gerdur/Frodnar).
+            pActor->GetExtension()->GraphDescriptorHash = 0;
+
             const bool wornAfter = HasWornBodyPiece(pActor->GetEquipment());
             spdlog::info("[NakedFix] self-heal 3D-rebuild re-enable for actor {:X}: wornAfter={}",
                          pActor->formID, wornAfter);
