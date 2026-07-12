@@ -12,6 +12,7 @@
 #include <Games/Overrides.h>
 
 #include <Forms/TESNPC.h>
+#include <Forms/TESObjectARMO.h>
 #include <Interface/UI.h>
 #include <Forms/TESQuest.h>
 
@@ -123,6 +124,27 @@ void CharacterService::DeleteRemoteEntityComponents(entt::entity aEntity) const 
 
 namespace
 {
+    // "Naked" specifically means missing the BODY/torso slot (a cuirass or body-slot ARMO),
+    // not "wearing nothing at all". A Courier wearing only its satchel/boots/gloves passes a
+    // generic HasWornItems() check yet still renders naked. Test the worn set for a body piece
+    // (slotType & 0x4) so those partial-equip cases are still treated as naked and re-dressed.
+    bool HasWornBodyPiece(const Inventory& acInventory) noexcept
+    {
+        auto& modSystem = World::Get().GetModSystem();
+        for (const auto& entry : acInventory.Entries)
+        {
+            if (!entry.IsWorn())
+                continue;
+            const uint32_t id = modSystem.GetGameId(entry.BaseId);
+            if (TESObjectARMO* pArmor = Cast<TESObjectARMO>(TESForm::GetById(id)))
+            {
+                if (pArmor->IsBodyPiece())
+                    return true;
+            }
+        }
+        return false;
+    }
+
     // Owner self-heal: the owner never receives a network inventory snapshot for its own NPCs,
     // so unlike remotes (which get SetActorInventory from the assign/spawn payload) a locally-
     // owned NPC can be left rendering naked when the engine didn't equip its worn items onto
@@ -141,9 +163,11 @@ namespace
         if (apActor == nullptr || apActor->GetExtension()->IsPlayer() || apActor->IsDead())
             return;
 
-        // Honest signal: is the biped already wearing something? (GetEquipment reads worn items,
-        // not the logical container, so it reflects the actual render state.)
-        if (apActor->GetEquipment().HasWornItems())
+        // Honest signal: is the biped already wearing a BODY piece? (GetEquipment reads worn
+        // items, not the logical container, so it reflects the actual render state.) We test the
+        // body slot specifically, not "any worn item" -- an NPC wearing only a satchel/boots but
+        // no cuirass still renders naked and must be re-dressed.
+        if (HasWornBodyPiece(apActor->GetEquipment()))
         {
             spdlog::debug("[NakedFix] owner self-heal: local actor {:X} (base {:X}) already dressed, skipping",
                           apActor->formID, aBaseFormId);
@@ -2080,19 +2104,19 @@ void CharacterService::ApplyCachedSelfHeals(const UpdateEvent& acUpdateEvent) co
             if (pActor->IsDisabled())
                 pActor->EnableImpl();
 
-            const bool wornAfter = pActor->GetEquipment().HasWornItems();
+            const bool wornAfter = HasWornBodyPiece(pActor->GetEquipment());
             spdlog::info("[NakedFix] self-heal 3D-rebuild re-enable for actor {:X}: wornAfter={}",
                          pActor->formID, wornAfter);
             toRemove.push_back(cId);
             continue;
         }
 
-        // Stages 1-2: gentle re-dress. OwnerSelfHealDress self-dedups on HasWornItems, so this is
-        // a cheap no-op once the biped is dressed.
-        const bool wornBefore = pActor->GetEquipment().HasWornItems();
+        // Stages 1-2: gentle re-dress. OwnerSelfHealDress self-dedups on the body-piece check, so
+        // this is a cheap no-op once the biped is actually wearing its body armor.
+        const bool wornBefore = HasWornBodyPiece(pActor->GetEquipment());
         const uint32_t baseFormId = pActor->baseForm ? pActor->baseForm->formID : 0;
         OwnerSelfHealDress(pActor, baseFormId);
-        const bool wornAfter = pActor->GetEquipment().HasWornItems();
+        const bool wornAfter = HasWornBodyPiece(pActor->GetEquipment());
 
         spdlog::info("[NakedFix] self-heal retry (pass {}) for actor {:X} (base {:X}): wornBefore={} wornAfter={}",
                      data.m_pass + 1, pActor->formID, baseFormId, wornBefore, wornAfter);
@@ -2110,18 +2134,18 @@ void CharacterService::ApplyCachedSelfHeals(const UpdateEvent& acUpdateEvent) co
         // rebuild actors whose 3D is actually present (distant/unloaded actors stay pending).
         if (data.m_pass >= 1)
         {
-            const bool containerWorn = pActor->GetActorInventory().HasWornItems();
-            if (containerWorn && pActor->loadedState && !pActor->IsDisabled())
+            const bool containerHasBody = HasWornBodyPiece(pActor->GetActorInventory());
+            if (containerHasBody && pActor->loadedState && !pActor->IsDisabled())
             {
                 spdlog::info("[NakedFix] self-heal escalating to 3D rebuild for actor {:X} (base {:X}): "
-                             "container worn but biped naked", pActor->formID, baseFormId);
+                             "container has body armor but biped naked", pActor->formID, baseFormId);
                 pActor->DisableImpl();
                 data.m_rebuildPending = true;
                 data.m_timer = 0.0;
                 continue; // re-enable next tick
             }
 
-            // Nothing more we can safely do (no container items, or 3D not loaded).
+            // Nothing more we can safely do (no body armor to derive, or 3D not loaded).
             toRemove.push_back(cId);
             continue;
         }
