@@ -214,6 +214,8 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
     {
         const uint32_t baseFormId = pActor->baseForm ? pActor->baseForm->formID : 0;
         OwnerSelfHealDress(pActor, baseFormId);
+        // The biped may not be ready yet at claim-time; schedule a deferred retry (2 passes).
+        m_selfHealRetries[pActor->formID] = {};
     }
 
     return true;
@@ -300,6 +302,7 @@ void CharacterService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
     RunRemoteUpdates();
     RunExperienceUpdates();
     ApplyCachedWeaponDraws(acUpdateEvent);
+    ApplyCachedSelfHeals(acUpdateEvent);
 }
 
 void CharacterService::OnConnected(const ConnectedEvent& acConnectedEvent) const noexcept
@@ -411,6 +414,8 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
         {
             const uint32_t baseFormId = pActor->baseForm ? pActor->baseForm->formID : 0;
             OwnerSelfHealDress(pActor, baseFormId);
+            // The biped may not be ready yet at assign-time; schedule a deferred retry (2 passes).
+            m_selfHealRetries[pActor->formID] = {};
         }
     }
     else
@@ -1785,4 +1790,48 @@ void CharacterService::ApplyCachedWeaponDraws(const UpdateEvent& acUpdateEvent) 
 
     for (uint32_t id : toRemove)
         m_weaponDrawUpdates.erase(id);
+}
+
+void CharacterService::ApplyCachedSelfHeals(const UpdateEvent& acUpdateEvent) const noexcept
+{
+    std::vector<uint32_t> toRemove{};
+
+    for (auto& [cId, _] : m_selfHealRetries)
+    {
+        auto& data = m_selfHealRetries[cId];
+
+        data.m_timer += acUpdateEvent.Delta;
+
+        // Two passes (like weapon draws): retry ~0.5s after claim, then once more ~1.5s later,
+        // by which point the biped is reliably loaded and the worn armor attaches.
+        double maxTime = data.m_isFirstPass ? 0.5 : 1.5;
+        if (data.m_timer <= maxTime)
+            continue;
+
+        Actor* pActor = Cast<Actor>(TESForm::GetById(cId));
+        if (!pActor)
+        {
+            toRemove.push_back(cId);
+            continue;
+        }
+
+        // OwnerSelfHealDress self-dedups: it skips when the biped already reports worn armor,
+        // so a retry on an already-dressed actor is a cheap no-op.
+        const bool wornBefore = pActor->GetEquipment().HasWornItems();
+        const uint32_t baseFormId = pActor->baseForm ? pActor->baseForm->formID : 0;
+        OwnerSelfHealDress(pActor, baseFormId);
+        const bool wornAfter = pActor->GetEquipment().HasWornItems();
+
+        spdlog::info("[NakedFix] self-heal retry (pass {}) for actor {:X} (base {:X}): wornBefore={} wornAfter={}",
+                     data.m_isFirstPass ? 1 : 2, pActor->formID, baseFormId, wornBefore, wornAfter);
+
+        // Stop early once dressed; otherwise let the second pass run, then give up.
+        if (wornAfter || !data.m_isFirstPass)
+            toRemove.push_back(cId);
+
+        data.m_isFirstPass = false;
+    }
+
+    for (uint32_t id : toRemove)
+        m_selfHealRetries.erase(id);
 }
