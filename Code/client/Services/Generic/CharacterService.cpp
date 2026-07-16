@@ -240,7 +240,13 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
         const uint32_t baseFormId = pActor->baseForm ? pActor->baseForm->formID : 0;
         OwnerSelfHealDress(pActor, baseFormId);
         // The biped may not be ready yet at claim-time; schedule a deferred retry (2 passes).
-        m_selfHealRetries[pActor->formID] = {};
+        // Don't re-arm if a self-heal is already tracked for this actor: ownership flips fire
+        // repeatedly for persistent owned NPCs (e.g. horses) and each re-arm would reset the
+        // retry timer and re-run SetInventory on every flip, churning the inventory. One active
+        // self-heal per actor is enough; a fresh TakeOwnership after the entry is removed starts a
+        // new one.
+        if (m_selfHealRetries.find(pActor->formID) == m_selfHealRetries.end())
+            m_selfHealRetries[pActor->formID] = {};
     }
 
     return true;
@@ -443,7 +449,10 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
             const uint32_t baseFormId = pActor->baseForm ? pActor->baseForm->formID : 0;
             OwnerSelfHealDress(pActor, baseFormId);
             // The biped may not be ready yet at assign-time; schedule a deferred retry (2 passes).
-            m_selfHealRetries[pActor->formID] = {};
+            // Same re-arm guard as TakeOwnership: don't reset an already-active self-heal, or
+            // persistent owned NPCs (horses) get SetInventory re-run on every flip and stack.
+            if (m_selfHealRetries.find(pActor->formID) == m_selfHealRetries.end())
+                m_selfHealRetries[pActor->formID] = {};
         }
     }
     else
