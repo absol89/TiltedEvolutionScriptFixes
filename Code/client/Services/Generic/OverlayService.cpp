@@ -24,6 +24,7 @@
 #include <Messages/NotifyTeleport.h>
 #include <Messages/RequestPlayerHealthUpdate.h>
 #include <Messages/NotifyPlayerHealthUpdate.h>
+#include <Messages/PlayerActorNameUpdateRequest.h>
 
 #include <Structs/GridCellCoords.h>
 
@@ -210,6 +211,7 @@ void OverlayService::SetInGame(bool aInGame) noexcept
     {
         SetVersion(BUILD_COMMIT);
         m_pOverlay->ExecuteAsync("enterGame");
+        SendLocalActorName();
     }
     else
     {
@@ -233,6 +235,26 @@ void OverlayService::SetVersion(const std::string& acVersion)
 
     pArguments->SetString(0, acVersion);
     m_pOverlay->ExecuteAsync("setVersion", pArguments);
+}
+
+void OverlayService::SendLocalActorName() noexcept
+{
+    auto* pLocalPlayer = PlayerCharacter::Get();
+    if (!pLocalPlayer)
+        return;
+
+    Actor* pActor = Cast<Actor>(pLocalPlayer);
+    if (!pActor || !pActor->baseForm)
+        return;
+
+    BSFixedString emptyTag;
+    const char* pName = pActor->baseForm->GetName(emptyTag);
+    if (!pName || pName[0] == '\0')
+        return;
+
+    PlayerActorNameUpdateRequest request{};
+    request.ActorName = pName;
+    m_transport.Send(request);
 }
 
 void OverlayService::SendSystemMessage(const std::string& acMessage)

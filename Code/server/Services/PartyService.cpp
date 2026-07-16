@@ -7,6 +7,7 @@
 #include <Events/UpdateEvent.h>
 
 #include <Messages/NotifyPlayerList.h>
+#include <Messages/NotifyPlayerActorName.h>
 #include <Messages/NotifyPartyInfo.h>
 #include <Messages/NotifyPartyInvite.h>
 #include <Messages/PartyInviteRequest.h>
@@ -410,6 +411,11 @@ void PartyService::BroadcastPlayerList(Player* apPlayer) const noexcept
         }
 
         pSelf->Send(playerList);
+
+        NotifyPlayerActorName actorName;
+        actorName.PlayerId = pSelf->GetId();
+        actorName.ActorName = pSelf->GetActorName();
+        pSelf->Send(actorName);
     }
 }
 
