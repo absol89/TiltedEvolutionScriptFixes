@@ -14,7 +14,7 @@
 #include <Games/Skyrim/Interface/UI.h>
 #include <Games/Skyrim/Misc/BSFixedString.h>
 
-#include <fmt/format.h>
+#include <string>
 
 namespace
 {
@@ -185,7 +185,7 @@ void NameTagService::OnDraw() noexcept
             continue;
 
         const uint16_t level = pActor->GetLevel();
-        const std::string levelText = level > 0 ? fmt::format("Lv. {}", level) : std::string("Lv. --");
+        const std::string levelText = level > 0 ? ("Lv. " + std::to_string(level)) : std::string("Lv. --");
 
         const float nameFontSize = baseFontSize * kScale;
         const float levelFontSize = nameFontSize * 0.75f;
