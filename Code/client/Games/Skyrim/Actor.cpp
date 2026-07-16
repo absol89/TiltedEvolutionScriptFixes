@@ -790,10 +790,30 @@ void Actor::SetActorInventory(const Inventory& acInventory) noexcept
             // Supplement: keep any non-worn inventory the server did send (e.g. gold, quest
             // items, food) and add the derived worn items on top. Preserves legit contents
             // while guaranteeing the NPC ends up dressed.
+            //
+            // Idempotent by BaseId: if the server snapshot already carries this exact item
+            // (from a previous self-heal apply), REPLACE it rather than pushing a second copy.
+            // The owner self-heal re-runs SetActorInventory on every ownership flip; without
+            // this de-dup, each flip appends another full derived outfit and the NPC ends up
+            // with N copies of every piece (observed: horses/owned NPCs stacking 5x near the
+            // spawn area). Replacing on BaseId makes a re-apply a no-op for already-present items.
             Inventory toApply = acInventory;
             for (auto& entry : derived.Entries)
             {
-                if (entry.IsWorn())
+                if (!entry.IsWorn())
+                    continue;
+
+                bool replaced = false;
+                for (auto& existing : toApply.Entries)
+                {
+                    if (existing.BaseId == entry.BaseId)
+                    {
+                        existing = entry; // refresh worn flags/extra data, keep single copy
+                        replaced = true;
+                        break;
+                    }
+                }
+                if (!replaced)
                     toApply.Entries.push_back(entry);
             }
             toApply.CurrentMagicEquipment = acInventory.CurrentMagicEquipment;
