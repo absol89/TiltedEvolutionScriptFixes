@@ -112,7 +112,7 @@ void NameTagService::OnDraw() noexcept
         return;
 
     const auto& partyMembers = m_world.GetPartyService().GetPartyMembers();
-    const auto& actorNames = m_world.GetPartyService();
+    const auto& partyService = m_world.GetPartyService();
 
     ImDrawList* drawList = ImGui::GetForegroundDrawList();
     if (!drawList)
@@ -153,13 +153,12 @@ void NameTagService::OnDraw() noexcept
         if (!ShouldRenderTag(playerComponent.Id))
             continue;
 
-        // Character name (fallback to username already shown in party UI).
+        // Name from the party UI's player list (keyed by player id).
         std::string displayName = "#" + std::to_string(playerComponent.Id);
-        if (const String* pActorName = actorNames.GetActorName(playerComponent.Id))
-        {
-            if (!pActorName->empty())
-                displayName = *pActorName;
-        }
+        const auto& players = partyService.GetPlayers();
+        auto it = players.find(playerComponent.Id);
+        if (it != players.end() && !it->second.empty())
+            displayName = it->second.c_str();
 
         const NiPoint3 anchor = BuildAnchorPoint(pActor);
 

@@ -24,7 +24,6 @@ Player::Player(Player&& aRhs) noexcept
     , m_discordId{std::exchange(aRhs.m_discordId, 0)}
     , m_endpoint{std::exchange(aRhs.m_endpoint, {})}
     , m_username{std::exchange(aRhs.m_username, {})}
-    , m_actorName{std::exchange(aRhs.m_actorName, {})}
     , m_party{std::exchange(aRhs.m_party, {})}
     , m_questLog{std::exchange(aRhs.m_questLog, {})}
     , m_cell{std::exchange(aRhs.m_cell, {})}
@@ -64,11 +63,6 @@ void Player::SetEndpoint(String aEndpoint) noexcept
 void Player::SetUsername(String aUsername) noexcept
 {
     m_username = std::move(aUsername);
-}
-
-void Player::SetActorName(String aActorName) noexcept
-{
-    m_actorName = std::move(aActorName);
 }
 
 void Player::SetMods(Vector<String> aMods) noexcept

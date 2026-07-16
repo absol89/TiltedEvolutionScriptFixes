@@ -17,8 +17,6 @@
 #include <Messages/PlayerLevelRequest.h>
 #include <Messages/NotifyPlayerLevel.h>
 #include <Messages/NotifyPlayerCellChanged.h>
-#include <Messages/PlayerActorNameUpdateRequest.h>
-#include <Messages/NotifyPlayerActorName.h>
 
 #include <Setting.h>
 namespace
@@ -33,7 +31,6 @@ PlayerService::PlayerService(World& aWorld, entt::dispatcher& aDispatcher) noexc
     , m_exteriorCellEnterConnection(aDispatcher.sink<PacketEvent<EnterExteriorCellRequest>>().connect<&PlayerService::HandleExteriorCellEnter>(this))
     , m_playerRespawnConnection(aDispatcher.sink<PacketEvent<PlayerRespawnRequest>>().connect<&PlayerService::OnPlayerRespawnRequest>(this))
     , m_playerLevelConnection(aDispatcher.sink<PacketEvent<PlayerLevelRequest>>().connect<&PlayerService::OnPlayerLevelRequest>(this))
-    , m_playerActorNameConnection(aDispatcher.sink<PacketEvent<PlayerActorNameUpdateRequest>>().connect<&PlayerService::OnPlayerActorNameUpdate>(this))
 {
 }
 
@@ -212,34 +209,4 @@ void PlayerService::OnPlayerLevelRequest(const PacketEvent<PlayerLevelRequest>& 
     notify.NewLevel = acMessage.Packet.NewLevel;
 
     GameServer::Get()->SendToPlayers(notify, acMessage.pPlayer);
-}
-
-void PlayerService::OnPlayerActorNameUpdate(const PacketEvent<PlayerActorNameUpdateRequest>& acMessage) const noexcept
-{
-    auto* pPlayer = acMessage.pPlayer;
-    if (!pPlayer)
-        return;
-
-    const auto& actorName = acMessage.Packet.ActorName;
-    if (actorName.empty())
-        return;
-
-    constexpr size_t kMaxActorName = 128u;
-    if (actorName.size() > kMaxActorName)
-    {
-        spdlog::warn("[PlayerService] Actor name update from player {} exceeded {} bytes ({} received)",
-                     pPlayer->GetId(), kMaxActorName, actorName.size());
-        return;
-    }
-
-    if (actorName == pPlayer->GetActorName())
-        return;
-
-    pPlayer->SetActorName(actorName);
-
-    NotifyPlayerActorName notify{};
-    notify.PlayerId = pPlayer->GetId();
-    notify.ActorName = pPlayer->GetActorName();
-
-    GameServer::Get()->SendToPlayers(notify);
 }

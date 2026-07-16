@@ -15,7 +15,6 @@
 #include <Messages/PartyLeaveRequest.h>
 #include <Messages/NotifyPartyJoined.h>
 #include <Messages/NotifyPartyLeft.h>
-#include <Messages/NotifyPlayerActorName.h>
 #include <Messages/PartyCreateRequest.h>
 #include <Messages/PartyChangeLeaderRequest.h>
 #include <Messages/PartyKickRequest.h>
@@ -36,7 +35,6 @@ PartyService::PartyService(World& aWorld, entt::dispatcher& aDispatcher, Transpo
     m_partyInviteConnection = aDispatcher.sink<NotifyPartyInvite>().connect<&PartyService::OnPartyInvite>(this);
     m_partyJoinedConnection = aDispatcher.sink<NotifyPartyJoined>().connect<&PartyService::OnPartyJoined>(this);
     m_partyLeftConnection = aDispatcher.sink<NotifyPartyLeft>().connect<&PartyService::OnPartyLeft>(this);
-    m_playerActorNameConnection = aDispatcher.sink<NotifyPlayerActorName>().connect<&PartyService::OnPlayerActorName>(this);
 }
 
 void PartyService::CreateParty() const noexcept
@@ -178,24 +176,4 @@ void PartyService::DestroyParty() noexcept
     m_isLeader = false;
     m_leaderPlayerId = -1;
     m_partyMembers.clear();
-    m_actorNames.clear();
-}
-
-const String* PartyService::GetActorName(uint32_t aPlayerId) const noexcept
-{
-    auto it = m_actorNames.find(aPlayerId);
-    if (it == m_actorNames.end())
-        return nullptr;
-
-    return &it->second;
-}
-
-void PartyService::OnPlayerActorName(const NotifyPlayerActorName& acMessage) noexcept
-{
-    spdlog::debug("[PartyService]: Got actor name for player {}: {}", acMessage.PlayerId, acMessage.ActorName);
-
-    if (acMessage.ActorName.empty())
-        m_actorNames.erase(acMessage.PlayerId);
-    else
-        m_actorNames[acMessage.PlayerId] = acMessage.ActorName;
 }

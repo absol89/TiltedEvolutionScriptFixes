@@ -8,7 +8,6 @@ struct EnterInteriorCellRequest;
 struct EnterExteriorCellRequest;
 struct PlayerRespawnRequest;
 struct PlayerLevelRequest;
-struct PlayerActorNameUpdateRequest;
 
 /**
  * @brief Handles player specific actions that might change the information needed by other clients about that player.
@@ -26,7 +25,6 @@ protected:
     void HandleInteriorCellEnter(const PacketEvent<EnterInteriorCellRequest>& acMessage) const noexcept;
     void OnPlayerRespawnRequest(const PacketEvent<PlayerRespawnRequest>& acMessage) const noexcept;
     void OnPlayerLevelRequest(const PacketEvent<PlayerLevelRequest>& acMessage) const noexcept;
-    void OnPlayerActorNameUpdate(const PacketEvent<PlayerActorNameUpdateRequest>& acMessage) const noexcept;
 
 private:
     World& m_world;
@@ -36,5 +34,4 @@ private:
     entt::scoped_connection m_interiorCellEnterConnection;
     entt::scoped_connection m_playerRespawnConnection;
     entt::scoped_connection m_playerLevelConnection;
-    entt::scoped_connection m_playerActorNameConnection;
 };
