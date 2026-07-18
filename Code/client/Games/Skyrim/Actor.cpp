@@ -1175,14 +1175,16 @@ void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
 
             // Issue #810 / #741: a local NPC whose ownership was transferred has no valid
             // combat-target handle to a remote player, so it follows on detection but never
-            // draws/attacks/chases. Pointing the controller at the target (SetCombatTargetEx)
-            // is NOT enough for a dormant transferred NPC -- its combat AI was never started
-            // with that target. Calling StartCombat actually boots the combat controller
-            // against the remote player. Gated on IsInCombat() so it only runs after the
-            // NPC has actually detected/aggro'd the player (never at localize time).
+            // draws/attacks/chases. The reactive gating on IsInCombat() does NOT work here:
+            // a transferred hostile NPC's "in combat" flag was never initialized by the engine,
+            // so that gate is permanently false and the hook never fires. The detection hook
+            // itself only runs when the engine is already evaluating this NPC vs that target
+            // (the "this NPC noticed you" moment), so engaging here mirrors vanilla's own
+            // trigger. We only act when the detected target is a remote PLAYER (not a local
+            // actor, not a creature) and the NPC is not already fighting that remote player.
             const auto* pOwnerEx = pOwnerActor->GetExtension();
             const auto* pTargetEx = pTargetActor->GetExtension();
-            if (pOwnerEx->IsLocal() && !pOwnerEx->IsPlayer() && pTargetEx->IsRemotePlayer() && pOwnerActor->IsInCombat())
+            if (pOwnerEx->IsLocal() && !pOwnerEx->IsPlayer() && pTargetEx->IsRemotePlayer())
             {
                 if (pOwnerActor->GetCombatTarget() != pTargetActor)
                 {
