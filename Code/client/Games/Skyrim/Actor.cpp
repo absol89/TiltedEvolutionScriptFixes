@@ -1344,16 +1344,25 @@ void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
             // Safety: only engage for NPCs that arrived already hostile (ArrivedHostile,
             // i.e. weapon was drawn when transferred). Peaceful NPCs arrive sheathed and
             // are never force-aggro'd, so friendly areas stay safe.
-            const auto* pOwnerEx = pOwnerActor->GetExtension();
+            //
+            // One-shot: fire StartCombatEx exactly ONCE per actor (EngagedFromDetection).
+            // StartCombatEx does StopCombat()+StartCombat(); the StopCombat() clears the
+            // combat target and sheathes the weapon, so a GetCombatTarget() check alone
+            // re-qualifies on the next detection eval and produces a draw/sheathe loop --
+            // especially when a contested NPC's ownership bounces between two nearby
+            // players. After the single engage we hand all further combat/sheathe control
+            // back to the engine and never re-kick.
+            auto* pOwnerEx = pOwnerActor->GetExtension();
             const auto* pTargetEx = pTargetActor->GetExtension();
             if (pOwnerEx->IsLocal() && !pOwnerEx->IsPlayer() &&
                 (pTargetEx->IsLocalPlayer() || pTargetEx->IsRemotePlayer()) &&
-                pOwnerEx->ArrivedHostile)
+                pOwnerEx->ArrivedHostile && !pOwnerEx->EngagedFromDetection)
             {
                 if (pOwnerActor->GetCombatTarget() != pTargetActor)
                 {
                     spdlog::info("Combat started (detection): local NPC {:X} -> player {:X} (remote={})", pOwner->formID, pTarget->formID, pTargetEx->IsRemotePlayer());
                     pOwnerActor->StartCombatEx(pTargetActor);
+                    pOwnerEx->EngagedFromDetection = true;
                 }
             }
         }
