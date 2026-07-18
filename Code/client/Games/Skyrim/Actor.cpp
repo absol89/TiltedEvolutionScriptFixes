@@ -1184,16 +1184,14 @@ void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
             // player is the LOCAL player -- NOT remote. So we accept a detected target that
             // is EITHER the local or a remote player.
             //
-            // We do NOT gate on weapon-drawn/hostility: an idle bandit standing its post
-            // arrives sheathed and only draws when it notices you -- gating on drawn-state
-            // filters out exactly that case (proven in logs: sheathed bandits never engaged
-            // while always-drawn creatures did). The detection hook firing is itself the
-            // engine's own "valid threat pair" signal, so a genuinely peaceful NPC that never
-            // detects a player as a threat is never reached here.
+            // Safety: only engage for NPCs that arrived already hostile (ArrivedHostile,
+            // i.e. weapon was drawn when transferred). Peaceful NPCs arrive sheathed and
+            // are never force-aggro'd, so friendly areas stay safe.
             const auto* pOwnerEx = pOwnerActor->GetExtension();
             const auto* pTargetEx = pTargetActor->GetExtension();
             if (pOwnerEx->IsLocal() && !pOwnerEx->IsPlayer() &&
-                (pTargetEx->IsLocalPlayer() || pTargetEx->IsRemotePlayer()))
+                (pTargetEx->IsLocalPlayer() || pTargetEx->IsRemotePlayer()) &&
+                pOwnerEx->ArrivedHostile)
             {
                 if (pOwnerActor->GetCombatTarget() != pTargetActor)
                 {
