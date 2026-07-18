@@ -1195,11 +1195,19 @@ void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
             // especially when a contested NPC's ownership bounces between two nearby
             // players. After the single engage we hand all further combat/sheathe control
             // back to the engine and never re-kick.
+            //
+            // Hostility gate: ArrivedHostile (weapon drawn at transfer) is only a proxy and
+            // catches ALLIES who happen to be weapon-drawn -- e.g. a follower (Lydia) walking
+            // with weapon out was force-attacked against the player. Require Aggression >= 2
+            // ("Very Aggressive": attacks on sight) so we only ever force-engage NPCs that
+            // would attack the player anyway. Followers/guards/townsfolk (aggression 0-1) are
+            // never turned hostile. This is read via the vanilla ActorValue, no new pointer.
             auto* pOwnerEx = pOwnerActor->GetExtension();
             const auto* pTargetEx = pTargetActor->GetExtension();
             if (pOwnerEx->IsLocal() && !pOwnerEx->IsPlayer() &&
                 (pTargetEx->IsLocalPlayer() || pTargetEx->IsRemotePlayer()) &&
-                pOwnerEx->ArrivedHostile && !pOwnerEx->EngagedFromDetection)
+                pOwnerEx->ArrivedHostile && !pOwnerEx->EngagedFromDetection &&
+                pOwnerActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f)
             {
                 if (pOwnerActor->GetCombatTarget() != pTargetActor)
                 {
