@@ -143,9 +143,12 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
 
     pExtension->SetRemote(false);
 
-    // Issue #810: mark the actor as freshly localized so Animation.cpp can suppress the
-    // burst of reset/un-equip actions the engine replays once AI is unlocked.
+    // Issue #810: mark the actor as freshly localized so Animation.cpp de-duplicates the burst
+    // of reset/un-equip actions the engine replays once AI is unlocked. Reset the dedupe flags
+    // so this (re)localization starts a fresh grace window.
     pExtension->LocalizedTick = m_world.GetTick();
+    pExtension->BroadcastedUnequip = false;
+    pExtension->BroadcastedCombatStanceStop = false;
     spdlog::info("TakeOwnership: actor {:X} server {:X} became local (anim reconcile tick {:X})",
                  acFormId, acServerId, pExtension->LocalizedTick);
 
@@ -287,8 +290,10 @@ void CharacterService::OnDisconnected(const DisconnectedEvent& acDisconnectedEve
         else
         {
             pActor->GetExtension()->SetRemote(false);
-            // Issue #810: suppress post-localize reset-action spam.
+            // Issue #810: start a fresh reconcile grace window for this (re)localized NPC.
             pActor->GetExtension()->LocalizedTick = m_world.GetTick();
+            pActor->GetExtension()->BroadcastedUnequip = false;
+            pActor->GetExtension()->BroadcastedCombatStanceStop = false;
         }
     }
 
@@ -344,8 +349,10 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
 
         pActor->GetExtension()->SetRemote(false);
 
-        // Issue #810: suppress post-localize reset-action spam.
+        // Issue #810: start a fresh reconcile grace window for this (re)localized NPC.
         pActor->GetExtension()->LocalizedTick = m_world.GetTick();
+        pActor->GetExtension()->BroadcastedUnequip = false;
+        pActor->GetExtension()->BroadcastedCombatStanceStop = false;
 
         if (auto* pEarlyAnimComponent = m_world.try_get<EarlyAnimationBufferComponent>(cEntity))
         {
@@ -1331,8 +1338,10 @@ void CharacterService::CancelServerAssignment(const entt::entity aEntity, const 
             else
             {
                 pActor->GetExtension()->SetRemote(false);
-                // Issue #810: suppress post-localize reset-action spam.
+                // Issue #810: start a fresh reconcile grace window for this (re)localized NPC.
                 pActor->GetExtension()->LocalizedTick = m_world.GetTick();
+                pActor->GetExtension()->BroadcastedUnequip = false;
+                pActor->GetExtension()->BroadcastedCombatStanceStop = false;
             }
         }
 
