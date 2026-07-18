@@ -20,6 +20,20 @@ static TPerformAction* RealPerformAction;
 // TODO: make scoped override
 thread_local bool g_forceAnimation = false;
 
+// Issue #810: reset/stances actions the engine replays in a loop right after an NPC is
+// (re)localized (AI unlocked). Spamming these prevents the NPC from ever finishing an attack
+// windup, so they stand still and refuse to aggro.
+static bool IsResetAction(const std::string& aEventName) noexcept
+{
+    return aEventName == "Unequip"
+        || aEventName == "combatStanceStop"
+        || aEventName == "combatStanceGo"
+        || aEventName == "Sheathe"
+        || aEventName == "Draw"
+        || aEventName == "DrawEnd"
+        || aEventName == "Idle";
+}
+
 uint8_t TP_MAKE_THISCALL(HookPerformAction, ActorMediator, TESActionData* apAction)
 {
     auto pActor = apAction->actor;
@@ -54,6 +68,30 @@ uint8_t TP_MAKE_THISCALL(HookPerformAction, ActorMediator, TESActionData* apActi
         if (res)
         {
             pExtension->LatestAnimation = action;
+        }
+
+        // Issue #810 guard: for freshly-localized NPC actors only (never the player, never
+        // remote actors), swallow the network broadcast of the reset/stance actions the engine
+        // replays in a loop right after AI is unlocked. The engine action already executed above
+        // (so visuals don't desync), but we must not broadcast these self-replaying reconciles or
+        // the NPC gets stuck in "wants to sheathe" and refuses to aggro. Grace window is ~1s.
+        if (!pExtension->IsPlayer() && pExtension->LocalizedTick != 0)
+        {
+            const auto sinceLocalized = World::Get().GetTick() - pExtension->LocalizedTick;
+            if (sinceLocalized < ActorExtension::kAnimReconcileGraceTicks)
+            {
+                if (IsResetAction(action.EventName))
+                {
+                    spdlog::info("Anim guard: swallowed reset action \"{}\" on {:X} ({} ticks since localize)",
+                                 action.EventName, pActor->formID, sinceLocalized);
+                    return res;
+                }
+            }
+            else
+            {
+                // Grace window expired: stop suppressing for this actor.
+                pExtension->LocalizedTick = 0;
+            }
         }
 
         World::Get().GetRunner().Trigger(action);

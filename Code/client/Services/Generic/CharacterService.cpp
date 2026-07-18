@@ -143,6 +143,12 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
 
     pExtension->SetRemote(false);
 
+    // Issue #810: mark the actor as freshly localized so Animation.cpp can suppress the
+    // burst of reset/un-equip actions the engine replays once AI is unlocked.
+    pExtension->LocalizedTick = m_world.GetTick();
+    spdlog::info("TakeOwnership: actor {:X} server {:X} became local (anim reconcile tick {:X})",
+                 acFormId, acServerId, pExtension->LocalizedTick);
+
     // TODO(cosideci): this should be done differently.
     // Send an ownership claim request, and have the server broadcast the result.
     // Only then should components be added or removed.
@@ -279,7 +285,11 @@ void CharacterService::OnDisconnected(const DisconnectedEvent& acDisconnectedEve
         if (pActor->GetExtension()->IsRemotePlayer())
             pActor->Delete();
         else
+        {
             pActor->GetExtension()->SetRemote(false);
+            // Issue #810: suppress post-localize reset-action spam.
+            pActor->GetExtension()->LocalizedTick = m_world.GetTick();
+        }
     }
 
     m_world.clear<WaitingForAssignmentComponent, LocalComponent, RemoteComponent>();
@@ -333,6 +343,9 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
         auto& localAnimationComponent = m_world.emplace_or_replace<LocalAnimationComponent>(cEntity);
 
         pActor->GetExtension()->SetRemote(false);
+
+        // Issue #810: suppress post-localize reset-action spam.
+        pActor->GetExtension()->LocalizedTick = m_world.GetTick();
 
         if (auto* pEarlyAnimComponent = m_world.try_get<EarlyAnimationBufferComponent>(cEntity))
         {
@@ -1318,6 +1331,8 @@ void CharacterService::CancelServerAssignment(const entt::entity aEntity, const 
             else
             {
                 pActor->GetExtension()->SetRemote(false);
+                // Issue #810: suppress post-localize reset-action spam.
+                pActor->GetExtension()->LocalizedTick = m_world.GetTick();
             }
         }
 
