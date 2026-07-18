@@ -359,7 +359,7 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
         // previous owner; peaceful NPCs arrive sheathed (false). The detection hook uses
         // this to engage combat ONLY for already-hostile NPCs, never force-aggro'ing a
         // friendly NPC that merely happens to detect the player.
-        pActor->GetExtension()->ArrivedHostile = pActor->IsWeaponDrawn();
+        pActor->GetExtension()->ArrivedHostile = pActor->actorState.IsWeaponDrawn();
         if (auto* pEarlyAnimComponent = m_world.try_get<EarlyAnimationBufferComponent>(cEntity))
         {
             for (const auto& action : pEarlyAnimComponent->Actions)
