@@ -451,6 +451,12 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
         pActor->GetExtension()->BroadcastedUnequip = false;
         pActor->GetExtension()->BroadcastedCombatStanceStop = false;
 
+        // Issue #810 / #741: record whether this NPC arrived combat-ready. Transferred
+        // hostiles (bandits, etc.) arrive with their weapon already drawn (true) from the
+        // previous owner; peaceful NPCs arrive sheathed (false). The detection hook uses
+        // this to engage combat ONLY for already-hostile NPCs, never force-aggro'ing a
+        // friendly NPC that merely happens to detect the player.
+        pActor->GetExtension()->ArrivedHostile = pActor->actorState.IsWeaponDrawn();
         if (auto* pEarlyAnimComponent = m_world.try_get<EarlyAnimationBufferComponent>(cEntity))
         {
             for (const auto& action : pEarlyAnimComponent->Actions)
