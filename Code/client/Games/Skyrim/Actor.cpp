@@ -1172,6 +1172,22 @@ void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
                 spdlog::debug("Cancelling detection from remote player to local player, owner: {:X}, target: {:X}", pOwner->formID, pTarget->formID);
                 return;
             }
+
+            // Issue #810 / #741: a local NPC whose ownership was transferred has no valid
+            // combat-target handle to a remote player, so it draws on detection but never
+            // attacks or chases. Once the engine flags it hostile (in combat), point its
+            // combat controller at the detected remote player. This only runs after the
+            // NPC has actually detected/aggro'd the player (never at localize time).
+            const auto* pOwnerEx = pOwnerActor->GetExtension();
+            const auto* pTargetEx = pTargetActor->GetExtension();
+            if (pOwnerEx->IsLocal() && !pOwnerEx->IsPlayer() && pTargetEx->IsRemotePlayer() && pOwnerActor->IsInCombat())
+            {
+                if (pOwnerActor->GetCombatTarget() != pTargetActor)
+                {
+                    spdlog::info("Combat target re-acquired: local NPC {:X} -> remote player {:X}", pOwner->formID, pTarget->formID);
+                    pOwnerActor->SetCombatTargetEx(pTargetActor);
+                }
+            }
         }
     }
 
