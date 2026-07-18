@@ -47,6 +47,15 @@ struct ActorExtension
     // re-trigger the burst each time it flips back to local.
     bool EngagedFromDetection = false;
 
+    // Issue #810: one-shot latch for the OnHit retaliation engage. Fire/DoT damage delivers
+    // a HitEvent every damage tick; OnHitEvent re-ran StartCombatEx on each one, and
+    // StartCombatEx's internal StopCombat() sheathes + clears the combat target, so the
+    // GetCombatTarget()!=hitter guard re-qualified next tick => draw/sheathe OSCILLATION
+    // while an NPC burns. Latch the retaliation so we StartCombatEx once, then leave combat
+    // to the engine. Reset when the NPC actually leaves combat so a later separate fight
+    // still triggers.
+    bool EngagedFromHit = false;
+
     // During the reconcile grace window we still perform every action locally (so visuals stay
     // correct) but only broadcast each distinct reset action ONCE. These two flags track which
     // of the two loop actions we have already forwarded, so the server sees a single clean
