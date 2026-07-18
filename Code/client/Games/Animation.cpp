@@ -23,7 +23,7 @@ thread_local bool g_forceAnimation = false;
 // Issue #810: reset/stances actions the engine replays in a loop right after an NPC is
 // (re)localized (AI unlocked). Spamming these prevents the NPC from ever finishing an attack
 // windup, so they stand still and refuse to aggro.
-static bool IsResetAction(const std::string& aEventName) noexcept
+static bool IsResetAction(const TiltedPhoques::String& aEventName) noexcept
 {
     return aEventName == "Unequip"
         || aEventName == "combatStanceStop"
