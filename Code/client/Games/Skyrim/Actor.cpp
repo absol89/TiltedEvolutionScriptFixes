@@ -1174,21 +1174,28 @@ void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
             }
 
             // Issue #810 / #741: a local NPC whose ownership was transferred has no valid
-            // combat-target handle to a remote player, so it follows on detection but never
-            // draws/attacks/chases. The reactive gating on IsInCombat() does NOT work here:
-            // a transferred hostile NPC's "in combat" flag was never initialized by the engine,
-            // so that gate is permanently false and the hook never fires. The detection hook
-            // itself only runs when the engine is already evaluating this NPC vs that target
-            // (the "this NPC noticed you" moment), so engaging here mirrors vanilla's own
-            // trigger. We only act when the detected target is a remote PLAYER (not a local
-            // actor, not a creature) and the NPC is not already fighting that remote player.
+            // combat-target handle to a player, so it follows on detection but never
+            // draws/attacks/chases. The detection hook only runs when the engine is already
+            // evaluating this NPC vs that target (the "this NPC noticed you" moment), so
+            // engaging here mirrors vanilla's own trigger.
+            //
+            // Ownership direction: when the leader leaves, the NPC's AI localizes on the
+            // OTHER player's machine. There the NPC is a local actor and the discovered
+            // player is the LOCAL player -- NOT remote. So we accept a detected target that
+            // is EITHER the local or a remote player.
+            //
+            // Safety: only engage for NPCs that arrived already hostile (ArrivedHostile,
+            // i.e. weapon was drawn when transferred). Peaceful NPCs arrive sheathed and
+            // are never force-aggro'd, so friendly areas stay safe.
             const auto* pOwnerEx = pOwnerActor->GetExtension();
             const auto* pTargetEx = pTargetActor->GetExtension();
-            if (pOwnerEx->IsLocal() && !pOwnerEx->IsPlayer() && pTargetEx->IsRemotePlayer())
+            if (pOwnerEx->IsLocal() && !pOwnerEx->IsPlayer() &&
+                (pTargetEx->IsLocalPlayer() || pTargetEx->IsRemotePlayer()) &&
+                pOwnerEx->ArrivedHostile)
             {
                 if (pOwnerActor->GetCombatTarget() != pTargetActor)
                 {
-                    spdlog::info("Combat started (detection): local NPC {:X} -> remote player {:X}", pOwner->formID, pTarget->formID);
+                    spdlog::info("Combat started (detection): local NPC {:X} -> player {:X} (remote={})", pOwner->formID, pTarget->formID, pTargetEx->IsRemotePlayer());
                     pOwnerActor->StartCombatEx(pTargetActor);
                 }
             }

@@ -360,9 +360,12 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
         // Force a clean sheathed baseline through the existing 3D-safe draw path (which
         // uses SetWeaponDrawnEx's flip-first-if-equal logic), so the next real draw produces
         // a genuine transition. Skip NPCs already in combat to avoid disturbing a live fight.
-        if (!pActor->IsInCombat())
-            m_weaponDrawUpdates[pActor->formID] = {false};
-
+        // Issue #810 / #741: record whether this NPC arrived combat-ready. Transferred
+        // hostiles (bandits, etc.) arrive with their weapon already drawn (true) from the
+        // previous owner; peaceful NPCs arrive sheathed (false). The detection hook uses
+        // this to engage combat ONLY for already-hostile NPCs, never force-aggro'ing a
+        // friendly NPC that merely happens to detect the player.
+        pActor->GetExtension()->ArrivedHostile = pActor->IsWeaponDrawn();
         if (auto* pEarlyAnimComponent = m_world.try_get<EarlyAnimationBufferComponent>(cEntity))
         {
             for (const auto& action : pEarlyAnimComponent->Actions)
