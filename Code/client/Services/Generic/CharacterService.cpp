@@ -354,6 +354,15 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
         pActor->GetExtension()->BroadcastedUnequip = false;
         pActor->GetExtension()->BroadcastedCombatStanceStop = false;
 
+        // Issue #810: a transferred NPC's cached weapon-drawn flag (from the previous
+        // owner's client) is often desynced from the real animation graph, so when combat
+        // AI later issues a draw the command no-ops and the NPC follows but never draws.
+        // Force a clean sheathed baseline through the existing 3D-safe draw path (which
+        // uses SetWeaponDrawnEx's flip-first-if-equal logic), so the next real draw produces
+        // a genuine transition. Skip NPCs already in combat to avoid disturbing a live fight.
+        if (!pActor->IsInCombat())
+            m_weaponDrawUpdates[pActor->formID] = {false};
+
         if (auto* pEarlyAnimComponent = m_world.try_get<EarlyAnimationBufferComponent>(cEntity))
         {
             for (const auto& action : pEarlyAnimComponent->Actions)
