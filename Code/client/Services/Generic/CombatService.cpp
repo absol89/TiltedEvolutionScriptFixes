@@ -188,8 +188,8 @@ void CombatService::OnHitEvent(const HitEvent& acEvent) const noexcept
 
     if (pHittee->GetCombatTarget() != pHitter)
     {
-        spdlog::info("Combat target set on hit: local NPC {:X} -> player {:X}", acEvent.HitteeId, acEvent.HitterId);
-        pHittee->SetCombatTargetEx(pHitter);
+        spdlog::info("Combat started (hit): local NPC {:X} -> player {:X}", acEvent.HitteeId, acEvent.HitterId);
+        pHittee->StartCombatEx(pHitter);
     }
 }
 

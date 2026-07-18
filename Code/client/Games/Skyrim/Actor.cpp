@@ -1174,9 +1174,11 @@ void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
             }
 
             // Issue #810 / #741: a local NPC whose ownership was transferred has no valid
-            // combat-target handle to a remote player, so it draws on detection but never
-            // attacks or chases. Once the engine flags it hostile (in combat), point its
-            // combat controller at the detected remote player. This only runs after the
+            // combat-target handle to a remote player, so it follows on detection but never
+            // draws/attacks/chases. Pointing the controller at the target (SetCombatTargetEx)
+            // is NOT enough for a dormant transferred NPC -- its combat AI was never started
+            // with that target. Calling StartCombat actually boots the combat controller
+            // against the remote player. Gated on IsInCombat() so it only runs after the
             // NPC has actually detected/aggro'd the player (never at localize time).
             const auto* pOwnerEx = pOwnerActor->GetExtension();
             const auto* pTargetEx = pTargetActor->GetExtension();
@@ -1184,8 +1186,8 @@ void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
             {
                 if (pOwnerActor->GetCombatTarget() != pTargetActor)
                 {
-                    spdlog::info("Combat target re-acquired: local NPC {:X} -> remote player {:X}", pOwner->formID, pTarget->formID);
-                    pOwnerActor->SetCombatTargetEx(pTargetActor);
+                    spdlog::info("Combat started (detection): local NPC {:X} -> remote player {:X}", pOwner->formID, pTarget->formID);
+                    pOwnerActor->StartCombatEx(pTargetActor);
                 }
             }
         }
