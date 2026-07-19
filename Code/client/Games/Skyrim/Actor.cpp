@@ -1210,41 +1210,16 @@ void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
                 return;
             }
 
-            // Issue #810 / #741: root problem is a sheathing/draw LOOP on localized NPCs
-            // (ownership transfer drops their combat-target handle, so the engine flaps
-            // weapon state). Past attempts kicked them back into the combat state machine
-            // repeatedly, which *caused* the loop. The untried fix: flip combat exactly
-            // ONCE, at the moment vanilla ITSELF decides this NPC aggros the player.
-            //
-            // HookUpdateDetectionState runs ONLY when the engine is already evaluating this
-            // NPC (owner) vs that target (player) -- the genuine "this NPC noticed you"
-            // moment. So engaging here mirrors vanilla's own trigger timing. Crucially we
-            // do NOT evaluate hostility at transfer time (that was the predator-bug: enemies
-            // enraged out of view, gave stealth XP, blocked fast travel). We only react to
-            // the real detection event, so no out-of-view aggro.
-            //
-            // Ownership direction: when the leader leaves, the NPC localizes on the OTHER
-            // player's machine, where it is a local actor and the discovered player is the
-            // LOCAL player (not remote). So we accept a detected target that is EITHER the
-            // local or a remote player.
-            //
-            // Hostility gate: only engage NPCs that would attack on sight, decided at the
-            // detection moment (not at transfer). Aggression >= 2 ("Very Aggressive":
-            // attacks on sight) excludes followers/guards/townsfolk. Animals (wolf/bear/
-            // spriggan/werewolf/predator) have Aggression 1, so we also accept membership
-            // in the aggressive-creature factions. Dragons are added explicitly because
-            // they otherwise never re-engage after localization. A peaceful NPC (aggression
-            // 0-1, no such faction, not a dragon) never force-engages -- so allies/followers
-            // stay safe, and because we never stamp anything at transfer, a follower walking
-            // weapon-drawn (Lydia) is not turned hostile.
-            //
-            // One-shot: fire StartCombatEx exactly ONCE per actor (EngagedFromDetection).
-            // StartCombatEx does StopCombat()+StartCombat(); the StopCombat() clears the
-            // combat target and sheathes the weapon, so a GetCombatTarget() check alone
-            // re-qualifies on the next detection eval and produces a draw/sheathe loop --
-            // especially when a contested NPC's ownership bounces between two nearby
-            // players. After the single engage we hand all further combat/sheathe control
-            // back to the engine and never re-kick.
+            // Issue #810 / #741: engage a localized NPC exactly ONCE, at the moment vanilla
+            // itself decides it aggros the player. The hook only runs while the engine is
+            // already evaluating this NPC vs that player (the real "noticed you" event), so
+            // we never evaluate hostility at transfer -- no out-of-view enrage (the old
+            // predator-bug). Gate on would-attack-on-sight: Aggression >= 2, OR an
+            // aggressive-creature faction (animals sit at Aggression 1), OR IsDragon().
+            // Peaceful NPCs/followers never qualify, so allies stay safe. The EngagedFrom-
+            // Detection latch prevents re-kicking (StartCombatEx clears the target + sheaths,
+            // which would otherwise re-qualify and loop). After one engage, control returns
+            // to the engine.
             auto* pOwnerEx = pOwnerActor->GetExtension();
             const auto* pTargetEx = pTargetActor->GetExtension();
             if (pOwnerEx->IsLocal() && !pOwnerEx->IsPlayer() &&
