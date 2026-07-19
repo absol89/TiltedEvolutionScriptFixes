@@ -143,6 +143,17 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
 
     pExtension->SetRemote(false);
 
+    // Issue #810: ArrivedHostile is the transfer-time weapon-drawn snapshot that
+    // gates the combat-hook in Actor.cpp. OnAssignCharacter stamps it for initial
+    // spawns; TakeOwnership is the mid-session transfer path (leader leaves cell,
+    // ownership flips). Without this, any transferred actor that was already
+    // aggressive never re-engages on the new owner's machine even though its
+    // combat target is synced (observed: bandits following but not drawing after
+    // leader teleported away). The hook's Aggression+IsAggressiveCreature gate in
+    // Actor.cpp prevents false fires on peaceful NPCs, so this unconditional stamp
+    // is safe.
+    pExtension->ArrivedHostile = true;
+
     // Issue #810: mark the actor as freshly localized so Animation.cpp de-duplicates the burst
     // of reset/un-equip actions the engine replays once AI is unlocked. Reset the dedupe flags
     // so this (re)localization starts a fresh grace window.
