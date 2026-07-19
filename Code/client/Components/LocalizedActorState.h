@@ -3,9 +3,8 @@
 #include <cstdint>
 
 // Transient bookkeeping for an actor that just handed off from remote to local (ownership
-// transfer / (re)localization): the animation reconcile grace window and the deferred
-// combat-cycle reconcile (stop -> start -> stop) that repairs an inert remote-lifecycle
-// behavior/animation state. Stored as an entt component (NOT on ActorExtension, per review).
+// transfer / (re)localization): the animation reconcile grace window. Stored as an entt
+// component (NOT on ActorExtension, per review).
 struct LocalizedActorState
 {
     // Tick (World clock) of last (re)localize; drives the Animation.cpp reset-action
@@ -13,18 +12,18 @@ struct LocalizedActorState
     uint64_t LocalizedTick = 0;
 
     // Issue #810: a freshly (re)localized NPC arrives with inert behavior/animation state
-    // from its remote lifetime and cannot transition to move/draw on a threat. The original
-    // bug was repaired only by a real combat -> StopCombat cycle (the actor then draws on its
-    // own via vanilla when it next sees the player). A bare StopCombat() is a no-op on an
-    // already-non-combat inert actor, so we replay the cycle: StartCombat(player) wakes the
-    // behavior graph, then a deferred StopCombat() (kCombatCycleStopDelayTicks later) leaves
-    // it clean. The following fields drive that deferred second half.
-    bool CombatCycleStarted = false;      // StartCombat issued at localization
-    uint64_t CombatCycleStopTick = 0;     // World tick at which to issue the deferred StopCombat()
+    // from its remote lifetime and cannot transition to move/draw on a threat. A bare
+    // StopCombat() is a no-op on an already-non-combat inert actor, but a real combat ->
+    // StopCombat cycle (observed in playtest) repairs it: the actor then draws on its own
+    // via vanilla when it next sees the player. On localization we StartCombat(player) to
+    // wake the behavior graph (see CharacterService). We intentionally do NOT StopCombat:
+    // the detection hook (Actor.cpp HookUpdateDetectionState) re-points the actor at the
+    // present player and keeps it in combat, which is what actually makes a handed-off
+    // peaceful bandit draw and attack.
 
-    // Grace window (World ticks) before issuing the deferred StopCombat (a few frames so the
-    // combat-enter transition actually registers before we exit it).
-    static constexpr uint64_t kCombatCycleStopDelayTicks = 5;
+    // One-shot latch for the detection-hook engage (Issue #810): set true after the hook
+    // fires StartCombat once, so it never re-kicks the same actor into a draw/sheathe loop.
+    bool EngagedFromDetection = false;
 
     // Reset-action broadcast dedupe flags for the grace window.
     bool BroadcastedUnequip = false;

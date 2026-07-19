@@ -145,22 +145,22 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
     pExtension->SetRemote(false);
 
     // Issue #810: a freshly (re)localized NPC arrives with inert behavior/animation state
-    // left over from its remote lifetime and cannot transition to move/draw on a threat. The
-    // repair that was observed in playtest was a real combat -> StopCombat cycle (the actor
-    // then draws on its own via vanilla when it next sees the player). A bare StopCombat() is
-    // a no-op on an already-non-combat inert actor, so we replay the cycle: start combat
-    // against the local player to wake the behavior graph, and schedule a deferred StopCombat
-    // a few frames later (handled in OnUpdate) so the enter-transition registers before we
-    // exit it.
-    // Only wake NPCs that are NOT already in combat: an actor already aggroed at handoff is fine
-    // (already drawn) and must be left as-is -- re-flipping an already-combat actor only causes a
-    // needless flinch/sheathe. The deferred stop therefore only ever runs on the peaceful actors
-    // we wake.
-    // Wake condition (issue #810): aggression>=2 (attack-on-sight), OR an aggression>=1 member of
-    // a known player-hostile humanoid faction (Forsworn, etc.) -- these sit at aggression 1 but
-    // are hostile and otherwise get stuck unable to unsheath after localization. We keep the
-    // aggression>=1 floor so aggression-0 NPCs (Paarthurnax, civilians) are never woken, and we
-    // deliberately do NOT widen this to predators (that caused the old wild-creature blow-up).
+    // left over from its remote lifetime and cannot transition to move/draw on a threat.
+    // A bare StopCombat() is a no-op on an already-non-combat inert actor, but a real
+    // combat -> StopCombat cycle was observed in playtest to repair it (the actor then
+    // draws on its own via vanilla when it next sees the player). We therefore start
+    // combat against the local player to wake the behavior graph.
+    // NOTE: we intentionally do NOT also StopCombat here. The detection hook
+    // (Actor.cpp HookUpdateDetectionState) is what actually re-points the actor at the
+    // *present* player and keeps it in combat; a StopCombat would only stand a peaceful
+    // handed-off actor back down (the observed "never hostile" regression). Already-
+    // in-combat actors (leader left while they were fighting) are left alone -- vanilla
+    // re-acquires the remaining player on its own.
+    // Wake condition (issue #810): aggression>=2 (attack-on-sight), OR an aggression>=1
+    // member of a known player-hostile humanoid faction (Forsworn, etc.) -- these sit at
+    // aggression 1 but are hostile and otherwise get stuck unable to unsheath after
+    // localization. We keep the aggression>=1 floor so aggression-0 NPCs (Paarthurnax,
+    // civilians) are never woken, and we deliberately do NOT widen this to predators.
     const bool wakeAggressive = !pActor->IsInCombat()
         && (pActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f
             || (pActor->GetActorValue(ActorValueInfo::kAggression) >= 1.0f
@@ -173,14 +173,10 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
         }
     }
 
-    // Issue #810: start a fresh reconcile grace window + schedule the deferred combat-cycle
-    // stop for this (re)localized NPC, stored as a LocalizedActorState component on the ECS entity.
+    // Issue #810: start a fresh reconcile grace window for this (re)localized NPC,
+    // stored as a LocalizedActorState component on the ECS entity.
     auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(acEntity);
     localizedState.LocalizedTick = m_world.GetTick();
-    localizedState.CombatCycleStarted = wakeAggressive;
-    localizedState.CombatCycleStopTick = wakeAggressive
-        ? m_world.GetTick() + LocalizedActorState::kCombatCycleStopDelayTicks
-        : 0;
     localizedState.BroadcastedUnequip = false;
     localizedState.BroadcastedCombatStanceStop = false;
     spdlog::info("TakeOwnership: actor {:X} server {:X} became local (anim reconcile tick {:X})",
@@ -283,31 +279,6 @@ void CharacterService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
     RunRemoteUpdates();
     RunExperienceUpdates();
     ApplyCachedWeaponDraws(acUpdateEvent);
-
-    // Issue #810: deferred second half of the combat-cycle reconcile. At localization we
-    // StartCombat(player) to wake an inert behavior graph; a few frames later we StopCombat()
-    // so the actor ends clean (vanilla then re-draws on its own when it sees the player). This
-    // must be deferred because a synchronous start->stop collapses before the enter-transition
-    // registers. We resolve the actor from its form id via the FormIdComponent view.
-    const auto now = m_world.GetTick();
-    auto view = m_world.view<LocalizedActorState, FormIdComponent>();
-    for (auto entity : view)
-    {
-        auto& state = view.get<LocalizedActorState>(entity);
-        if (!state.CombatCycleStarted || state.CombatCycleStopTick == 0)
-            continue;
-        if (now < state.CombatCycleStopTick)
-            continue;
-
-        const auto formId = view.get<FormIdComponent>(entity).Id;
-        if (auto* pActor = Cast<Actor>(TESForm::GetById(formId)))
-        {
-            if (pActor->IsInCombat())
-                pActor->StopCombat();
-        }
-        state.CombatCycleStarted = false;
-        state.CombatCycleStopTick = 0;
-    }
 }
 
 void CharacterService::OnConnected(const ConnectedEvent& acConnectedEvent) const noexcept
@@ -412,8 +383,8 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
         // Issue #810: replay the combat-cycle reconcile that repairs the inert remote-lifecycle
         // state (see TakeOwnership for the full rationale and wake condition). Start combat vs
         // the local player for aggressive NPCs (aggression>=2, or aggression>=1 members of a
-        // known player-hostile humanoid faction) that are NOT already in combat; the deferred
-        // StopCombat is handled in OnUpdate.
+        // known player-hostile humanoid faction) that are NOT already in combat. We intentionally
+        // do NOT StopCombat afterwards -- the detection hook keeps the actor in combat.
         const bool wakeAggressive = !pActor->IsInCombat()
             && (pActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f
                 || (pActor->GetActorValue(ActorValueInfo::kAggression) >= 1.0f
@@ -426,13 +397,9 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
             }
         }
 
-        // Issue #810: fresh reconcile grace window + deferred combat-cycle stop for this (re)localized NPC.
+        // Issue #810: fresh reconcile grace window for this (re)localized NPC.
         auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(cEntity);
         localizedState.LocalizedTick = m_world.GetTick();
-        localizedState.CombatCycleStarted = wakeAggressive;
-        localizedState.CombatCycleStopTick = wakeAggressive
-            ? m_world.GetTick() + LocalizedActorState::kCombatCycleStopDelayTicks
-            : 0;
         localizedState.BroadcastedUnequip = false;
         localizedState.BroadcastedCombatStanceStop = false;
 
