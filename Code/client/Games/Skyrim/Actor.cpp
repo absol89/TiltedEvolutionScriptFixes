@@ -1180,8 +1180,9 @@ void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
             // we never evaluate hostility at transfer -- no out-of-view enrage (the old
             // predator-bug), and we don't force predators to discover anyone at localization;
             // they find nearby players through normal proximity detection on their own.
-            // Gate on would-attack-on-sight: Aggression >= 2 OR IsDragon() (allies/guards/
-            // animals at Aggression 1 are never forced hostile). The EngagedFromDetection
+            // Gate on would-attack-on-sight only: Aggression >= 2. Dragons are left to vanilla
+            // detection -- Paarthurnax is Aggression 0 (friendly) and must never be force-
+            // engaged through this hook. The EngagedFromDetection
             // latch (on the LocalizedActorState ECS component) prevents re-kicking
             // (StartCombatEx clears the target + sheathes, which would otherwise re-qualify
             // and loop). After one engage, control returns to the engine.
@@ -1198,8 +1199,7 @@ void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
                 {
                     auto* pState = world.try_get<LocalizedActorState>(*it);
                     if (pState && !pState->EngagedFromDetection &&
-                        (pOwnerActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f ||
-                         pOwnerActor->IsDragon()))
+                        pOwnerActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f)
                     {
                         if (pOwnerActor->GetCombatTarget() != pTargetActor)
                         {
