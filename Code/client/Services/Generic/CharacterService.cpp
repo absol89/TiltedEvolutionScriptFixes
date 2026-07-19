@@ -15,6 +15,7 @@
 
 #include <BranchInfo.h>
 #include <Components.h>
+#include <Components/LocalizedActorState.h>
 
 #include <Systems/InterpolationSystem.h>
 #include <Systems/AnimationSystem.h>
