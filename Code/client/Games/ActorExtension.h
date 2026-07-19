@@ -34,19 +34,6 @@ struct ActorExtension
     // peaceful NPCs in friendly areas are never force-aggro'd.
     bool ArrivedHostile = false;
 
-    // Issue #810: one-shot latch for the detection-hook combat engage. Once we have fired
-    // StartCombatEx for this NPC->player pair we set this true and NEVER fire again for the
-    // life of the actor. Without it the hook re-kicks StartCombatEx on every detection
-    // re-evaluation; StartCombatEx internally does StopCombat()+StartCombat(), and the
-    // StopCombat() sheathes the weapon -- producing the visible draw/sheathe OSCILLATION
-    // seen when a hostile NPC's ownership bounces between two nearby players (Embershard
-    // bandits looping). GetCombatTarget()!=target is NOT a sufficient latch because
-    // StopCombat() clears the combat target, so the next eval re-qualifies. This flag is
-    // the real latch: engage once, then leave all further combat/sheathe decisions to the
-    // engine. It is intentionally NOT reset on re-localize -- a contested NPC must not
-    // re-trigger the burst each time it flips back to local.
-    bool EngagedFromDetection = false;
-
     // During the reconcile grace window we still perform every action locally (so visuals stay
     // correct) but only broadcast each distinct reset action ONCE. These two flags track which
     // of the two loop actions we have already forwarded, so the server sees a single clean
