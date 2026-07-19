@@ -818,6 +818,40 @@ bool Actor::IsDragon() const noexcept
     return BehaviorVar::IsDragon(pExtension->GraphDescriptorHash);
 }
 
+bool Actor::IsKnownHostileHumanoidFaction() const noexcept
+{
+    // Curated allowlist of humanoid factions whose aggression-1 members are player-hostile
+    // (e.g. Forsworn, the Embershard bandit clan). Raw base-form faction formIDs are read
+    // straight off the NPC (no server-mod translation) so they match the vanilla IDs below.
+    // Predator/creature factions are intentionally NOT listed here -- those are handled by the
+    // aggression >= 2 base gate, and we deliberately do not want to wake aggression-1 predators
+    // (which caused the old wild-creature blow-up).
+    static constexpr uint32_t kKnownHostileHumanoidFactions[] = {
+        0x39BC7, // Forsworn Faction
+        // TODO(user): add the Embershard bandit clan faction formID here once confirmed
+    };
+    constexpr uint32_t kCount = sizeof(kKnownHostileHumanoidFactions) / sizeof(kKnownHostileHumanoidFactions[0]);
+
+    auto* pNpc = Cast<TESNPC>(baseForm);
+    if (!pNpc)
+        return false;
+
+    const auto& factions = pNpc->actorData.factions;
+    for (uint32_t i = 0; i < factions.length; ++i)
+    {
+        const auto* pFaction = factions[i].faction;
+        if (!pFaction)
+            continue;
+        const uint32_t id = pFaction->formID;
+        for (uint32_t j = 0; j < kCount; ++j)
+        {
+            if (id == kKnownHostileHumanoidFactions[j])
+                return true;
+        }
+    }
+    return false;
+}
+
 void Actor::Kill() noexcept
 {
     // Never kill players

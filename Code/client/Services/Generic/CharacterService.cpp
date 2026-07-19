@@ -152,12 +152,19 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
     // against the local player to wake the behavior graph, and schedule a deferred StopCombat
     // a few frames later (handled in OnUpdate) so the enter-transition registers before we
     // exit it.
-    // Only wake aggression>=2 (attack-on-sight) NPCs that are NOT already in combat: an actor
-    // already aggroed at handoff is fine (already drawn) and must be left as-is -- re-flipping
-    // an already-combat actor only causes a needless flinch/sheathe. The deferred stop therefore
-    // only ever runs on the peaceful actors we wake.
-    const bool wakeAggressive = pActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f
-                                && !pActor->IsInCombat();
+    // Only wake NPCs that are NOT already in combat: an actor already aggroed at handoff is fine
+    // (already drawn) and must be left as-is -- re-flipping an already-combat actor only causes a
+    // needless flinch/sheathe. The deferred stop therefore only ever runs on the peaceful actors
+    // we wake.
+    // Wake condition (issue #810): aggression>=2 (attack-on-sight), OR an aggression>=1 member of
+    // a known player-hostile humanoid faction (Forsworn, etc.) -- these sit at aggression 1 but
+    // are hostile and otherwise get stuck unable to unsheath after localization. We keep the
+    // aggression>=1 floor so aggression-0 NPCs (Paarthurnax, civilians) are never woken, and we
+    // deliberately do NOT widen this to predators (that caused the old wild-creature blow-up).
+    const bool wakeAggressive = !pActor->IsInCombat()
+        && (pActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f
+            || (pActor->GetActorValue(ActorValueInfo::kAggression) >= 1.0f
+                && pActor->IsKnownHostileHumanoidFaction()));
     if (wakeAggressive)
     {
         if (auto* pPlayer = PlayerCharacter::Get())
@@ -403,10 +410,14 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
         pActor->GetExtension()->SetRemote(false);
 
         // Issue #810: replay the combat-cycle reconcile that repairs the inert remote-lifecycle
-        // state (see TakeOwnership for rationale). Start combat vs the local player for
-        // aggression>=2 NPCs that are NOT already in combat; the deferred StopCombat is handled in OnUpdate.
-        const bool wakeAggressive = pActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f
-                                    && !pActor->IsInCombat();
+        // state (see TakeOwnership for the full rationale and wake condition). Start combat vs
+        // the local player for aggressive NPCs (aggression>=2, or aggression>=1 members of a
+        // known player-hostile humanoid faction) that are NOT already in combat; the deferred
+        // StopCombat is handled in OnUpdate.
+        const bool wakeAggressive = !pActor->IsInCombat()
+            && (pActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f
+                || (pActor->GetActorValue(ActorValueInfo::kAggression) >= 1.0f
+                    && pActor->IsKnownHostileHumanoidFaction()));
         if (wakeAggressive)
         {
             if (auto* pPlayer = PlayerCharacter::Get())
