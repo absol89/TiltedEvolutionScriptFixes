@@ -328,6 +328,17 @@ Actor* Actor::GetCombatTarget() const noexcept
 
 // TODO: this is a really hacky solution.
 // The internal targeting system should be disabled instead.
+//
+// Why it is still used: the clean alternative -- attach a CombatComponent so
+// CombatController::UpdateTarget() early-returns and stops re-selecting the
+// target -- is currently disabled in this build. HookUpdateTarget and
+// CombatService::RunTargetUpdates are both #if 0, and CombatComponent is never
+// emplaced, so UpdateTarget() runs vanilla and there is no other way to force a
+// transferred NPC into combat with a specific player. The one-shot
+// EngagedFromDetection / EngagedFromHit latches in our callers make this
+// safe: after the single StopCombat()+StartCombat(), the latch prevents the
+// sheathe/clear from re-qualifying into a draw/sheathe loop. Re-enabling the
+// CombatComponent path is the proper fix but is out of scope here.
 void Actor::StartCombatEx(Actor* apTarget) noexcept
 {
     if (GetCombatTarget() != apTarget)
