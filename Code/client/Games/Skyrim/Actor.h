@@ -199,6 +199,13 @@ struct Actor : TESObjectREFR
     int32_t GetGoldAmount() const noexcept;
     uint16_t GetLevel() const noexcept;
     Factions GetFactions() const noexcept;
+    // Issue #810: true if this actor belongs to any "aggressive creature" faction
+    // (wolf, bear, spriggan, werewolf, generic predator). These animals have low
+    // Aggression (1) like guards/followers, so the Aggression>=2 gate alone would
+    // wrongly exclude them from force-engaging a transferred target. Membership in
+    // these factions is the correct "should attack" discriminator. FormIDs are the
+    // vanilla base-game IDs (CompareFactionFormId below matches the raw NPC faction ID).
+    [[nodiscard]] bool IsAggressiveCreature() const noexcept;
     ActorValues GetEssentialActorValues() const noexcept;
     [[nodiscard]] bool IsDead() const noexcept;
     [[nodiscard]] bool IsDragon() const noexcept;
