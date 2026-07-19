@@ -162,35 +162,41 @@ void CombatService::OnNotifyProjectileLaunch(const NotifyProjectileLaunch& acMes
 
 void CombatService::OnHitEvent(const HitEvent& acEvent) const noexcept
 {
+#if 0
     if (!m_transport.IsConnected())
         return;
 
-    // A local NPC that is hit by a player acquires that player as its combat target (retaliation).
+    // The targeting system does not apply to players, and only local actors should be considered.
     auto* pHittee = Cast<Actor>(TESForm::GetById(acEvent.HitteeId));
     if (!pHittee || pHittee->GetExtension()->IsPlayer() || pHittee->GetExtension()->IsRemote())
         return;
 
+    // NPCs should not affect targeting.
     auto* pHitter = Cast<Actor>(TESForm::GetById(acEvent.HitterId));
-    if (!pHitter || (!pHitter->GetExtension()->IsLocalPlayer() && !pHitter->GetExtension()->IsRemotePlayer()))
+    if (!pHitter || !pHitter->GetExtension()->IsPlayer())
         return;
 
-    // Only point a target once the engine has the NPC in combat (don't force aggro on a stray hit).
+    // If the target is not in combat, don't start combat, let the game take care of that first.
     if (!pHittee->IsInCombat())
         return;
 
     auto view = m_world.view<FormIdComponent, LocalComponent>(entt::exclude<ObjectComponent>);
+
     const auto hitteeIt = std::find_if(std::begin(view), std::end(view), [id = acEvent.HitteeId, view](entt::entity entity) { return view.get<FormIdComponent>(entity).Id == id; });
+
     if (hitteeIt == std::end(view))
     {
-        spdlog::warn("{}: hittee form id component not found, form id: {:X}", __FUNCTION__, acEvent.HitterId);
+        spdlog::warn(__FUNCTION__ ": hittee form id component not found, form id: {:X}", acEvent.HitterId);
         return;
     }
 
-    if (pHittee->GetCombatTarget() != pHitter)
-    {
-        spdlog::info("Combat started (hit): local NPC {:X} -> player {:X}", acEvent.HitteeId, acEvent.HitterId);
-        pHittee->StartCombatEx(pHitter);
-    }
+    if (m_world.any_of<CombatComponent>(*hitteeIt))
+        return;
+
+    m_world.emplace_or_replace<CombatComponent>(*hitteeIt, acEvent.HitterId);
+
+    pHittee->SetCombatTargetEx(pHitter);
+#endif
 }
 
 void CombatService::RunTargetUpdates(const float acDelta) const noexcept

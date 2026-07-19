@@ -23,20 +23,6 @@ thread_local bool g_forceAnimation = false;
 // This is where the Actors AI is enabled/disabled: almost all of NPC AI/behavior is
 // determined by Actions that are run on them.
 
-// Issue #810: reset/stances actions the engine replays in a loop right after an NPC is
-// (re)localized (AI unlocked). Spamming these prevents the NPC from ever finishing an attack
-// windup, so they stand still and refuse to aggro.
-static bool IsResetAction(const TiltedPhoques::String& aEventName) noexcept
-{
-    return aEventName == "Unequip"
-        || aEventName == "combatStanceStop"
-        || aEventName == "combatStanceGo"
-        || aEventName == "Sheathe"
-        || aEventName == "Draw"
-        || aEventName == "DrawEnd"
-        || aEventName == "Idle";
-}
-
 uint8_t TP_MAKE_THISCALL(HookPerformAction, ActorMediator, TESActionData* apAction)
 {
     auto pActor = apAction->actor;
@@ -71,53 +57,6 @@ uint8_t TP_MAKE_THISCALL(HookPerformAction, ActorMediator, TESActionData* apActi
         if (res)
         {
             pExtension->LatestAnimation = action;
-        }
-
-        // Issue #810 fix: freshly-localized NPC actors replay a burst of reset/stance actions
-        // (Unequip, combatStanceStop, ...) in a loop right after AI is unlocked, which previously
-        // got them stuck ("wants to sheathe", refuse to aggro). The engine action is ALWAYS
-        // performed locally above (so visuals stay correct and the NPC can draw/move). We only
-        // collapse the NETWORK BROADCAST: each distinct reset action is forwarded at most once
-        // during the grace window, so the server sees a single clean transition instead of a
-        // stuck spam loop -- and is never starved of the (un)equip/combat state it needs to
-        // unlock the NPC. Player and remote actors are never affected.
-        if (!pExtension->IsPlayer() && pExtension->LocalizedTick != 0)
-        {
-            const auto sinceLocalized = World::Get().GetTick() - pExtension->LocalizedTick;
-            if (sinceLocalized < ActorExtension::kAnimReconcileGraceTicks)
-            {
-                bool shouldBroadcast = true;
-                if (action.EventName == "Unequip")
-                {
-                    shouldBroadcast = !pExtension->BroadcastedUnequip;
-                    pExtension->BroadcastedUnequip = true;
-                }
-                else if (action.EventName == "combatStanceStop")
-                {
-                    shouldBroadcast = !pExtension->BroadcastedCombatStanceStop;
-                    pExtension->BroadcastedCombatStanceStop = true;
-                }
-                else if (IsResetAction(action.EventName))
-                {
-                    // Other reset/stance actions (combatStanceGo/Sheathe/Draw/DrawEnd/Idle):
-                    // forward the first occurrence too, but don't spam the rest of the burst.
-                    shouldBroadcast = pExtension->BroadcastedUnequip == false && pExtension->BroadcastedCombatStanceStop == false;
-                }
-
-                if (!shouldBroadcast)
-                {
-                    spdlog::info("Anim guard: de-duplicated broadcast of reset action \"{}\" on {:X} ({} ticks since localize)",
-                                 action.EventName, pActor->formID, sinceLocalized);
-                    return res;
-                }
-            }
-            else
-            {
-                // Grace window expired: reset dedupe state and stop collapsing for this actor.
-                pExtension->LocalizedTick = 0;
-                pExtension->BroadcastedUnequip = false;
-                pExtension->BroadcastedCombatStanceStop = false;
-            }
         }
 
         World::Get().GetRunner().Trigger(action);
