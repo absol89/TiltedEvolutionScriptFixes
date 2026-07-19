@@ -596,44 +596,6 @@ Factions Actor::GetFactions() const noexcept
 
     return result;
 }
-
-bool Actor::IsAggressiveCreature() const noexcept
-{
-    // Vanilla base-game faction formIDs for creatures that attack on sight. Animals have low
-    // Aggression (1) -- same as guards/followers -- so they slip past the Aggression>=2 gate.
-    // Membership in one of these factions is the correct "should attack" signal and lets us
-    // force-engage a transferred target (incl. the remote player) without lowering the
-    // aggression threshold that protects allies. Raw formIDs are read straight off the base
-    // NPC's faction list (no server-mod translation) so they match the vanilla IDs below.
-    static constexpr uint32_t kAggressiveFactions[] = {
-        0x3E093, // Spriggan Predator Faction
-        0x43594, // Werewolf Faction
-        0xFBBF3, // Bear Faction
-        0x3E691, // Wolf Faction
-        0x2E893, // Predator Faction
-    };
-    constexpr uint32_t kCount = sizeof(kAggressiveFactions) / sizeof(kAggressiveFactions[0]);
-
-    auto* pNpc = Cast<TESNPC>(baseForm);
-    if (!pNpc)
-        return false;
-
-    const auto& factions = pNpc->actorData.factions;
-    for (uint32_t i = 0; i < factions.length; ++i)
-    {
-        const auto* pFaction = factions[i].faction;
-        if (!pFaction)
-            continue;
-        const uint32_t id = pFaction->formID;
-        for (uint32_t j = 0; j < kCount; ++j)
-        {
-            if (id == kAggressiveFactions[j])
-                return true;
-        }
-    }
-    return false;
-}
-
 ActorValues Actor::GetEssentialActorValues() const noexcept
 {
     ActorValues actorValues;
@@ -1216,11 +1178,12 @@ void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
             // itself decides it aggros the player. The hook only runs while the engine is
             // already evaluating this NPC vs that player (the real "noticed you" event), so
             // we never evaluate hostility at transfer -- no out-of-view enrage (the old
-            // predator-bug). Gate on would-attack-on-sight: Aggression >= 2, OR an
-            // aggressive-creature faction (animals sit at Aggression 1), OR IsDragon().
-            // Peaceful NPCs/followers never qualify, so allies stay safe. The EngagedFrom-
-            // Detection latch (on the LocalizedActorState ECS component) prevents re-kicking
-            // (StartCombatEx clears the target + sheaths, which would otherwise re-qualify
+            // predator-bug), and we don't force predators to discover anyone at localization;
+            // they find nearby players through normal proximity detection on their own.
+            // Gate on would-attack-on-sight: Aggression >= 2 OR IsDragon() (allies/guards/
+            // animals at Aggression 1 are never forced hostile). The EngagedFromDetection
+            // latch (on the LocalizedActorState ECS component) prevents re-kicking
+            // (StartCombatEx clears the target + sheathes, which would otherwise re-qualify
             // and loop). After one engage, control returns to the engine.
             auto* pOwnerEx = pOwnerActor->GetExtension();
             const auto* pTargetEx = pTargetActor->GetExtension();
@@ -1236,7 +1199,6 @@ void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
                     auto* pState = world.try_get<LocalizedActorState>(*it);
                     if (pState && !pState->EngagedFromDetection &&
                         (pOwnerActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f ||
-                         pOwnerActor->IsAggressiveCreature() ||
                          pOwnerActor->IsDragon()))
                     {
                         if (pOwnerActor->GetCombatTarget() != pTargetActor)
