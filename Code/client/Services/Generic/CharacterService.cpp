@@ -151,9 +151,14 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
     // a no-op on an already-non-combat inert actor, so we replay the cycle: start combat
     // against the local player to wake the behavior graph, and schedule a deferred StopCombat
     // a few frames later (handled in OnUpdate) so the enter-transition registers before we
-    // exit it. Only aggression>=2 (attack-on-sight) NPCs get the wake; peaceful NPCs are left
-    // for vanilla detection.
-    if (pActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f)
+    // exit it.
+    // Only wake aggression>=2 (attack-on-sight) NPCs that are NOT already in combat: an actor
+    // already aggroed at handoff is fine (already drawn) and must be left as-is -- re-flipping
+    // an already-combat actor only causes a needless flinch/sheathe. The deferred stop therefore
+    // only ever runs on the peaceful actors we wake.
+    const bool wakeAggressive = pActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f
+                                && !pActor->IsInCombat();
+    if (wakeAggressive)
     {
         if (auto* pPlayer = PlayerCharacter::Get())
         {
@@ -165,8 +170,10 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
     // stop for this (re)localized NPC, stored as a LocalizedActorState component on the ECS entity.
     auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(acEntity);
     localizedState.LocalizedTick = m_world.GetTick();
-    localizedState.CombatCycleStarted = (pActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f);
-    localizedState.CombatCycleStopTick = m_world.GetTick() + LocalizedActorState::kCombatCycleStopDelayTicks;
+    localizedState.CombatCycleStarted = wakeAggressive;
+    localizedState.CombatCycleStopTick = wakeAggressive
+        ? m_world.GetTick() + LocalizedActorState::kCombatCycleStopDelayTicks
+        : 0;
     localizedState.BroadcastedUnequip = false;
     localizedState.BroadcastedCombatStanceStop = false;
     spdlog::info("TakeOwnership: actor {:X} server {:X} became local (anim reconcile tick {:X})",
@@ -397,8 +404,9 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
 
         // Issue #810: replay the combat-cycle reconcile that repairs the inert remote-lifecycle
         // state (see TakeOwnership for rationale). Start combat vs the local player for
-        // aggression>=2 NPCs; the deferred StopCombat is handled in OnUpdate.
-        const bool wakeAggressive = pActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f;
+        // aggression>=2 NPCs that are NOT already in combat; the deferred StopCombat is handled in OnUpdate.
+        const bool wakeAggressive = pActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f
+                                    && !pActor->IsInCombat();
         if (wakeAggressive)
         {
             if (auto* pPlayer = PlayerCharacter::Get())
@@ -411,7 +419,9 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
         auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(cEntity);
         localizedState.LocalizedTick = m_world.GetTick();
         localizedState.CombatCycleStarted = wakeAggressive;
-        localizedState.CombatCycleStopTick = m_world.GetTick() + LocalizedActorState::kCombatCycleStopDelayTicks;
+        localizedState.CombatCycleStopTick = wakeAggressive
+            ? m_world.GetTick() + LocalizedActorState::kCombatCycleStopDelayTicks
+            : 0;
         localizedState.BroadcastedUnequip = false;
         localizedState.BroadcastedCombatStanceStop = false;
 
