@@ -144,8 +144,15 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
 
     pExtension->SetRemote(false);
 
-    // Issue #810: start a fresh reconcile grace window and reset the engage latches for
-    // this (re)localized NPC, stored as a LocalizedActorState component on the ECS entity.
+    // Issue #810: a freshly (re)localized NPC arrives with inert behavior/animation state
+    // left over from its remote lifetime -- the actor can't transition to move/draw on a
+    // threat until something jolts it. Replaying a real combat -> StopCombat cycle repairs
+    // it (the actor then draws on its own via vanilla when it next sees the player), so we
+    // issue StopCombat() here to clear that stale state and let the engine re-drive combat.
+    pActor->StopCombat();
+
+    // Issue #810: start a fresh reconcile grace window for this (re)localized NPC, stored as
+    // a LocalizedActorState component on the ECS entity.
     auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(acEntity);
     localizedState.LocalizedTick = m_world.GetTick();
     localizedState.BroadcastedUnequip = false;
@@ -351,7 +358,11 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
 
         pActor->GetExtension()->SetRemote(false);
 
-        // Issue #810: fresh reconcile grace window + reset engage latches for this (re)localized NPC.
+        // Issue #810: clear the inert remote-lifecycle behavior state so the engine can
+        // re-drive the actor's combat/movement on its own (see TakeOwnership for rationale).
+        pActor->StopCombat();
+
+        // Issue #810: fresh reconcile grace window for this (re)localized NPC.
         auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(cEntity);
         localizedState.LocalizedTick = m_world.GetTick();
         localizedState.BroadcastedUnequip = false;

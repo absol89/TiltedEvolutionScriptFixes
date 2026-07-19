@@ -21,8 +21,6 @@
 
 #include <Games/TES.h>
 #include <World.h>
-#include <Components/FormIdComponent.h>
-#include <Components/LocalizedActorState.h>
 #include <Services/PapyrusService.h>
 
 #include <Forms/ActorValueInfo.h>
@@ -330,15 +328,6 @@ Actor* Actor::GetCombatTarget() const noexcept
 
 // TODO: this is a really hacky solution.
 // The internal targeting system should be disabled instead.
-void Actor::StartCombatEx(Actor* apTarget) noexcept
-{
-    if (GetCombatTarget() != apTarget)
-    {
-        StopCombat();
-        StartCombat(apTarget);
-    }
-}
-
 void Actor::SetCombatTargetEx(Actor* apTarget) noexcept
 {
     if (pCombatController)
@@ -1174,42 +1163,9 @@ void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
                 return;
             }
 
-            // Issue #810 / #741: engage a localized NPC exactly ONCE, at the moment vanilla
-            // itself decides it aggros the player. The hook only runs while the engine is
-            // already evaluating this NPC vs that player (the real "noticed you" event), so
-            // we never evaluate hostility at transfer -- no out-of-view enrage (the old
-            // predator-bug), and we don't force predators to discover anyone at localization;
-            // they find nearby players through normal proximity detection on their own.
-            // Gate on would-attack-on-sight only: Aggression >= 2. Dragons are left to vanilla
-            // detection -- Paarthurnax is Aggression 0 (friendly) and must never be force-
-            // engaged through this hook. The EngagedFromDetection
-            // latch (on the LocalizedActorState ECS component) prevents re-kicking
-            // (StartCombatEx clears the target + sheathes, which would otherwise re-qualify
-            // and loop). After one engage, control returns to the engine.
-            auto* pOwnerEx = pOwnerActor->GetExtension();
-            const auto* pTargetEx = pTargetActor->GetExtension();
-            if (pOwnerEx->IsLocal() && !pOwnerEx->IsPlayer() &&
-                (pTargetEx->IsLocalPlayer() || pTargetEx->IsRemotePlayer()))
-            {
-                auto& world = World::Get();
-                auto view = world.view<FormIdComponent>();
-                const auto it = std::find_if(std::begin(view), std::end(view),
-                    [id = pOwnerActor->formID, view](entt::entity e) { return view.get<FormIdComponent>(e).Id == id; });
-                if (it != std::end(view))
-                {
-                    auto* pState = world.try_get<LocalizedActorState>(*it);
-                    if (pState && !pState->EngagedFromDetection &&
-                        pOwnerActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f)
-                    {
-                        if (pOwnerActor->GetCombatTarget() != pTargetActor)
-                        {
-                            spdlog::info("Combat started (detection): local NPC {:X} -> player {:X} (remote={})", pOwner->formID, pTarget->formID, pTargetEx->IsRemotePlayer());
-                            pOwnerActor->StartCombatEx(pTargetActor);
-                            pState->EngagedFromDetection = true;
-                        }
-                    }
-                }
-            }
+            // Issue #810: this hook no longer force-engages localized NPCs. The remote->local
+            // detection cancellation above stands; the draw/move is now driven by the engine
+            // after StopCombat() reconciles the inert handoff state (see CharacterService).
         }
     }
 

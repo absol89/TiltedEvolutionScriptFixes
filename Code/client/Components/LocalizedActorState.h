@@ -3,17 +3,13 @@
 #include <cstdint>
 
 // Transient bookkeeping for an actor that just handed off from remote to local (ownership
-// transfer / (re)localization): the animation reconcile grace window and one-shot combat
-// engage latches. Stored as an entt component (NOT on ActorExtension, per review).
+// transfer / (re)localization): the animation reconcile grace window. Stored as an entt
+// component (NOT on ActorExtension, per review).
 struct LocalizedActorState
 {
     // Tick (World clock) of last (re)localize; drives the Animation.cpp reset-action
     // de-dupe grace window. 0 = no window active.
     uint64_t LocalizedTick = 0;
-
-    // One-shot latch: engage combat via StartCombatEx at most once (detection hook),
-    // then let the engine own combat.
-    bool EngagedFromDetection = false;
 
     // Reset-action broadcast dedupe flags for the grace window.
     bool BroadcastedUnequip = false;
