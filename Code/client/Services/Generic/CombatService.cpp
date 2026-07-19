@@ -175,12 +175,13 @@ void CombatService::OnHitEvent(const HitEvent& acEvent) const noexcept
         return;
 
     // Only point a target once the engine has the NPC in combat (don't force aggro on a stray hit).
+    // NOTE: do NOT reset EngagedFromHit on a transient !IsInCombat() here. StartCombatEx itself
+    // does StopCombat() which momentarily drops IsInCombat()+sheathes the weapon, so a one-frame
+    // !IsInCombat() after our own engage would clear the latch and re-arm the draw/sheathe loop
+    // (observed: Vampire Nightstalker un-aggroed and walked casually between player hits). The latch
+    // persists for the actor's lifetime; the engine handles genuine re-engagement on normal combat.
     if (!pHittee->IsInCombat())
-    {
-        // Left combat -> clear the retaliation latch so a later, separate fight re-triggers.
-        pHittee->GetExtension()->EngagedFromHit = false;
         return;
-    }
 
     auto view = m_world.view<FormIdComponent, LocalComponent>(entt::exclude<ObjectComponent>);
     const auto hitteeIt = std::find_if(std::begin(view), std::end(view), [id = acEvent.HitteeId, view](entt::entity entity) { return view.get<FormIdComponent>(entity).Id == id; });
