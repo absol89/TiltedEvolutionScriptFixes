@@ -68,14 +68,11 @@ uint8_t TP_MAKE_THISCALL(HookPerformAction, ActorMediator, TESActionData* apActi
             pExtension->LatestAnimation = action;
         }
 
-        // Issue #810 fix: freshly-localized NPC actors replay a burst of reset/stance actions
-        // (Unequip, combatStanceStop, ...) in a loop right after AI is unlocked, which previously
-        // got them stuck ("wants to sheathe", refuse to aggro). The engine action is ALWAYS
-        // performed locally above (so visuals stay correct and the NPC can draw/move). We only
-        // collapse the NETWORK BROADCAST: each distinct reset action is forwarded at most once
-        // during the grace window, so the server sees a single clean transition instead of a
-        // stuck spam loop -- and is never starved of the (un)equip/combat state it needs to
-        // unlock the NPC. Player and remote actors are never affected.
+        // Issue #810: after localization the engine replays a burst of reset/stance actions.
+        // The engine action always runs locally (line 55), so only the NETWORK BROADCAST is
+        // collapsed here -- each distinct reset action is forwarded at most once during the
+        // grace window, giving the server one clean transition instead of a stuck spam loop.
+        // Player and remote actors are unaffected.
         if (!pExtension->IsPlayer() && pExtension->LocalizedTick != 0)
         {
             const auto sinceLocalized = World::Get().GetTick() - pExtension->LocalizedTick;
