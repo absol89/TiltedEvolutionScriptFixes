@@ -827,8 +827,8 @@ bool Actor::IsKnownHostileHumanoidFaction() const noexcept
     // aggression >= 2 base gate, and we deliberately do not want to wake aggression-1 predators
     // (which caused the old wild-creature blow-up).
     static constexpr uint32_t kKnownHostileHumanoidFactions[] = {
-        0x39BC7, // Forsworn Faction
-        // TODO(user): add the Embershard bandit clan faction formID here once confirmed
+        0x1BCC0, // BanditFaction (Embershard bandits, etc.)
+        0x43599, // ForswornFaction
     };
     constexpr uint32_t kCount = sizeof(kKnownHostileHumanoidFactions) / sizeof(kKnownHostileHumanoidFactions[0]);
 
