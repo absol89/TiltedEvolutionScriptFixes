@@ -11,10 +11,9 @@ struct LocalizedActorState
     // de-dupe grace window. 0 = no window active.
     uint64_t LocalizedTick = 0;
 
-    // One-shot latches: engage combat via StartCombatEx at most once each (detection hook
-    // / OnHit retaliation), then let the engine own combat.
+    // One-shot latch: engage combat via StartCombatEx at most once (detection hook),
+    // then let the engine own combat.
     bool EngagedFromDetection = false;
-    bool EngagedFromHit = false;
 
     // Reset-action broadcast dedupe flags for the grace window.
     bool BroadcastedUnequip = false;

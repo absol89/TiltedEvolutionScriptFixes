@@ -16,7 +16,6 @@
 #include <Forms/TESAmmo.h>
 #include <Games/ActorExtension.h>
 #include <Components/FormIdComponent.h>
-#include <Components/LocalizedActorState.h>
 
 CombatService::CombatService(World& aWorld, TransportService& aTransport, entt::dispatcher& aDispatcher)
     : m_world(aWorld)
@@ -164,54 +163,41 @@ void CombatService::OnNotifyProjectileLaunch(const NotifyProjectileLaunch& acMes
 
 void CombatService::OnHitEvent(const HitEvent& acEvent) const noexcept
 {
-    // Retaliation for a localized NPC that is hit by a player. NOTE: this is a deliberate
-    // rewrite of the old (PR #633) targeting system, NOT a re-enable of it. The #633 body
-    // used a continuous CombatComponent + SetCombatTargetEx (still #if 0'd in
-    // RunTargetUpdates); here we fire StartCombatEx exactly once via the EngagedFromHit
-    // latch -- same one-shot, vanilla-adjacent primitive as HookUpdateDetectionState -- and
-    // hand combat back to the engine. The #633 continuous targeting system stays disabled.
+#if 0
     if (!m_transport.IsConnected())
         return;
 
-    // A local NPC that is hit by a player acquires that player as its combat target (retaliation).
+    // The targeting system does not apply to players, and only local actors should be considered.
     auto* pHittee = Cast<Actor>(TESForm::GetById(acEvent.HitteeId));
     if (!pHittee || pHittee->GetExtension()->IsPlayer() || pHittee->GetExtension()->IsRemote())
         return;
 
+    // NPCs should not affect targeting.
     auto* pHitter = Cast<Actor>(TESForm::GetById(acEvent.HitterId));
-    if (!pHitter || (!pHitter->GetExtension()->IsLocalPlayer() && !pHitter->GetExtension()->IsRemotePlayer()))
+    if (!pHitter || !pHitter->GetExtension()->IsPlayer())
         return;
 
-    // Only point a target once the engine has the NPC in combat (don't force aggro on a stray hit).
-    // NOTE: do NOT reset EngagedFromHit on a transient !IsInCombat() here. StartCombatEx itself
-    // does StopCombat() which momentarily drops IsInCombat()+sheathes the weapon, so a one-frame
-    // !IsInCombat() after our own engage would clear the latch and re-arm the draw/sheathe loop
-    // (observed: Vampire Nightstalker un-aggroed and walked casually between player hits). The latch
-    // persists for the actor's lifetime; the engine handles genuine re-engagement on normal combat.
+    // If the target is not in combat, don't start combat, let the game take care of that first.
     if (!pHittee->IsInCombat())
         return;
 
     auto view = m_world.view<FormIdComponent, LocalComponent>(entt::exclude<ObjectComponent>);
+
     const auto hitteeIt = std::find_if(std::begin(view), std::end(view), [id = acEvent.HitteeId, view](entt::entity entity) { return view.get<FormIdComponent>(entity).Id == id; });
+
     if (hitteeIt == std::end(view))
     {
         spdlog::warn("{}: hittee form id component not found, form id: {:X}", __FUNCTION__, acEvent.HitterId);
         return;
     }
 
-    // One-shot: StartCombatEx does StopCombat()+StartCombat(); the StopCombat() sheathes and
-    // clears the combat target, so GetCombatTarget()!=hitter alone re-qualifies on the very
-    // next HitEvent. Fire/DoT damage ticks many times per second, which turned that into a
-    // draw/sheathe loop while the NPC burned. Engage once, latch (on LocalizedActorState),
-    // and let the engine own combat thereafter; the latch is cleared above when the NPC
-    // leaves combat.
-    auto* pState = m_world.try_get<LocalizedActorState>(*hitteeIt);
-    if (pState && pHittee->GetCombatTarget() != pHitter && !pState->EngagedFromHit)
-    {
-        spdlog::info("Combat started (hit): local NPC {:X} -> player {:X}", acEvent.HitteeId, acEvent.HitterId);
-        pHittee->StartCombatEx(pHitter);
-        pState->EngagedFromHit = true;
-    }
+    if (m_world.any_of<CombatComponent>(*hitteeIt))
+        return;
+
+    m_world.emplace_or_replace<CombatComponent>(*hitteeIt, acEvent.HitterId);
+
+    pHittee->SetCombatTargetEx(pHitter);
+#endif
 }
 
 void CombatService::RunTargetUpdates(const float acDelta) const noexcept
