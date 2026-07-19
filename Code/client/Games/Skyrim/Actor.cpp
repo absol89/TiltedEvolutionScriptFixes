@@ -595,6 +595,43 @@ Factions Actor::GetFactions() const noexcept
     return result;
 }
 
+bool Actor::IsAggressiveCreature() const noexcept
+{
+    // Vanilla base-game faction formIDs for creatures that attack on sight. Animals have low
+    // Aggression (1) -- same as guards/followers -- so they slip past the Aggression>=2 gate.
+    // Membership in one of these factions is the correct "should attack" signal and lets us
+    // force-engage a transferred target (incl. the remote player) without lowering the
+    // aggression threshold that protects allies. Raw formIDs are read straight off the base
+    // NPC's faction list (no server-mod translation) so they match the vanilla IDs below.
+    static constexpr uint32_t kAggressiveFactions[] = {
+        0x3E093, // Spriggan Predator Faction
+        0x43594, // Werewolf Faction
+        0xFBBF3, // Bear Faction
+        0x3E691, // Wolf Faction
+        0x2E893, // Predator Faction
+    };
+    constexpr uint32_t kCount = sizeof(kAggressiveFactions) / sizeof(kAggressiveFactions[0]);
+
+    auto* pNpc = Cast<TESNPC>(baseForm);
+    if (!pNpc)
+        return false;
+
+    const auto& factions = pNpc->actorData.factions;
+    for (uint32_t i = 0; i < factions.length; ++i)
+    {
+        const auto* pFaction = factions[i].faction;
+        if (!pFaction)
+            continue;
+        const uint32_t id = pFaction->formID;
+        for (uint32_t j = 0; j < kCount; ++j)
+        {
+            if (id == kAggressiveFactions[j])
+                return true;
+        }
+    }
+    return false;
+}
+
 ActorValues Actor::GetEssentialActorValues() const noexcept
 {
     ActorValues actorValues;
@@ -1173,20 +1210,33 @@ void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
                 return;
             }
 
-            // Issue #810 / #741: a local NPC whose ownership was transferred has no valid
-            // combat-target handle to a player, so it follows on detection but never
-            // draws/attacks/chases. The detection hook only runs when the engine is already
-            // evaluating this NPC vs that target (the "this NPC noticed you" moment), so
-            // engaging here mirrors vanilla's own trigger.
+            // Issue #810 / #741: root problem is a sheathing/draw LOOP on localized NPCs
+            // (ownership transfer drops their combat-target handle, so the engine flaps
+            // weapon state). Past attempts kicked them back into the combat state machine
+            // repeatedly, which *caused* the loop. The untried fix: flip combat exactly
+            // ONCE, at the moment vanilla ITSELF decides this NPC aggros the player.
             //
-            // Ownership direction: when the leader leaves, the NPC's AI localizes on the
-            // OTHER player's machine. There the NPC is a local actor and the discovered
-            // player is the LOCAL player -- NOT remote. So we accept a detected target that
-            // is EITHER the local or a remote player.
+            // HookUpdateDetectionState runs ONLY when the engine is already evaluating this
+            // NPC (owner) vs that target (player) -- the genuine "this NPC noticed you"
+            // moment. So engaging here mirrors vanilla's own trigger timing. Crucially we
+            // do NOT evaluate hostility at transfer time (that was the predator-bug: enemies
+            // enraged out of view, gave stealth XP, blocked fast travel). We only react to
+            // the real detection event, so no out-of-view aggro.
             //
-            // Safety: only engage for NPCs that arrived already hostile (ArrivedHostile,
-            // i.e. weapon was drawn when transferred). Peaceful NPCs arrive sheathed and
-            // are never force-aggro'd, so friendly areas stay safe.
+            // Ownership direction: when the leader leaves, the NPC localizes on the OTHER
+            // player's machine, where it is a local actor and the discovered player is the
+            // LOCAL player (not remote). So we accept a detected target that is EITHER the
+            // local or a remote player.
+            //
+            // Hostility gate: only engage NPCs that would attack on sight, decided at the
+            // detection moment (not at transfer). Aggression >= 2 ("Very Aggressive":
+            // attacks on sight) excludes followers/guards/townsfolk. Animals (wolf/bear/
+            // spriggan/werewolf/predator) have Aggression 1, so we also accept membership
+            // in the aggressive-creature factions. Dragons are added explicitly because
+            // they otherwise never re-engage after localization. A peaceful NPC (aggression
+            // 0-1, no such faction, not a dragon) never force-engages -- so allies/followers
+            // stay safe, and because we never stamp anything at transfer, a follower walking
+            // weapon-drawn (Lydia) is not turned hostile.
             //
             // One-shot: fire StartCombatEx exactly ONCE per actor (EngagedFromDetection).
             // StartCombatEx does StopCombat()+StartCombat(); the StopCombat() clears the
@@ -1195,19 +1245,14 @@ void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
             // especially when a contested NPC's ownership bounces between two nearby
             // players. After the single engage we hand all further combat/sheathe control
             // back to the engine and never re-kick.
-            //
-            // Hostility gate: ArrivedHostile (weapon drawn at transfer) is only a proxy and
-            // catches ALLIES who happen to be weapon-drawn -- e.g. a follower (Lydia) walking
-            // with weapon out was force-attacked against the player. Require Aggression >= 2
-            // ("Very Aggressive": attacks on sight) so we only ever force-engage NPCs that
-            // would attack the player anyway. Followers/guards/townsfolk (aggression 0-1) are
-            // never turned hostile. This is read via the vanilla ActorValue, no new pointer.
             auto* pOwnerEx = pOwnerActor->GetExtension();
             const auto* pTargetEx = pTargetActor->GetExtension();
             if (pOwnerEx->IsLocal() && !pOwnerEx->IsPlayer() &&
                 (pTargetEx->IsLocalPlayer() || pTargetEx->IsRemotePlayer()) &&
-                pOwnerEx->ArrivedHostile && !pOwnerEx->EngagedFromDetection &&
-                pOwnerActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f)
+                !pOwnerEx->EngagedFromDetection &&
+                (pOwnerActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f ||
+                 pOwnerActor->IsAggressiveCreature() ||
+                 pOwnerActor->IsDragon()))
             {
                 if (pOwnerActor->GetCombatTarget() != pTargetActor)
                 {
