@@ -162,6 +162,12 @@ void CombatService::OnNotifyProjectileLaunch(const NotifyProjectileLaunch& acMes
 
 void CombatService::OnHitEvent(const HitEvent& acEvent) const noexcept
 {
+    // Retaliation for a localized NPC that is hit by a player. NOTE: this is a deliberate
+    // rewrite of the old (PR #633) targeting system, NOT a re-enable of it. The #633 body
+    // used a continuous CombatComponent + SetCombatTargetEx (still #if 0'd in
+    // RunTargetUpdates); here we fire StartCombatEx exactly once via the EngagedFromHit
+    // latch -- same one-shot, vanilla-adjacent primitive as HookUpdateDetectionState -- and
+    // hand combat back to the engine. The #633 continuous targeting system stays disabled.
     if (!m_transport.IsConnected())
         return;
 
