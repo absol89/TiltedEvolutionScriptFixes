@@ -145,16 +145,28 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
     pExtension->SetRemote(false);
 
     // Issue #810: a freshly (re)localized NPC arrives with inert behavior/animation state
-    // left over from its remote lifetime -- the actor can't transition to move/draw on a
-    // threat until something jolts it. Replaying a real combat -> StopCombat cycle repairs
-    // it (the actor then draws on its own via vanilla when it next sees the player), so we
-    // issue StopCombat() here to clear that stale state and let the engine re-drive combat.
-    pActor->StopCombat();
+    // left over from its remote lifetime and cannot transition to move/draw on a threat. The
+    // repair that was observed in playtest was a real combat -> StopCombat cycle (the actor
+    // then draws on its own via vanilla when it next sees the player). A bare StopCombat() is
+    // a no-op on an already-non-combat inert actor, so we replay the cycle: start combat
+    // against the local player to wake the behavior graph, and schedule a deferred StopCombat
+    // a few frames later (handled in OnUpdate) so the enter-transition registers before we
+    // exit it. Only aggression>=2 (attack-on-sight) NPCs get the wake; peaceful NPCs are left
+    // for vanilla detection.
+    if (pActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f)
+    {
+        if (auto* pPlayer = PlayerCharacter::Get())
+        {
+            pActor->StartCombat(pPlayer);
+        }
+    }
 
-    // Issue #810: start a fresh reconcile grace window for this (re)localized NPC, stored as
-    // a LocalizedActorState component on the ECS entity.
+    // Issue #810: start a fresh reconcile grace window + schedule the deferred combat-cycle
+    // stop for this (re)localized NPC, stored as a LocalizedActorState component on the ECS entity.
     auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(acEntity);
     localizedState.LocalizedTick = m_world.GetTick();
+    localizedState.CombatCycleStarted = (pActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f);
+    localizedState.CombatCycleStopTick = m_world.GetTick() + LocalizedActorState::kCombatCycleStopDelayTicks;
     localizedState.BroadcastedUnequip = false;
     localizedState.BroadcastedCombatStanceStop = false;
     spdlog::info("TakeOwnership: actor {:X} server {:X} became local (anim reconcile tick {:X})",
@@ -257,6 +269,31 @@ void CharacterService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
     RunRemoteUpdates();
     RunExperienceUpdates();
     ApplyCachedWeaponDraws(acUpdateEvent);
+
+    // Issue #810: deferred second half of the combat-cycle reconcile. At localization we
+    // StartCombat(player) to wake an inert behavior graph; a few frames later we StopCombat()
+    // so the actor ends clean (vanilla then re-draws on its own when it sees the player). This
+    // must be deferred because a synchronous start->stop collapses before the enter-transition
+    // registers. We resolve the actor from its form id via the FormIdComponent view.
+    const auto now = m_world.GetTick();
+    auto view = m_world.view<LocalizedActorState, FormIdComponent>();
+    for (auto entity : view)
+    {
+        auto& state = view.get<LocalizedActorState>(entity);
+        if (!state.CombatCycleStarted || state.CombatCycleStopTick == 0)
+            continue;
+        if (now < state.CombatCycleStopTick)
+            continue;
+
+        const auto formId = view.get<FormIdComponent>(entity).Id;
+        if (auto* pActor = Cast<Actor>(TESForm::GetById(formId)))
+        {
+            if (pActor->IsInCombat())
+                pActor->StopCombat();
+        }
+        state.CombatCycleStarted = false;
+        state.CombatCycleStopTick = 0;
+    }
 }
 
 void CharacterService::OnConnected(const ConnectedEvent& acConnectedEvent) const noexcept
@@ -358,13 +395,23 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
 
         pActor->GetExtension()->SetRemote(false);
 
-        // Issue #810: clear the inert remote-lifecycle behavior state so the engine can
-        // re-drive the actor's combat/movement on its own (see TakeOwnership for rationale).
-        pActor->StopCombat();
+        // Issue #810: replay the combat-cycle reconcile that repairs the inert remote-lifecycle
+        // state (see TakeOwnership for rationale). Start combat vs the local player for
+        // aggression>=2 NPCs; the deferred StopCombat is handled in OnUpdate.
+        const bool wakeAggressive = pActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f;
+        if (wakeAggressive)
+        {
+            if (auto* pPlayer = PlayerCharacter::Get())
+            {
+                pActor->StartCombat(pPlayer);
+            }
+        }
 
-        // Issue #810: fresh reconcile grace window for this (re)localized NPC.
+        // Issue #810: fresh reconcile grace window + deferred combat-cycle stop for this (re)localized NPC.
         auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(cEntity);
         localizedState.LocalizedTick = m_world.GetTick();
+        localizedState.CombatCycleStarted = wakeAggressive;
+        localizedState.CombatCycleStopTick = m_world.GetTick() + LocalizedActorState::kCombatCycleStopDelayTicks;
         localizedState.BroadcastedUnequip = false;
         localizedState.BroadcastedCombatStanceStop = false;
 
