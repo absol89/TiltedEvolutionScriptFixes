@@ -21,6 +21,8 @@
 
 #include <Games/TES.h>
 #include <World.h>
+#include <Components/FormIdComponent.h>
+#include <Components/LocalizedActorState.h>
 #include <Services/PapyrusService.h>
 
 #include <Forms/ActorValueInfo.h>
@@ -1217,23 +1219,33 @@ void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
             // predator-bug). Gate on would-attack-on-sight: Aggression >= 2, OR an
             // aggressive-creature faction (animals sit at Aggression 1), OR IsDragon().
             // Peaceful NPCs/followers never qualify, so allies stay safe. The EngagedFrom-
-            // Detection latch prevents re-kicking (StartCombatEx clears the target + sheaths,
-            // which would otherwise re-qualify and loop). After one engage, control returns
-            // to the engine.
+            // Detection latch (on the LocalizedActorState ECS component) prevents re-kicking
+            // (StartCombatEx clears the target + sheaths, which would otherwise re-qualify
+            // and loop). After one engage, control returns to the engine.
             auto* pOwnerEx = pOwnerActor->GetExtension();
             const auto* pTargetEx = pTargetActor->GetExtension();
             if (pOwnerEx->IsLocal() && !pOwnerEx->IsPlayer() &&
-                (pTargetEx->IsLocalPlayer() || pTargetEx->IsRemotePlayer()) &&
-                !pOwnerEx->EngagedFromDetection &&
-                (pOwnerActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f ||
-                 pOwnerActor->IsAggressiveCreature() ||
-                 pOwnerActor->IsDragon()))
+                (pTargetEx->IsLocalPlayer() || pTargetEx->IsRemotePlayer()))
             {
-                if (pOwnerActor->GetCombatTarget() != pTargetActor)
+                auto& world = World::Get();
+                auto view = world.view<FormIdComponent>();
+                const auto it = std::find_if(std::begin(view), std::end(view),
+                    [id = pOwnerActor->formID, view](entt::entity e) { return view.get<FormIdComponent>(e).Id == id; });
+                if (it != std::end(view))
                 {
-                    spdlog::info("Combat started (detection): local NPC {:X} -> player {:X} (remote={})", pOwner->formID, pTarget->formID, pTargetEx->IsRemotePlayer());
-                    pOwnerActor->StartCombatEx(pTargetActor);
-                    pOwnerEx->EngagedFromDetection = true;
+                    auto* pState = world.try_get<LocalizedActorState>(*it);
+                    if (pState && !pState->EngagedFromDetection &&
+                        (pOwnerActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f ||
+                         pOwnerActor->IsAggressiveCreature() ||
+                         pOwnerActor->IsDragon()))
+                    {
+                        if (pOwnerActor->GetCombatTarget() != pTargetActor)
+                        {
+                            spdlog::info("Combat started (detection): local NPC {:X} -> player {:X} (remote={})", pOwner->formID, pTarget->formID, pTargetEx->IsRemotePlayer());
+                            pOwnerActor->StartCombatEx(pTargetActor);
+                            pState->EngagedFromDetection = true;
+                        }
+                    }
                 }
             }
         }

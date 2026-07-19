@@ -143,14 +143,14 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
 
     pExtension->SetRemote(false);
 
-    // Issue #810: mark the actor as freshly localized so Animation.cpp de-duplicates the burst
-    // of reset/un-equip actions the engine replays once AI is unlocked. Reset the dedupe flags
-    // so this (re)localization starts a fresh grace window.
-    pExtension->LocalizedTick = m_world.GetTick();
-    pExtension->BroadcastedUnequip = false;
-    pExtension->BroadcastedCombatStanceStop = false;
+    // Issue #810: start a fresh reconcile grace window and reset the engage latches for
+    // this (re)localized NPC, stored as a LocalizedActorState component on the ECS entity.
+    auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(acEntity);
+    localizedState.LocalizedTick = m_world.GetTick();
+    localizedState.BroadcastedUnequip = false;
+    localizedState.BroadcastedCombatStanceStop = false;
     spdlog::info("TakeOwnership: actor {:X} server {:X} became local (anim reconcile tick {:X})",
-                 acFormId, acServerId, pExtension->LocalizedTick);
+                 acFormId, acServerId, localizedState.LocalizedTick);
 
     // TODO(cosideci): this should be done differently.
     // Send an ownership claim request, and have the server broadcast the result.
@@ -290,10 +290,11 @@ void CharacterService::OnDisconnected(const DisconnectedEvent& acDisconnectedEve
         else
         {
             pActor->GetExtension()->SetRemote(false);
-            // Issue #810: start a fresh reconcile grace window for this (re)localized NPC.
-            pActor->GetExtension()->LocalizedTick = m_world.GetTick();
-            pActor->GetExtension()->BroadcastedUnequip = false;
-            pActor->GetExtension()->BroadcastedCombatStanceStop = false;
+            // Issue #810: fresh reconcile grace window for this (re)localized NPC.
+            auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(entity);
+            localizedState.LocalizedTick = m_world.GetTick();
+            localizedState.BroadcastedUnequip = false;
+            localizedState.BroadcastedCombatStanceStop = false;
         }
     }
 
@@ -349,17 +350,12 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
 
         pActor->GetExtension()->SetRemote(false);
 
-        // Issue #810: start a fresh reconcile grace window for this (re)localized NPC.
-        pActor->GetExtension()->LocalizedTick = m_world.GetTick();
-        pActor->GetExtension()->BroadcastedUnequip = false;
-        pActor->GetExtension()->BroadcastedCombatStanceStop = false;
+        // Issue #810: fresh reconcile grace window + reset engage latches for this (re)localized NPC.
+        auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(cEntity);
+        localizedState.LocalizedTick = m_world.GetTick();
+        localizedState.BroadcastedUnequip = false;
+        localizedState.BroadcastedCombatStanceStop = false;
 
-        // Issue #810 / #741: record whether this NPC arrived combat-ready. Transferred
-        // hostiles (bandits, etc.) arrive with their weapon already drawn (true) from the
-        // previous owner; peaceful NPCs arrive sheathed (false). The detection hook uses
-        // this to engage combat ONLY for already-hostile NPCs, never force-aggro'ing a
-        // friendly NPC that merely happens to detect the player.
-        pActor->GetExtension()->ArrivedHostile = pActor->actorState.IsWeaponDrawn();
         if (auto* pEarlyAnimComponent = m_world.try_get<EarlyAnimationBufferComponent>(cEntity))
         {
             for (const auto& action : pEarlyAnimComponent->Actions)
@@ -1344,10 +1340,11 @@ void CharacterService::CancelServerAssignment(const entt::entity aEntity, const 
             else
             {
                 pActor->GetExtension()->SetRemote(false);
-                // Issue #810: start a fresh reconcile grace window for this (re)localized NPC.
-                pActor->GetExtension()->LocalizedTick = m_world.GetTick();
-                pActor->GetExtension()->BroadcastedUnequip = false;
-                pActor->GetExtension()->BroadcastedCombatStanceStop = false;
+                // Issue #810: fresh reconcile grace window for this (re)localized NPC.
+                auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(aEntity);
+                localizedState.LocalizedTick = m_world.GetTick();
+                localizedState.BroadcastedUnequip = false;
+                localizedState.BroadcastedCombatStanceStop = false;
             }
         }
 

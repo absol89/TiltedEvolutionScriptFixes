@@ -15,6 +15,8 @@
 #include <Forms/TESObjectWEAP.h>
 #include <Forms/TESAmmo.h>
 #include <Games/ActorExtension.h>
+#include <Components/FormIdComponent.h>
+#include <Components/LocalizedActorState.h>
 
 CombatService::CombatService(World& aWorld, TransportService& aTransport, entt::dispatcher& aDispatcher)
     : m_world(aWorld)
@@ -200,14 +202,15 @@ void CombatService::OnHitEvent(const HitEvent& acEvent) const noexcept
     // One-shot: StartCombatEx does StopCombat()+StartCombat(); the StopCombat() sheathes and
     // clears the combat target, so GetCombatTarget()!=hitter alone re-qualifies on the very
     // next HitEvent. Fire/DoT damage ticks many times per second, which turned that into a
-    // draw/sheathe loop while the NPC burned. Engage once, latch, and let the engine own
-    // combat thereafter; the latch is cleared above when the NPC leaves combat.
-    auto* pHitteeEx = pHittee->GetExtension();
-    if (pHittee->GetCombatTarget() != pHitter && !pHitteeEx->EngagedFromHit)
+    // draw/sheathe loop while the NPC burned. Engage once, latch (on LocalizedActorState),
+    // and let the engine own combat thereafter; the latch is cleared above when the NPC
+    // leaves combat.
+    auto* pState = m_world.try_get<LocalizedActorState>(*hitteeIt);
+    if (pState && pHittee->GetCombatTarget() != pHitter && !pState->EngagedFromHit)
     {
         spdlog::info("Combat started (hit): local NPC {:X} -> player {:X}", acEvent.HitteeId, acEvent.HitterId);
         pHittee->StartCombatEx(pHitter);
-        pHitteeEx->EngagedFromHit = true;
+        pState->EngagedFromHit = true;
     }
 }
 
