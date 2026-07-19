@@ -204,7 +204,7 @@ struct Actor : TESObjectREFR
     [[nodiscard]] bool IsDragon() const noexcept;
     [[nodiscard]] bool IsPlayerSummon() const noexcept;
     // Curated list of player-hostile humanoid factions whose aggression-1 members are
-    // hostile to the player (e.g. Forsworn, the Embershard bandit clan). Used by the issue
+    // hostile to the player (e.g. Forsworn, Bandit). Used by the issue
     // #810 localization reconcile so these NPCs get unstuck (can unsheath/fight) after the
     // leader moves away, without lowering the aggression threshold that protects predators/city NPCs.
     [[nodiscard]] bool IsKnownHostileHumanoidFaction() const noexcept;

@@ -823,13 +823,13 @@ bool Actor::IsDragon() const noexcept
 bool Actor::IsKnownHostileHumanoidFaction() const noexcept
 {
     // Curated list of player-hostile humanoid factions whose aggression-1 members are
-    // hostile to the player (e.g. Forsworn, the Embershard bandit clan). Raw base-form
+    // hostile to the player (e.g. Forsworn, Bandit). Raw base-form
     // faction formIDs are read straight off the NPC (no server-mod translation) so they
     // match the vanilla IDs below. Predator/creature factions are intentionally NOT listed
     // here -- those are handled by the aggression >= 2 base gate, and we deliberately do
     // not want to wake aggression-1 predators (which caused the old wild-creature blow-up).
     static constexpr uint32_t kPlayerHostileFactionList[] = {
-        0x1BCC0, // BanditFaction (Embershard bandits, etc.)
+        0x1BCC0, // BanditFaction (generic bandit faction all bandits belong to)
         0x43599, // ForswornFaction
     };
     constexpr uint32_t kCount = sizeof(kPlayerHostileFactionList) / sizeof(kPlayerHostileFactionList[0]);
