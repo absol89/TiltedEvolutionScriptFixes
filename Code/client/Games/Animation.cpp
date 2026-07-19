@@ -20,9 +20,7 @@ static TPerformAction* RealPerformAction;
 // TODO: make scoped override
 thread_local bool g_forceAnimation = false;
 
-// Issue #810: reset/stances actions the engine replays in a loop right after an NPC is
-// (re)localized (AI unlocked). Spamming these prevents the NPC from ever finishing an attack
-// windup, so they stand still and refuse to aggro.
+// Issue #810: action names treated as reset/stance transitions during the post-localize grace window.
 static bool IsResetAction(const TiltedPhoques::String& aEventName) noexcept
 {
     return aEventName == "Unequip"
