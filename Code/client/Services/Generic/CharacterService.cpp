@@ -145,38 +145,24 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
     pExtension->SetRemote(false);
 
     // Issue #810: a freshly (re)localized NPC arrives with inert behavior/animation state
-    // left over from its remote lifetime and cannot transition to move/draw on a threat.
-    // A bare StopCombat() is a no-op on an already-non-combat inert actor, but a real
-    // combat -> StopCombat cycle was observed in playtest to repair it (the actor then
-    // draws on its own via vanilla when it next sees the player). We therefore start
-    // combat against the local player to wake the behavior graph.
-    // NOTE: we intentionally do NOT also StopCombat here. The detection hook
-    // (Actor.cpp HookUpdateDetectionState) is what actually re-points the actor at the
-    // *present* player and keeps it in combat; a StopCombat would only stand a peaceful
-    // handed-off actor back down (the observed "never hostile" regression). Already-
-    // in-combat actors (leader left while they were fighting) are left alone -- vanilla
-    // re-acquires the remaining player on its own.
-    // Wake condition (issue #810): aggression>=2 (attack-on-sight), OR an aggression>=1
-    // member of the player-hostile humanoid faction (Bandit) -- these sit at
-    // aggression 1 but are hostile and otherwise get stuck unable to unsheath after
-    // localization. We keep the aggression>=1 floor so aggression-0 NPCs (Paarthurnax,
-    // civilians) are never woken, and we deliberately do NOT widen this to predators.
-    // CRITICAL: only wake a peaceful NPC that has NO current combat target. If it is
-    // already fighting someone (e.g. the leader who just left), StartCombat here would
-    // override its live target and break the in-progress fight -- vanilla re-acquires the
-    // remaining player on its own. This guard is what keeps already-aggroed bandits
-    // from breaking when the leader leaves (regression vs the bare !IsInCombat() gate).
-    const bool wakeAggressive = !pActor->IsInCombat()
-        && pActor->GetCombatTarget() == nullptr
+    // from its remote lifetime and cannot transition to move/draw on a threat. Kick it into
+    // combat against the present player ONCE at localization to wake the behavior graph --
+    // this replaces the old per-tick detection hook. We engage any aggressive NPC that is NOT
+    // already fighting the present player: a peaceful NPC (no combat target) or one still
+    // targeting the departed leader (dangling handle) both qualify; one already fighting the
+    // present player is left alone.
+    // Aggression gate: aggression>=2 (attack-on-sight) OR an aggression>=1 member of the
+    // player-hostile humanoid faction (Bandit). Aggression-0 (Paarthurnax, civilians) and
+    // predators are never woken.
+    Actor* pPlayer = PlayerCharacter::Get();
+    const bool wakeAggressive = pPlayer != nullptr
+        && pActor->GetCombatTarget() != pPlayer
         && (pActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f
             || (pActor->GetActorValue(ActorValueInfo::kAggression) >= 1.0f
                 && pActor->IsKnownHostileHumanoidFaction()));
     if (wakeAggressive)
     {
-        if (auto* pPlayer = PlayerCharacter::Get())
-        {
-            pActor->StartCombat(pPlayer);
-        }
+        pActor->StartCombat(pPlayer);
     }
 
     // Issue #810: start a fresh reconcile grace window for this (re)localized NPC,
@@ -386,24 +372,20 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
 
         pActor->GetExtension()->SetRemote(false);
 
-        // Issue #810: replay the combat-cycle reconcile that repairs the inert remote-lifecycle
-        // state (see TakeOwnership for the full rationale and wake condition). Start combat vs
-        // the local player for aggressive NPCs (aggression>=2, or aggression>=1 members of a
-        // known player-hostile humanoid faction) that are NOT already in combat AND have no
-        // current combat target -- so we never override a live fight (leader just left) and
-        // break it. We intentionally do NOT StopCombat afterwards -- the detection hook keeps
-        // the actor in combat.
-        const bool wakeAggressive = !pActor->IsInCombat()
-            && pActor->GetCombatTarget() == nullptr
+        // Issue #810: kick the (re)localized NPC into combat against the present player ONCE
+        // (see TakeOwnership for the full rationale). Engage any aggressive NPC that is NOT
+        // already fighting the present player -- peaceful, or still targeting the departed
+        // leader. Already fighting the present player is left alone. No detection hook: the
+        // single localization kick replaces it.
+        Actor* pPlayer = PlayerCharacter::Get();
+        const bool wakeAggressive = pPlayer != nullptr
+            && pActor->GetCombatTarget() != pPlayer
             && (pActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f
                 || (pActor->GetActorValue(ActorValueInfo::kAggression) >= 1.0f
                     && pActor->IsKnownHostileHumanoidFaction()));
         if (wakeAggressive)
         {
-            if (auto* pPlayer = PlayerCharacter::Get())
-            {
-                pActor->StartCombat(pPlayer);
-            }
+            pActor->StartCombat(pPlayer);
         }
 
         // Issue #810: fresh reconcile grace window for this (re)localized NPC.

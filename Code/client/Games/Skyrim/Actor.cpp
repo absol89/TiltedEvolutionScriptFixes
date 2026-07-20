@@ -32,7 +32,6 @@
 
 #include <Games/Skyrim/Misc/InventoryEntry.h>
 #include <Games/Skyrim/ExtraData/ExtraCount.h>
-#include <Games/Misc/ActorKnowledge.h>
 
 #include <ExtraData/ExtraDataList.h>
 #include <ExtraData/ExtraCharge.h>
@@ -1174,90 +1173,6 @@ void Actor::DropObject(TESBoundObject* apObject, ExtraDataList* apExtraData, int
     TiltedPhoques::ThisCall(RealDropObject, this, &result, apObject, apExtraData, aCount, apLocation, apRotation);
 }
 
-TP_THIS_FUNCTION(TUpdateDetectionState, void, ActorKnowledge, void*);
-static TUpdateDetectionState* RealUpdateDetectionState = nullptr;
-
-void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
-{
-    auto pOwner = TESObjectREFR::GetByHandle(apThis->hOwner);
-    auto pTarget = TESObjectREFR::GetByHandle(apThis->hTarget);
-
-    if (pOwner && pTarget)
-    {
-        auto pOwnerActor = Cast<Actor>(pOwner);
-        auto pTargetActor = Cast<Actor>(pTarget);
-        if (pOwnerActor && pTargetActor)
-        {
-            if (pOwnerActor->GetExtension()->IsRemotePlayer() && pTargetActor->GetExtension()->IsLocalPlayer())
-            {
-                spdlog::debug("Cancelling detection from remote player to local player, owner: {:X}, target: {:X}", pOwner->formID, pTarget->formID);
-                return;
-            }
-
-            // Issue #810 / #741: a local NPC whose ownership was transferred has no valid
-            // combat-target handle to a player, so it follows on detection but never
-            // draws/attacks/chases. The detection hook only runs when the engine is already
-            // evaluating this NPC vs that target (the "this NPC noticed you" moment), so
-            // engaging here mirrors vanilla's own trigger -- we hook the engine's REAL
-            // detection result, not a poll.
-            //
-            // Ownership direction: when the leader leaves, the NPC's AI localizes on the
-            // OTHER player's machine. There the NPC is a local actor and the discovered
-            // player is the LOCAL player -- NOT remote. So we accept a detected target
-            // that is EITHER the local or a remote player.
-            //
-            // Gate (corrected from the old version that used ArrivedHostile/weapon-drawn):
-            // only engage NPCs that are aggressive by nature (aggression>=2) OR aggression>=1
-            // members of the player-hostile humanoid faction (Bandit -- see
-            // IsKnownHostileHumanoidFaction). This avoids the old Embershard cave false-aggro
-            // (which came from gating on DetectionState level>0 with no hostility check) and
-            // keeps aggression-0 / predators / city NPCs untouched.
-            //
-            // We do NOT StopCombat afterwards: the NPC must STAY in combat with the present
-            // player. A StopCombat would stand a handed-off peaceful bandit back down (the
-            // observed "never hostile" regression). Already-in-combat actors are skipped
-            // (IsInCombat), because vanilla re-acquires the remaining player on its own when
-            // the leader leaves mid-fight -- we must not re-kick them.
-            //
-            // One-shot: fire StartCombat exactly ONCE per actor (EngagedFromDetection).
-            // StartCombat sets a combat target; a GetCombatTarget() check alone re-qualifies
-            // on the next detection eval and produces a draw/sheathe loop -- especially when a
-            // contested NPC's ownership bounces between two nearby players. After the single
-            // engage we hand all further combat/sheathe control back to the engine.
-            //
-            // The latch lives on the LocalizedActorState ECS component (not ActorExtension),
-            // resolved from the owner's form id.
-            auto* pOwnerEx = pOwnerActor->GetExtension();
-            const auto* pTargetEx = pTargetActor->GetExtension();
-            if (pOwnerEx->IsLocal() && !pOwnerEx->IsPlayer() &&
-                (pTargetEx->IsLocalPlayer() || pTargetEx->IsRemotePlayer()) &&
-                !pOwnerActor->IsInCombat())
-            {
-                auto& world = World::Get();
-                auto view = world.view<FormIdComponent, LocalizedActorState>();
-                const auto it = std::find_if(std::begin(view), std::end(view),
-                    [id = pOwner->formID, view](entt::entity e) { return view.get<FormIdComponent>(e).Id == id; });
-                if (it != std::end(view) && !world.get<LocalizedActorState>(*it).EngagedFromDetection)
-                {
-                    const auto aggression = pOwnerActor->GetActorValue(ActorValueInfo::kAggression);
-                    if (aggression >= 2.0f ||
-                        (aggression >= 1.0f && pOwnerActor->IsKnownHostileHumanoidFaction()))
-                    {
-                        if (pOwnerActor->GetCombatTarget() != pTargetActor)
-                        {
-                            spdlog::info("Combat started (detection): local NPC {:X} -> player {:X} (remote={})",
-                                         pOwner->formID, pTarget->formID, pTargetEx->IsRemotePlayer());
-                            pOwnerActor->StartCombat(pTargetActor);
-                            world.get<LocalizedActorState>(*it).EngagedFromDetection = true;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    return TiltedPhoques::ThisCall(RealUpdateDetectionState, apThis, apState);
-}
 
 struct DialogueItem;
 
@@ -1363,7 +1278,6 @@ static TiltedPhoques::Initializer s_actorHooks(
         POINTER_SKYRIMSE(TAddInventoryItem, s_addInventoryItem, 37525);
         POINTER_SKYRIMSE(TPickUpObject, s_pickUpObject, 37521);
         POINTER_SKYRIMSE(TDropObject, s_dropObject, 40454);
-        POINTER_SKYRIMSE(TUpdateDetectionState, s_updateDetectionState, 42704);
         POINTER_SKYRIMSE(TProcessResponse, s_processResponse, 39643);
         POINTER_SKYRIMSE(TInitiateMountPackage, s_initiateMountPackage, 37905);
         POINTER_SKYRIMSE(TUnequipObject, s_unequipObject, 37975);
@@ -1385,7 +1299,6 @@ static TiltedPhoques::Initializer s_actorHooks(
         RealAddInventoryItem = s_addInventoryItem.Get();
         RealPickUpObject = s_pickUpObject.Get();
         RealDropObject = s_dropObject.Get();
-        RealUpdateDetectionState = s_updateDetectionState.Get();
         RealProcessResponse = s_processResponse.Get();
         RealInitiateMountPackage = s_initiateMountPackage.Get();
         RealUnequipObject = s_unequipObject.Get();
@@ -1406,7 +1319,6 @@ static TiltedPhoques::Initializer s_actorHooks(
         TP_HOOK(&RealAddInventoryItem, HookAddInventoryItem);
         TP_HOOK(&RealPickUpObject, HookPickUpObject);
         TP_HOOK(&RealDropObject, HookDropObject);
-        TP_HOOK(&RealUpdateDetectionState, HookUpdateDetectionState);
         TP_HOOK(&RealProcessResponse, HookProcessResponse);
         TP_HOOK(&RealInitiateMountPackage, HookInitiateMountPackage);
         TP_HOOK(&RealUnequipObject, HookUnequipObject);
