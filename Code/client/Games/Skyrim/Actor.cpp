@@ -823,14 +823,16 @@ bool Actor::IsDragon() const noexcept
 bool Actor::IsKnownHostileHumanoidFaction() const noexcept
 {
     // Curated list of player-hostile humanoid factions whose aggression-1 members are
-    // hostile to the player (e.g. Forsworn, Bandit). Raw base-form
-    // faction formIDs are read straight off the NPC (no server-mod translation) so they
-    // match the vanilla IDs below. Predator/creature factions are intentionally NOT listed
-    // here -- those are handled by the aggression >= 2 base gate, and we deliberately do
-    // not want to wake aggression-1 predators (which caused the old wild-creature blow-up).
+    // hostile to the player (e.g. Bandit). Raw base-form faction formIDs are read
+    // straight off the NPC (no server-mod translation) so they match the vanilla IDs below.
+    // Predator/creature factions and Forsworn are intentionally NOT listed here: Forsworn
+    // only ever wake at aggression >= 2 (the base gate), and predators are handled by that
+    // base gate too -- we deliberately do not want to wake aggression-1 predators (which
+    // caused the old wild-creature blow-up). BanditFaction stays so its aggression-1
+    // members get unstuck after localization; aggression-0 bandits are excluded by the
+    // aggression >= 1 floor in the gate.
     static constexpr uint32_t kPlayerHostileFactionList[] = {
         0x1BCC0, // BanditFaction (generic bandit faction all bandits belong to)
-        0x43599, // ForswornFaction
     };
     constexpr uint32_t kCount = sizeof(kPlayerHostileFactionList) / sizeof(kPlayerHostileFactionList[0]);
 
@@ -1213,7 +1215,7 @@ void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
             //
             // Gate (corrected from the old version that used ArrivedHostile/weapon-drawn):
             // only engage NPCs that are aggressive by nature (aggression>=2) OR aggression>=1
-            // members of a known player-hostile humanoid faction (Forsworn/Bandit -- see
+            // members of the player-hostile humanoid faction (Bandit -- see
             // IsKnownHostileHumanoidFaction). This avoids the old Embershard cave false-aggro
             // (which came from gating on DetectionState level>0 with no hostility check) and
             // keeps aggression-0 / predators / city NPCs untouched.

@@ -157,7 +157,7 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
     // in-combat actors (leader left while they were fighting) are left alone -- vanilla
     // re-acquires the remaining player on its own.
     // Wake condition (issue #810): aggression>=2 (attack-on-sight), OR an aggression>=1
-    // member of a known player-hostile humanoid faction (Forsworn, etc.) -- these sit at
+    // member of the player-hostile humanoid faction (Bandit) -- these sit at
     // aggression 1 but are hostile and otherwise get stuck unable to unsheath after
     // localization. We keep the aggression>=1 floor so aggression-0 NPCs (Paarthurnax,
     // civilians) are never woken, and we deliberately do NOT widen this to predators.
