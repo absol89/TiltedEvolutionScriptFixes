@@ -161,7 +161,13 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
     // aggression 1 but are hostile and otherwise get stuck unable to unsheath after
     // localization. We keep the aggression>=1 floor so aggression-0 NPCs (Paarthurnax,
     // civilians) are never woken, and we deliberately do NOT widen this to predators.
+    // CRITICAL: only wake a peaceful NPC that has NO current combat target. If it is
+    // already fighting someone (e.g. the leader who just left), StartCombat here would
+    // override its live target and break the in-progress fight -- vanilla re-acquires the
+    // remaining player on its own. This guard is what keeps already-aggroed bandits
+    // from breaking when the leader leaves (regression vs the bare !IsInCombat() gate).
     const bool wakeAggressive = !pActor->IsInCombat()
+        && pActor->GetCombatTarget() == nullptr
         && (pActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f
             || (pActor->GetActorValue(ActorValueInfo::kAggression) >= 1.0f
                 && pActor->IsKnownHostileHumanoidFaction()));
@@ -383,9 +389,12 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
         // Issue #810: replay the combat-cycle reconcile that repairs the inert remote-lifecycle
         // state (see TakeOwnership for the full rationale and wake condition). Start combat vs
         // the local player for aggressive NPCs (aggression>=2, or aggression>=1 members of a
-        // known player-hostile humanoid faction) that are NOT already in combat. We intentionally
-        // do NOT StopCombat afterwards -- the detection hook keeps the actor in combat.
+        // known player-hostile humanoid faction) that are NOT already in combat AND have no
+        // current combat target -- so we never override a live fight (leader just left) and
+        // break it. We intentionally do NOT StopCombat afterwards -- the detection hook keeps
+        // the actor in combat.
         const bool wakeAggressive = !pActor->IsInCombat()
+            && pActor->GetCombatTarget() == nullptr
             && (pActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f
                 || (pActor->GetActorValue(ActorValueInfo::kAggression) >= 1.0f
                     && pActor->IsKnownHostileHumanoidFaction()));
