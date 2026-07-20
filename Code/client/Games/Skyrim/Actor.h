@@ -203,10 +203,11 @@ struct Actor : TESObjectREFR
     [[nodiscard]] bool IsDead() const noexcept;
     [[nodiscard]] bool IsDragon() const noexcept;
     [[nodiscard]] bool IsPlayerSummon() const noexcept;
-    // Curated list of player-hostile humanoid factions whose aggression-1 members are
-    // hostile to the player (e.g. Bandit). Used by the issue
-    // #810 localization reconcile so these NPCs get unstuck (can unsheath/fight) after the
-    // leader moves away, without lowering the aggression threshold that protects predators/city NPCs.
+    // The generic BanditFaction (player-hostile): its aggression-1 members get stuck
+    // unable to unsheath after localization, so the gate's aggression>=1 branch wakes them.
+    // Used by the issue #810 localization reconcile so these NPCs get unstuck (can unsheath/
+    // fight) after the leader moves away, without lowering the aggression threshold that
+    // protects predators/city NPCs (those only wake at aggression>=2).
     [[nodiscard]] bool IsKnownHostileHumanoidFaction() const noexcept;
     [[nodiscard]] bool IsInCombat() const noexcept;
     [[nodiscard]] Actor* GetCombatTarget() const noexcept;

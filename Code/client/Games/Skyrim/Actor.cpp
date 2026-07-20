@@ -822,19 +822,16 @@ bool Actor::IsDragon() const noexcept
 
 bool Actor::IsKnownHostileHumanoidFaction() const noexcept
 {
-    // Curated list of player-hostile humanoid factions whose aggression-1 members are
-    // hostile to the player (e.g. Bandit). Raw base-form faction formIDs are read
-    // straight off the NPC (no server-mod translation) so they match the vanilla IDs below.
-    // Predator/creature factions and Forsworn are intentionally NOT listed here: Forsworn
+    // The generic BanditFaction (0x1BCC0): its aggression-1 members are player-hostile
+    // and otherwise get stuck unable to unsheath after localization. We wake them via the
+    // aggression>=1 branch of the gate. Raw base-form faction formIDs are read straight
+    // off the NPC (no server-mod translation) so they match the vanilla ID below.
+    // Predator/creature factions and Forsworn are intentionally NOT handled here: Forsworn
     // only ever wake at aggression >= 2 (the base gate), and predators are handled by that
     // base gate too -- we deliberately do not want to wake aggression-1 predators (which
-    // caused the old wild-creature blow-up). BanditFaction stays so its aggression-1
-    // members get unstuck after localization; aggression-0 bandits are excluded by the
+    // caused the old wild-creature blow-up). Aggression-0 bandits are excluded by the
     // aggression >= 1 floor in the gate.
-    static constexpr uint32_t kPlayerHostileFactionList[] = {
-        0x1BCC0, // BanditFaction (generic bandit faction all bandits belong to)
-    };
-    constexpr uint32_t kCount = sizeof(kPlayerHostileFactionList) / sizeof(kPlayerHostileFactionList[0]);
+    static constexpr uint32_t kPlayerHostileFaction = 0x1BCC0; // BanditFaction (generic)
 
     auto* pNpc = Cast<TESNPC>(baseForm);
     if (!pNpc)
@@ -846,12 +843,8 @@ bool Actor::IsKnownHostileHumanoidFaction() const noexcept
         const auto* pFaction = factions[i].faction;
         if (!pFaction)
             continue;
-        const uint32_t id = pFaction->formID;
-        for (uint32_t j = 0; j < kCount; ++j)
-        {
-            if (id == kPlayerHostileFactionList[j])
-                return true;
-        }
+        if (pFaction->formID == kPlayerHostileFaction)
+            return true;
     }
     return false;
 }
