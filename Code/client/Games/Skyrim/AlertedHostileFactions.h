@@ -5,9 +5,9 @@
 
 namespace AlertedHostileFactions
 {
-std::vector<TESFaction*> GetAlertedFactions();
+// Sorted set of form IDs loaded from AlertedHostileFactions.ini.
+const std::vector<uint32_t>& GetAlertedHostileFactionIds() noexcept;
 
-// True if the actor/world model belongs to a configured alerted hostile faction.
-bool IsAlertedHostileFaction(Actor* apActor);
-bool IsAlertedHostileFaction(TESForm* apForm);
+// True if the actor belongs to a configured alerted hostile faction.
+bool IsAlertedHostileFaction(const Actor* apActor) noexcept;
 }

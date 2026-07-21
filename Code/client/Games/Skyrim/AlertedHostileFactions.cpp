@@ -1,96 +1,129 @@
 #include "AlertedHostileFactions.h"
 
-#include <spdlog/spdlog.h>
-#include <fstream>
-#include <filesystem>
-
 #include <base/simpleini/SimpleIni.h>
 
-#include <Forms/TESNPC.h>
-#include <Forms/TESFaction.h>
-#include <Forms/ActorValueInfo.h>
-#include <Components/FormIdComponent.h>
+#include <algorithm>
+#include <charconv>
+#include <filesystem>
+#include <string_view>
+#include <vector>
 
-TP_THIS_FUNCTION(TIsKnownHostileHumanoidFaction, bool, TESNPC*, TESFaction*);
-static TIsKnownHostileHumanoidFaction* RealIsKnownHostileHumanoidFaction = nullptr;
+#include <Games/Primitives.h>
 
 namespace
 {
-std::filesystem::path GetAppDataPath()
+constexpr char kConfigPathName[] = "Data/SkyrimTogetherReborn/config";
+constexpr char kSettingsFileName[] = "AlertedHostileFactions.ini";
+constexpr char kSectionName[] = "AlertedHostileFactions";
+
+bool TryParseFormId(std::string_view aValue, uint32_t& aOutFormId) noexcept
 {
-    if (const char* pPath = std::getenv("APPDATA"))
-        return pPath;
-    return std::filesystem::current_path();
+    unsigned long formId = 0;
+    const auto* pBegin = aValue.data();
+    const auto* pEnd = pBegin + aValue.size();
+    const auto result = std::from_chars(pBegin, pEnd, formId, 16);
+    if (result.ec != std::errc{} || result.ptr != pEnd)
+        return false;
+    aOutFormId = static_cast<uint32_t>(formId);
+    return true;
 }
 
-void EnsureDefaultIniExists()
+std::string_view Trim(std::string_view aValue) noexcept
 {
-    const std::filesystem::path iniPath = GetAppDataPath() / "AlertedHostileFactions.ini";
-    if (!std::filesystem::exists(iniPath))
+    constexpr std::string_view whitespace{" \t\r\n"};
+    const auto start = aValue.find_first_not_of(whitespace);
+    if (start == std::string_view::npos)
+        return {};
+    const auto end = aValue.find_last_not_of(whitespace);
+    return aValue.substr(start, end - start + 1);
+}
+
+std::vector<uint32_t> LoadFormIds() noexcept
+{
+    std::vector<uint32_t> result;
+
+    try
     {
-        std::ofstream file(iniPath);
-        if (file.is_open())
+        const std::filesystem::path path =
+            std::filesystem::current_path() / kConfigPathName / kSettingsFileName;
+
+        std::error_code error{};
+        if (!std::filesystem::exists(path, error))
         {
-            file << R"([AlertedHostileFactions]
-; Faction form IDs (hex) that should be treated as awakened at aggression 1.
-; Add one form ID per line. Empty/deleted entries leave those bandits untouched.
-0x1BCC0=
-)";
-            spdlog::info("AlertedHostileFactions.ini created at {}", iniPath.string());
+            CSimpleIni ini;
+            ini.SetUnicode();
+            ini.SetValue(kSectionName, nullptr, nullptr,
+                         "; Faction form IDs (hex) treated as alerted hostile at aggression 1.\n"
+                         "; Add one per line. 0x1BCC0 = BanditFaction. Delete section to disable.\n"
+                         "0x1BCC0=\n");
+
+            std::string buf;
+            if (ini.Save(buf, true) == SI_Error::SI_OK)
+                TiltedPhoques::SaveFile(path, TiltedPhoques::String(buf));
+        }
+
+        if (error || !std::filesystem::exists(path, error))
+            return result;
+
+        std::string content = TiltedPhoques::LoadFile(path);
+        CSimpleIni ini;
+        ini.SetUnicode();
+        if (ini.LoadData(content.c_str()) != SI_Error::SI_OK)
+            return result;
+
+        const auto* pSection = ini.GetSection(kSectionName);
+        if (!pSection)
+            return result;
+
+        for (const auto& entry : *pSection)
+        {
+            if (!entry.first.pItem || !entry.second)
+                continue;
+
+            uint32_t formId = 0;
+            if (TryParseFormId(Trim(entry.second), formId))
+                result.push_back(formId);
         }
     }
-}
-
-std::vector<TESFaction*> LoadAlertedFactions()
-{
-    EnsureDefaultIniExists();
-
-    std::vector<TESFaction*> factions;
-    CSimpleIniTempl<char, SI_NoCase<char>, SI_ConvertA<char>> ini;
-    ini.SetUnicode();
-    ini.LoadFile((GetAppDataPath() / "AlertedHostileFactions.ini").string().c_str());
-
-    const char* pszSection = "AlertedHostileFactions";
-    CSimpleIniTempl<char, SI_NoCase<char>, SI_ConvertA<char>>::TNamesDepend sectionKeys;
-    ini.GetAllValues(pszSection, nullptr, sectionKeys);
-
-    for (auto& key : sectionKeys)
+    catch (...)
     {
-        const uint32_t formId = std::strtoul(key.pItem, nullptr, 16);
-        if (auto* pFaction = Cast<TESFaction>(TESForm::GetById(formId)))
-            factions.push_back(pFaction);
     }
 
-    spdlog::info("AlertedHostileFactions loaded {} factions", factions.size());
-    return factions;
+    std::sort(result.begin(), result.end());
+    result.erase(std::unique(result.begin(), result.end()), result.end());
+    return result;
 }
 }
 
 namespace AlertedHostileFactions
 {
-std::vector<TESFaction*> GetAlertedFactions()
+const std::vector<uint32_t>& GetAlertedHostileFactionIds() noexcept
 {
-    static std::vector<TESFaction*> factions = LoadAlertedFactions();
-    return factions;
+    static const std::vector<uint32_t> s_ids = LoadFormIds();
+    return s_ids;
 }
 
-bool IsAlertedHostileFaction(Actor* apActor)
+bool IsAlertedHostileFaction(const Actor* apActor) noexcept
 {
     if (!apActor)
         return false;
 
-    for (auto* pFaction : GetAlertedFactions())
+    auto* pNpc = Cast<TESNPC>(apActor->baseForm);
+    if (!pNpc)
+        return false;
+
+    const auto& factions = pNpc->actorData.factions;
+    const auto& ids = GetAlertedHostileFactionIds();
+
+    for (uint32_t i = 0; i < factions.length; ++i)
     {
-        if (apActor->IsInFaction(pFaction))
+        const auto* pFaction = factions[i].faction;
+        if (!pFaction)
+            continue;
+
+        if (std::binary_search(ids.begin(), ids.end(), pFaction->formID))
             return true;
     }
-    return false;
-}
-
-bool IsAlertedHostileFaction(TESForm* apForm)
-{
-    if (auto* pActor = Cast<Actor>(apForm))
-        return IsAlertedHostileFaction(pActor);
     return false;
 }
 }
