@@ -13,7 +13,7 @@ constexpr uint32_t kDefaultFactionId = 0x1BCC0u;
 
 std::vector<uint32_t> LoadFormIds()
 {
-    std::vector<uint32_t> result{kDefaultFactionId};
+    std::vector<uint32_t> result;
 
     std::ifstream file(kConfigPath);
     if (!file.is_open())
@@ -74,7 +74,7 @@ bool IsAlertedHostileFaction(const Actor* apActor) noexcept
         if (!pFaction)
             continue;
 
-        if (pFaction->formID == kDefaultFactionId)
+        if (std::binary_search(ids.begin(), ids.end(), pFaction->formID))
             return true;
     }
     return false;
