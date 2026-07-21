@@ -38,15 +38,26 @@ std::vector<uint32_t> LoadFormIds()
         {
             {
                 std::ofstream defaults(kConfigPath);
-                defaults << R"(; Humanoid base-NPC faction form IDs (hex) whose Aggression=1 actors wake into combat search early.
-; Actors with Aggression >= 2 wake regardless of faction.
-; Use humanoid factions only; creature factions are not the intended use case.
+                defaults << R"(; ; Humanoid base-NPC faction form IDs (hex) whose Aggression=1 actors wake into combat search early.
+; Actors with Aggression >= 2 wake regardless of faction. Use humanoid factions only; not creatures.
 ; One faction per line, format: 0x<formID>=
 ;   0x1BCC0= ; BanditFaction
+;   0x1E2A3= ; BanditMages
 ;   0x43599= ; ForswornFaction
-; Delete all entries below to disable Aggression=1 faction waking.
+;   0x26724= ; WarlockFaction
+;   0x34B74= ; NecromancerFaction
+;   0x28849= ; StormCloaks
+;   0x2BF9A= ; ImperialLegion
+;   0x39F26= ; Thalmor
+;   0xB3292= ; VigilantsOfStendarr
+; Delete all entries below to disable Aggression=1 faction waking. Friendly factions are testable.
+; Adding friendly factions to this list will make them suspicious, like when entering their towns.
 [AlertedHostileFactions]
 0x1BCC0=
+0x1E2A3=
+0x43599=
+0x26724=
+0x34B74=
 )";
             }
         }
