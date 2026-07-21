@@ -44,7 +44,10 @@ std::vector<uint32_t> LoadFormIds()
         file.clear();
         file.open(kConfigPath);
         if (!file.is_open())
+        {
+            spdlog::warn("Alerted hostile factions: failed to open {}", kConfigPath);
             return result;
+        }
     }
 
     std::string line;
@@ -68,6 +71,7 @@ std::vector<uint32_t> LoadFormIds()
 
     std::sort(result.begin(), result.end());
     result.erase(std::unique(result.begin(), result.end()), result.end());
+    spdlog::info("Alerted hostile factions: loaded {} entries from {}", result.size(), kConfigPath);
     return result;
 }
 }

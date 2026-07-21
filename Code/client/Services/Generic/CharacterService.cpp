@@ -72,12 +72,29 @@ namespace
 {
 bool ShouldWakeAtLocalization(Actor* apActor, Actor* apPlayer) noexcept
 {
-    if (!apPlayer || apActor->GetCombatTarget() == apPlayer)
-        return false;
-
     const float aggression = apActor->GetActorValue(ActorValueInfo::kAggression);
-    return aggression >= 2.0f
-        || (aggression >= 1.0f && apActor->IsAlertedHostileFaction());
+    const bool factionMatched = aggression >= 1.0f && apActor->IsAlertedHostileFaction();
+    auto* pCurrentTarget = apActor->GetCombatTarget();
+    const bool shouldWake = apPlayer != nullptr
+        && pCurrentTarget != apPlayer
+        && (aggression >= 2.0f || factionMatched);
+
+    spdlog::info("Localization wake: actor {:X}, aggression {}, faction match {}, target {:X}, wake {}",
+        apActor->formID, aggression, factionMatched,
+        pCurrentTarget ? pCurrentTarget->formID : 0, shouldWake);
+    return shouldWake;
+}
+
+void WakeAtLocalization(Actor* apActor, Actor* apPlayer) noexcept
+{
+    const bool wasWeaponDrawn = apActor->actorState.IsWeaponDrawn();
+    apActor->StartCombat(apPlayer);
+    const auto* pCombatTarget = apActor->GetCombatTarget();
+    apActor->SetWeaponDrawnEx(true);
+
+    spdlog::info("Localization wake issued: actor {:X}, target {:X}, weapon drawn {} -> {}",
+        apActor->formID, pCombatTarget ? pCombatTarget->formID : 0,
+        wasWeaponDrawn, apActor->actorState.IsWeaponDrawn());
 }
 }
 
@@ -169,10 +186,7 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
     DeleteRemoteEntityComponents(acEntity);
 
     if (auto* pPlayer = PlayerCharacter::Get(); ShouldWakeAtLocalization(pActor, pPlayer))
-    {
-        pActor->StartCombat(pPlayer);
-        pActor->SetWeaponDrawnEx(true);
-    }
+        WakeAtLocalization(pActor, pPlayer);
 
     RequestOwnershipClaim request;
     request.ServerId = acServerId;
@@ -364,10 +378,7 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
         pActor->GetExtension()->SetRemote(false);
 
         if (auto* pPlayer = PlayerCharacter::Get(); ShouldWakeAtLocalization(pActor, pPlayer))
-        {
-            pActor->StartCombat(pPlayer);
-            pActor->SetWeaponDrawnEx(true);
-        }
+            WakeAtLocalization(pActor, pPlayer);
 
         auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(cEntity);
         localizedState.LocalizedTick = m_world.GetTick();
