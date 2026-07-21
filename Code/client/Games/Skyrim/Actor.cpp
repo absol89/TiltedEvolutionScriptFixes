@@ -1323,10 +1323,10 @@ void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
                 auto& world = World::Get();
                 auto view = world.view<FormIdComponent, LocalizedActorState>();
                 const auto it = std::find_if(std::begin(view), std::end(view),
-                    [id = pOwner->formID, view](entt::entity e) { return view.get<FormIdComponent>(e).Id == id; });
+                    [&view, formId = pOwner->formID](entt::entity e) { return view.get<FormIdComponent>(e).Id == formId; });
                 if (it != std::end(view) && !world.get<LocalizedActorState>(*it).EngagedFromDetection)
                 {
-                    const auto aggression = pOwnerActor->GetActorValue(ActorValueInfo::kAggression);
+                    const float aggression = pOwnerActor->GetActorValue(ActorValueInfo::kAggression);
                     if (aggression >= 2.0f
                         || (aggression >= 1.0f && AlertedHostileFactions::IsAlertedHostileFaction(pOwnerActor)))
                     {
