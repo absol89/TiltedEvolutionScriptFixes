@@ -2,19 +2,30 @@
 
 #include <spdlog/spdlog.h>
 #include <fstream>
+#include <filesystem>
 
-#include <Forms/TESActorBase.h>
+#include <base/simpleini/SimpleIni.h>
+
+#include <Forms/TESNPC.h>
 #include <Forms/TESFaction.h>
+#include <Forms/ActorValueInfo.h>
+#include <Components/FormIdComponent.h>
 
-TP_THIS_FUNCTION(static bool, IsKnownHostileHumanoidFaction, TESNPC*, TESFaction*);
-
+TP_THIS_FUNCTION(TIsKnownHostileHumanoidFaction, bool, TESNPC*, TESFaction*);
 static TIsKnownHostileHumanoidFaction* RealIsKnownHostileHumanoidFaction = nullptr;
 
 namespace
 {
+std::filesystem::path GetAppDataPath()
+{
+    if (const char* pPath = std::getenv("APPDATA"))
+        return pPath;
+    return std::filesystem::current_path();
+}
+
 void EnsureDefaultIniExists()
 {
-    const std::filesystem::path iniPath = TiltedPhoques::GetAppDataPath() / "AlertedHostileFactions.ini";
+    const std::filesystem::path iniPath = GetAppDataPath() / "AlertedHostileFactions.ini";
     if (!std::filesystem::exists(iniPath))
     {
         std::ofstream file(iniPath);
@@ -37,7 +48,7 @@ std::vector<TESFaction*> LoadAlertedFactions()
     std::vector<TESFaction*> factions;
     CSimpleIniTempl<char, SI_NoCase<char>, SI_ConvertA<char>> ini;
     ini.SetUnicode();
-    ini.LoadFile((TiltedPhoques::GetAppDataPath() / "AlertedHostileFactions.ini").string().c_str());
+    ini.LoadFile((GetAppDataPath() / "AlertedHostileFactions.ini").string().c_str());
 
     const char* pszSection = "AlertedHostileFactions";
     CSimpleIniTempl<char, SI_NoCase<char>, SI_ConvertA<char>>::TNamesDepend sectionKeys;
@@ -63,14 +74,14 @@ std::vector<TESFaction*> GetAlertedFactions()
     return factions;
 }
 
-bool IsAlertedHostileFaction(TESActorBase* apActorBase)
+bool IsAlertedHostileFaction(Actor* apActor)
 {
-    if (!apActorBase)
+    if (!apActor)
         return false;
 
     for (auto* pFaction : GetAlertedFactions())
     {
-        if (apActorBase->IsInFaction(pFaction))
+        if (apActor->IsInFaction(pFaction))
             return true;
     }
     return false;
@@ -78,8 +89,8 @@ bool IsAlertedHostileFaction(TESActorBase* apActorBase)
 
 bool IsAlertedHostileFaction(TESForm* apForm)
 {
-    if (auto* pActorBase = Cast<TESActorBase>(apForm))
-        return IsAlertedHostileFaction(pActorBase);
+    if (auto* pActor = Cast<Actor>(apForm))
+        return IsAlertedHostileFaction(pActor);
     return false;
 }
 }
