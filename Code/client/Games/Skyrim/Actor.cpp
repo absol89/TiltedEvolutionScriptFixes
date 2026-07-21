@@ -263,9 +263,9 @@ void Actor::SetWeaponDrawnEx(bool aDraw) noexcept
 {
     spdlog::debug("Setting weapon drawn: {:X}:{}, current state: {}", formID, aDraw, actorState.IsWeaponDrawn());
 
-    if (actorState.IsWeaponDrawn() == aDraw)
+    if (actorState.IsWeaponDrawn() != aDraw)
     {
-        actorState.SetWeaponDrawn(!aDraw);
+        actorState.SetWeaponDrawn(aDraw);
 
         spdlog::debug("Setting weapon drawn after update: {:X}:{}, current state: {}", formID, aDraw, actorState.IsWeaponDrawn());
     }

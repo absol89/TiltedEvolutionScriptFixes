@@ -163,6 +163,7 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
     if (wakeAggressive)
     {
         pActor->StartCombat(pPlayer);
+        pActor->SetWeaponDrawnEx(true);
     }
 
     // Issue #810: start a fresh reconcile grace window for this (re)localized NPC,
@@ -386,6 +387,7 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
         if (wakeAggressive)
         {
             pActor->StartCombat(pPlayer);
+            pActor->SetWeaponDrawnEx(true);
         }
 
         // Issue #810: fresh reconcile grace window for this (re)localized NPC.
