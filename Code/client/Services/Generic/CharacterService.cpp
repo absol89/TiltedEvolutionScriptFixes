@@ -15,6 +15,7 @@
 
 #include <BranchInfo.h>
 #include <Components.h>
+#include <Components/LocalizedActorState.h>
 
 #include <Systems/InterpolationSystem.h>
 #include <Systems/AnimationSystem.h>
@@ -66,6 +67,32 @@
 
 #include <World.h>
 #include <Games/TES.h>
+
+namespace
+{
+bool ShouldWakeAtLocalization(Actor* apActor, Actor* apPlayer) noexcept
+{
+    const float aggression = apActor->GetActorValue(ActorValueInfo::kAggression);
+    const bool factionMatched = aggression >= 1.0f && apActor->IsAlertedHostileFaction();
+    auto* pCurrentTarget = apActor->GetCombatTarget();
+    const bool shouldWake = apPlayer != nullptr && pCurrentTarget != apPlayer && (aggression >= 2.0f || factionMatched);
+
+    spdlog::info("Localization wake: actor {:X}, aggression {}, faction match {}, target {:X}, wake {}",
+        apActor->formID, aggression, factionMatched, pCurrentTarget ? pCurrentTarget->formID : 0, shouldWake);
+    return shouldWake;
+}
+
+void WakeAtLocalization(Actor* apActor, Actor* apPlayer) noexcept
+{
+    const bool wasWeaponDrawn = apActor->actorState.IsWeaponDrawn();
+    apActor->StartCombat(apPlayer);
+    const auto* pCombatTarget = apActor->GetCombatTarget();
+    apActor->SetWeaponDrawnEx(true);
+
+    spdlog::info("Localization wake issued: actor {:X}, target {:X}, weapon drawn {} -> {}",
+        apActor->formID, pCombatTarget ? pCombatTarget->formID : 0, wasWeaponDrawn, apActor->actorState.IsWeaponDrawn());
+}
+}
 
 CharacterService::CharacterService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
     : m_world(aWorld)
@@ -143,12 +170,19 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
 
     pExtension->SetRemote(false);
 
+    auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(acEntity);
+    localizedState.LocalizedTick = m_world.GetTick();
+    localizedState.BroadcastedResetActions = 0;
+
     // TODO(cosideci): this should be done differently.
     // Send an ownership claim request, and have the server broadcast the result.
     // Only then should components be added or removed.
     m_world.emplace_or_replace<LocalComponent>(acEntity, acServerId);
     m_world.emplace_or_replace<LocalAnimationComponent>(acEntity);
     DeleteRemoteEntityComponents(acEntity);
+
+    if (auto* pPlayer = PlayerCharacter::Get(); ShouldWakeAtLocalization(pActor, pPlayer))
+        WakeAtLocalization(pActor, pPlayer);
 
     RequestOwnershipClaim request;
     request.ServerId = acServerId;
@@ -279,7 +313,12 @@ void CharacterService::OnDisconnected(const DisconnectedEvent& acDisconnectedEve
         if (pActor->GetExtension()->IsRemotePlayer())
             pActor->Delete();
         else
+        {
             pActor->GetExtension()->SetRemote(false);
+            auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(entity);
+            localizedState.LocalizedTick = m_world.GetTick();
+            localizedState.BroadcastedResetActions = 0;
+        }
     }
 
     m_world.clear<WaitingForAssignmentComponent, LocalComponent, RemoteComponent>();
@@ -333,6 +372,13 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
         auto& localAnimationComponent = m_world.emplace_or_replace<LocalAnimationComponent>(cEntity);
 
         pActor->GetExtension()->SetRemote(false);
+
+        if (auto* pPlayer = PlayerCharacter::Get(); ShouldWakeAtLocalization(pActor, pPlayer))
+            WakeAtLocalization(pActor, pPlayer);
+
+        auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(cEntity);
+        localizedState.LocalizedTick = m_world.GetTick();
+        localizedState.BroadcastedResetActions = 0;
 
         if (auto* pEarlyAnimComponent = m_world.try_get<EarlyAnimationBufferComponent>(cEntity))
         {
@@ -1318,6 +1364,9 @@ void CharacterService::CancelServerAssignment(const entt::entity aEntity, const 
             else
             {
                 pActor->GetExtension()->SetRemote(false);
+                auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(aEntity);
+                localizedState.LocalizedTick = m_world.GetTick();
+                localizedState.BroadcastedResetActions = 0;
             }
         }
 
