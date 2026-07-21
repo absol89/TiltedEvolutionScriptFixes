@@ -2,6 +2,7 @@
 #include <Games/Skyrim/EquipManager.h>
 #include <AI/AIProcess.h>
 #include <Misc/MiddleProcess.h>
+#include <Games/Skyrim/AlertedHostileFactions.h>
 #include <Misc/GameVM.h>
 #include <DefaultObjectManager.h>
 #include <Forms/TESNPC.h>
@@ -1260,6 +1261,91 @@ bool TP_MAKE_THISCALL(HookIsFleeing, Actor)
     return TiltedPhoques::ThisCall(RealIsFleeing, apThis);
 }
 
+// Issue #810: a local NPC whose ownership was transferred has no valid
+// combat-target handle to a player, so it follows on detection but never
+// draws/attacks/chases. The detection hook only runs when the engine is already
+// evaluating this NPC vs that target (the "this NPC noticed you" moment), so
+// engaging here mirrors vanilla's own trigger -- we hook the engine's REAL
+// detection result, not a poll.
+//
+// Ownership direction: when the leader leaves, the NPC's AI localizes on the
+// OTHER player's machine. There the NPC is a local actor and the discovered
+// player is the LOCAL player -- NOT remote. So we accept a detected target
+// that is EITHER the local or a remote player.
+//
+// Gate: only engage NPCs that are aggressive by nature (aggression>=2) OR
+// aggression>=1 members of an alerted hostile faction. This avoids the old
+// Embershard cave false-aggro and keeps aggression-0 / predators / city NPCs
+// untouched.
+//
+// We do NOT StopCombat afterwards: the NPC must STAY in combat with the present
+// player. A StopCombat would stand a handed-off peaceful bandit back down (the
+// observed "never hostile" regression). Already-in-combat actors are skipped
+// (IsInCombat), because vanilla re-acquires the remaining player on its own when
+// the leader leaves mid-fight -- we must not re-kick them.
+//
+// One-shot: fire StartCombat exactly ONCE per actor (EngagedFromDetection).
+// StartCombat sets a combat target; a GetCombatTarget() check alone re-qualifies
+// on the next detection eval and produces a draw/sheathe loop -- especially when a
+// contested NPC's ownership bounces between two nearby players. After the single
+// engage we hand all further combat/sheathe control back to the engine.
+//
+// The latch lives on the LocalizedActorState ECS component, resolved from the
+// owner's form id.
+TP_THIS_FUNCTION(TUpdateDetectionState, void, ActorKnowledge, void*);
+static TUpdateDetectionState* RealUpdateDetectionState = nullptr;
+
+void TP_MAKE_THISCALL(HookUpdateDetectionState, ActorKnowledge, void* apState)
+{
+    auto pOwner = TESObjectREFR::GetByHandle(apThis->hOwner);
+    auto pTarget = TESObjectREFR::GetByHandle(apThis->hTarget);
+
+    if (pOwner && pTarget)
+    {
+        auto pOwnerActor = Cast<Actor>(pOwner);
+        auto pTargetActor = Cast<Actor>(pTarget);
+        if (pOwnerActor && pTargetActor)
+        {
+            if (pOwnerActor->GetExtension()->IsRemotePlayer() && pTargetActor->GetExtension()->IsLocalPlayer())
+            {
+                spdlog::debug("Cancelling detection from remote player to local player, owner: {:X}, target: {:X}",
+                              pOwner->formID, pTarget->formID);
+                return;
+            }
+
+            auto* pOwnerEx = pOwnerActor->GetExtension();
+            const auto* pTargetEx = pTargetActor->GetExtension();
+            if (pOwnerEx->IsLocal() && !pOwnerEx->IsPlayer()
+                && (pTargetEx->IsLocalPlayer() || pTargetEx->IsRemotePlayer())
+                && !pOwnerActor->IsInCombat())
+            {
+                auto& world = World::Get();
+                auto view = world.view<FormIdComponent, LocalizedActorState>();
+                const auto it = std::find_if(std::begin(view), std::end(view),
+                    [id = pOwner->formID, view](entt::entity e) { return view.get<FormIdComponent>(e).Id == id; });
+                if (it != std::end(view) && !world.get<LocalizedActorState>(*it).EngagedFromDetection)
+                {
+                    const auto aggression = pOwnerActor->GetActorValue(ActorValueInfo::kAggression);
+                    if (aggression >= 2.0f
+                        || (aggression >= 1.0f && AlertedHostileFactions::IsAlertedHostileFaction(pOwnerActor)))
+                    {
+                        if (pOwnerActor->GetCombatTarget() != pTargetActor)
+                        {
+                            spdlog::info(
+                                "Combat started (detection): local NPC {:X} -> player {:X} (remote={})",
+                                pOwner->formID, pTarget->formID, pTargetEx->IsRemotePlayer());
+                            pOwnerActor->StartCombat(pTargetActor);
+                            world.get<LocalizedActorState>(*it).EngagedFromDetection = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return TiltedPhoques::ThisCall(RealUpdateDetectionState, apThis, apState);
+}
+
 static TiltedPhoques::Initializer s_actorHooks(
     []()
     {
@@ -1284,8 +1370,11 @@ static TiltedPhoques::Initializer s_actorHooks(
         POINTER_SKYRIMSE(TSpeakSoundFunction, s_speakSoundFunction, 37542);
         POINTER_SKYRIMSE(TAddDeathItems, addDeathItems, 37198);
         POINTER_SKYRIMSE(TIsFleeing, isFleeing, 37577);
+        POINTER_SKYRIMSE(TUpdateDetectionState, updateDetectionState, 37384);
 
         RealActorProcess = s_actorProcess.Get();
+        RealIsFleeing = isFleeing.Get();
+        RealUpdateDetectionState = updateDetectionState.Get();
         RealSetPosition = s_setPosition.Get();
         RealRemoveSpell = s_removeSpell.Get();
         FUNC_GetActorLocation = s_GetActorLocation.Get();
