@@ -22,16 +22,23 @@ static TPerformAction* RealPerformAction;
 // TODO: make scoped override
 thread_local bool g_forceAnimation = false;
 
-// Issue #810: action names treated as reset/stance transitions during the post-localize grace window.
-static bool IsResetAction(const TiltedPhoques::String& aEventName) noexcept
+static uint8_t GetResetActionBit(const TiltedPhoques::String& aEventName) noexcept
 {
-    return aEventName == "Unequip"
-        || aEventName == "combatStanceStop"
-        || aEventName == "combatStanceGo"
-        || aEventName == "Sheathe"
-        || aEventName == "Draw"
-        || aEventName == "DrawEnd"
-        || aEventName == "Idle";
+    if (aEventName == "Unequip")
+        return 1 << 0;
+    if (aEventName == "combatStanceStop")
+        return 1 << 1;
+    if (aEventName == "combatStanceGo")
+        return 1 << 2;
+    if (aEventName == "Sheathe")
+        return 1 << 3;
+    if (aEventName == "Draw")
+        return 1 << 4;
+    if (aEventName == "DrawEnd")
+        return 1 << 5;
+    if (aEventName == "Idle")
+        return 1 << 6;
+    return 0;
 }
 
 uint8_t TP_MAKE_THISCALL(HookPerformAction, ActorMediator, TESActionData* apAction)
@@ -70,12 +77,6 @@ uint8_t TP_MAKE_THISCALL(HookPerformAction, ActorMediator, TESActionData* apActi
             pExtension->LatestAnimation = action;
         }
 
-        // Issue #810: after localization the engine replays a burst of reset/stance actions.
-        // The engine action always runs locally (line 55), so only the NETWORK BROADCAST is
-        // collapsed here -- each distinct reset action is forwarded at most once during the
-        // grace window, giving the server one clean transition instead of a stuck spam loop.
-        // Player and remote actors are unaffected. State lives on the LocalizedActorState ECS
-        // component (not ActorExtension); resolve the entity from the actor's form id.
         if (!pExtension->IsPlayer())
         {
             auto& world = World::Get();
@@ -90,37 +91,19 @@ uint8_t TP_MAKE_THISCALL(HookPerformAction, ActorMediator, TESActionData* apActi
                     const auto sinceLocalized = world.GetTick() - pState->LocalizedTick;
                     if (sinceLocalized < LocalizedActorState::kAnimReconcileGraceTicks)
                     {
-                        bool shouldBroadcast = true;
-                        if (action.EventName == "Unequip")
+                        const uint8_t actionBit = GetResetActionBit(action.EventName);
+                        if (actionBit != 0)
                         {
-                            shouldBroadcast = !pState->BroadcastedUnequip;
-                            pState->BroadcastedUnequip = true;
-                        }
-                        else if (action.EventName == "combatStanceStop")
-                        {
-                            shouldBroadcast = !pState->BroadcastedCombatStanceStop;
-                            pState->BroadcastedCombatStanceStop = true;
-                        }
-                        else if (IsResetAction(action.EventName))
-                        {
-                            // Other reset/stance actions (combatStanceGo/Sheathe/Draw/DrawEnd/Idle):
-                            // forward the first occurrence too, but don't spam the rest of the burst.
-                            shouldBroadcast = pState->BroadcastedUnequip == false && pState->BroadcastedCombatStanceStop == false;
-                        }
+                            if ((pState->BroadcastedResetActions & actionBit) != 0)
+                                return res;
 
-                        if (!shouldBroadcast)
-                        {
-                            spdlog::info("Anim guard: de-duplicated broadcast of reset action \"{}\" on {:X} ({} ticks since localize)",
-                                         action.EventName, pActor->formID, sinceLocalized);
-                            return res;
+                            pState->BroadcastedResetActions |= actionBit;
                         }
                     }
                     else
                     {
-                        // Grace window expired: reset dedupe state and stop collapsing for this actor.
                         pState->LocalizedTick = 0;
-                        pState->BroadcastedUnequip = false;
-                        pState->BroadcastedCombatStanceStop = false;
+                        pState->BroadcastedResetActions = 0;
                     }
                 }
             }

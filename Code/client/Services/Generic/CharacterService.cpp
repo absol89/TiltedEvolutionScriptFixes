@@ -68,6 +68,19 @@
 #include <World.h>
 #include <Games/TES.h>
 
+namespace
+{
+bool ShouldWakeAtLocalization(Actor* apActor, Actor* apPlayer) noexcept
+{
+    if (!apPlayer || apActor->GetCombatTarget() == apPlayer)
+        return false;
+
+    const float aggression = apActor->GetActorValue(ActorValueInfo::kAggression);
+    return aggression >= 2.0f
+        || (aggression >= 1.0f && apActor->IsAlertedHostileFaction());
+}
+}
+
 CharacterService::CharacterService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
     : m_world(aWorld)
     , m_dispatcher(aDispatcher)
@@ -144,36 +157,9 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
 
     pExtension->SetRemote(false);
 
-    // Issue #810: a freshly (re)localized NPC arrives with inert behavior/animation state
-    // from its remote lifetime and cannot transition to move/draw on a threat. Kick it into
-    // combat against the present player ONCE at localization to wake the behavior graph --
-    // this replaces the old per-tick detection hook. We engage any aggressive NPC that is NOT
-    // already fighting the present player: a peaceful NPC (no combat target) or one still
-    // targeting the departed leader (dangling handle) both qualify; one already fighting the
-    // present player is left alone.
-    // Aggression gate: aggression>=2 (attack-on-sight) OR an aggression>=1 member of the
-    // player-hostile humanoid faction (Bandit). Aggression-0 (Paarthurnax, civilians) and
-    // predators are never woken.
-    Actor* pPlayer = PlayerCharacter::Get();
-    const bool wakeAggressive = pPlayer != nullptr
-        && pActor->GetCombatTarget() != pPlayer
-        && (pActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f
-            || (pActor->GetActorValue(ActorValueInfo::kAggression) >= 1.0f
-                && pActor->IsKnownHostileHumanoidFaction()));
-    if (wakeAggressive)
-    {
-        pActor->StartCombat(pPlayer);
-        pActor->SetWeaponDrawnEx(true);
-    }
-
-    // Issue #810: start a fresh reconcile grace window for this (re)localized NPC,
-    // stored as a LocalizedActorState component on the ECS entity.
     auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(acEntity);
     localizedState.LocalizedTick = m_world.GetTick();
-    localizedState.BroadcastedUnequip = false;
-    localizedState.BroadcastedCombatStanceStop = false;
-    spdlog::info("TakeOwnership: actor {:X} server {:X} became local (anim reconcile tick {:X})",
-                 acFormId, acServerId, localizedState.LocalizedTick);
+    localizedState.BroadcastedResetActions = 0;
 
     // TODO(cosideci): this should be done differently.
     // Send an ownership claim request, and have the server broadcast the result.
@@ -181,6 +167,12 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
     m_world.emplace_or_replace<LocalComponent>(acEntity, acServerId);
     m_world.emplace_or_replace<LocalAnimationComponent>(acEntity);
     DeleteRemoteEntityComponents(acEntity);
+
+    if (auto* pPlayer = PlayerCharacter::Get(); ShouldWakeAtLocalization(pActor, pPlayer))
+    {
+        pActor->StartCombat(pPlayer);
+        pActor->SetWeaponDrawnEx(true);
+    }
 
     RequestOwnershipClaim request;
     request.ServerId = acServerId;
@@ -313,11 +305,9 @@ void CharacterService::OnDisconnected(const DisconnectedEvent& acDisconnectedEve
         else
         {
             pActor->GetExtension()->SetRemote(false);
-            // Issue #810: fresh reconcile grace window for this (re)localized NPC.
             auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(entity);
             localizedState.LocalizedTick = m_world.GetTick();
-            localizedState.BroadcastedUnequip = false;
-            localizedState.BroadcastedCombatStanceStop = false;
+            localizedState.BroadcastedResetActions = 0;
         }
     }
 
@@ -373,28 +363,15 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
 
         pActor->GetExtension()->SetRemote(false);
 
-        // Issue #810: kick the (re)localized NPC into combat against the present player ONCE
-        // (see TakeOwnership for the full rationale). Engage any aggressive NPC that is NOT
-        // already fighting the present player -- peaceful, or still targeting the departed
-        // leader. Already fighting the present player is left alone. No detection hook: the
-        // single localization kick replaces it.
-        Actor* pPlayer = PlayerCharacter::Get();
-        const bool wakeAggressive = pPlayer != nullptr
-            && pActor->GetCombatTarget() != pPlayer
-            && (pActor->GetActorValue(ActorValueInfo::kAggression) >= 2.0f
-                || (pActor->GetActorValue(ActorValueInfo::kAggression) >= 1.0f
-                    && pActor->IsKnownHostileHumanoidFaction()));
-        if (wakeAggressive)
+        if (auto* pPlayer = PlayerCharacter::Get(); ShouldWakeAtLocalization(pActor, pPlayer))
         {
             pActor->StartCombat(pPlayer);
             pActor->SetWeaponDrawnEx(true);
         }
 
-        // Issue #810: fresh reconcile grace window for this (re)localized NPC.
         auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(cEntity);
         localizedState.LocalizedTick = m_world.GetTick();
-        localizedState.BroadcastedUnequip = false;
-        localizedState.BroadcastedCombatStanceStop = false;
+        localizedState.BroadcastedResetActions = 0;
 
         if (auto* pEarlyAnimComponent = m_world.try_get<EarlyAnimationBufferComponent>(cEntity))
         {
@@ -1380,11 +1357,9 @@ void CharacterService::CancelServerAssignment(const entt::entity aEntity, const 
             else
             {
                 pActor->GetExtension()->SetRemote(false);
-                // Issue #810: fresh reconcile grace window for this (re)localized NPC.
                 auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(aEntity);
                 localizedState.LocalizedTick = m_world.GetTick();
-                localizedState.BroadcastedUnequip = false;
-                localizedState.BroadcastedCombatStanceStop = false;
+                localizedState.BroadcastedResetActions = 0;
             }
         }
 

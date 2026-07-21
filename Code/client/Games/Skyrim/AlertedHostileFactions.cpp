@@ -1,6 +1,7 @@
 #include "AlertedHostileFactions.h"
 
 #include <algorithm>
+#include <charconv>
 #include <fstream>
 #include <string_view>
 
@@ -11,7 +12,6 @@
 namespace
 {
 constexpr char kConfigPath[] = "Data/SkyrimTogetherReborn/config/AlertedHostileFactions.ini";
-constexpr uint32_t kDefaultFactionId = 0x1BCC0u;
 
 std::vector<uint32_t> LoadFormIds()
 {
@@ -24,24 +24,24 @@ std::vector<uint32_t> LoadFormIds()
     std::string line;
     while (std::getline(file, line))
     {
-        const auto trimmed = std::string_view(line.data(), line.size());
-        if (trimmed.empty() || trimmed[0] == ';' || trimmed[0] == '#')
-        {
+        const auto first = line.find_first_not_of(" \t\r");
+        if (first == std::string::npos)
             continue;
-        }
+
+        const auto last = line.find_last_not_of(" \t\r");
+        const auto trimmed = std::string_view(line.data() + first, last - first + 1);
+        if (trimmed.empty() || trimmed[0] == ';' || trimmed[0] == '#')
+            continue;
 
         if (trimmed.starts_with('[') || trimmed.starts_with("0x") == false)
-        {
             continue;
-        }
 
-        unsigned long formId = 0;
+        uint32_t formId = 0;
         const auto* pBegin = trimmed.data() + 2;
         const auto* pEnd = trimmed.data() + trimmed.size();
-        if (std::from_chars(pBegin, pEnd, formId, 16).ec == std::errc{})
-        {
+        const auto [pParsedEnd, error] = std::from_chars(pBegin, pEnd, formId, 16);
+        if (error == std::errc{} && pParsedEnd == pEnd)
             result.push_back(static_cast<uint32_t>(formId));
-        }
     }
 
     std::sort(result.begin(), result.end());
