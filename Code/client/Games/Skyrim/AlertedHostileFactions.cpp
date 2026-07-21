@@ -3,12 +3,13 @@
 #include <fstream>
 #include <string_view>
 
+#include <Forms/TESNPC.h>
 #include <Games/Primitives.h>
 
 namespace
 {
 constexpr char kConfigPath[] = "Data/SkyrimTogetherReborn/config/AlertedHostileFactions.ini";
-constexpr char kDefaultFactionId = 0x1BCC0u;
+constexpr uint32_t kDefaultFactionId = 0x1BCC0u;
 
 std::vector<uint32_t> LoadFormIds()
 {
