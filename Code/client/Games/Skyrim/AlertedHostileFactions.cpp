@@ -1,8 +1,10 @@
 #include "AlertedHostileFactions.h"
 
+#include <algorithm>
 #include <fstream>
 #include <string_view>
 
+#include <Forms/TESFaction.h>
 #include <Forms/TESNPC.h>
 #include <Games/Primitives.h>
 
