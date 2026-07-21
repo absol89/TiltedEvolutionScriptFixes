@@ -39,7 +39,6 @@ std::vector<uint32_t> LoadFormIds()
         if (std::from_chars(pBegin, pEnd, formId, 16).ec == std::errc{})
         {
             result.push_back(static_cast<uint32_t>(formId));
-            break;
         }
     }
 
