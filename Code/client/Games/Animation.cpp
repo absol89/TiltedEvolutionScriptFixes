@@ -13,26 +13,12 @@
 #include <Misc/BSFixedString.h>
 
 #include <World.h>
-#include <Components/FormIdComponent.h>
-#include <Components/LocalizedActorState.h>
 
 TP_THIS_FUNCTION(TPerformAction, uint8_t, ActorMediator, TESActionData* apAction);
 static TPerformAction* RealPerformAction;
 
 // TODO: make scoped override
 thread_local bool g_forceAnimation = false;
-
-static uint8_t GetResetActionBit(const TiltedPhoques::String& aEventName) noexcept
-{
-    if (aEventName == "Unequip") return 1 << 0;
-    if (aEventName == "combatStanceStop") return 1 << 1;
-    if (aEventName == "combatStanceGo") return 1 << 2;
-    if (aEventName == "Sheathe") return 1 << 3;
-    if (aEventName == "Draw") return 1 << 4;
-    if (aEventName == "DrawEnd") return 1 << 5;
-    if (aEventName == "Idle") return 1 << 6;
-    return 0;
-}
 
 uint8_t TP_MAKE_THISCALL(HookPerformAction, ActorMediator, TESActionData* apAction)
 {
@@ -68,38 +54,6 @@ uint8_t TP_MAKE_THISCALL(HookPerformAction, ActorMediator, TESActionData* apActi
         if (res)
         {
             pExtension->LatestAnimation = action;
-        }
-
-        if (!pExtension->IsPlayer())
-        {
-            auto& world = World::Get();
-            auto view = world.view<FormIdComponent>();
-            const auto it = std::find_if(std::begin(view), std::end(view),
-                [id = pActor->formID, view](entt::entity e) { return view.get<FormIdComponent>(e).Id == id; });
-            if (it != std::end(view))
-            {
-                auto* pState = world.try_get<LocalizedActorState>(*it);
-                if (pState && pState->LocalizedTick != 0)
-                {
-                    const auto sinceLocalized = world.GetTick() - pState->LocalizedTick;
-                    if (sinceLocalized < LocalizedActorState::kAnimReconcileGraceTicks)
-                    {
-                        const uint8_t actionBit = GetResetActionBit(action.EventName);
-                        if (actionBit != 0)
-                        {
-                            if ((pState->BroadcastedResetActions & actionBit) != 0)
-                                return res;
-
-                            pState->BroadcastedResetActions |= actionBit;
-                        }
-                    }
-                    else
-                    {
-                        pState->LocalizedTick = 0;
-                        pState->BroadcastedResetActions = 0;
-                    }
-                }
-            }
         }
 
         World::Get().GetRunner().Trigger(action);

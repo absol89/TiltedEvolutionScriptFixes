@@ -37,7 +37,16 @@ std::vector<uint32_t> LoadFormIds()
         {
             {
                 std::ofstream defaults(kConfigPath);
-                defaults << "; Aggression-1 factions to wake after localization.\n0x1BCC0\n";
+                defaults << R"(; Humanoid base-NPC faction form IDs (hex) whose Aggression=1 actors wake into combat search early.
+; Actors with Aggression >= 2 wake regardless of faction.
+; Use humanoid factions only; creature factions are not the intended use case.
+; One faction per line, format: 0x<formID>=
+;   0x1BCC0= ; BanditFaction
+;   0x43599= ; ForswornFaction
+; Delete all entries below to disable Aggression=1 faction waking.
+[AlertedHostileFactions]
+0x1BCC0=
+)";
             }
         }
 

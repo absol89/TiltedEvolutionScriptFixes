@@ -15,7 +15,6 @@
 
 #include <BranchInfo.h>
 #include <Components.h>
-#include <Components/LocalizedActorState.h>
 
 #include <Systems/InterpolationSystem.h>
 #include <Systems/AnimationSystem.h>
@@ -170,10 +169,6 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
 
     pExtension->SetRemote(false);
 
-    auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(acEntity);
-    localizedState.LocalizedTick = m_world.GetTick();
-    localizedState.BroadcastedResetActions = 0;
-
     // TODO(cosideci): this should be done differently.
     // Send an ownership claim request, and have the server broadcast the result.
     // Only then should components be added or removed.
@@ -313,12 +308,7 @@ void CharacterService::OnDisconnected(const DisconnectedEvent& acDisconnectedEve
         if (pActor->GetExtension()->IsRemotePlayer())
             pActor->Delete();
         else
-        {
             pActor->GetExtension()->SetRemote(false);
-            auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(entity);
-            localizedState.LocalizedTick = m_world.GetTick();
-            localizedState.BroadcastedResetActions = 0;
-        }
     }
 
     m_world.clear<WaitingForAssignmentComponent, LocalComponent, RemoteComponent>();
@@ -375,10 +365,6 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
 
         if (auto* pPlayer = PlayerCharacter::Get(); ShouldWakeAtLocalization(pActor, pPlayer))
             WakeAtLocalization(pActor, pPlayer);
-
-        auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(cEntity);
-        localizedState.LocalizedTick = m_world.GetTick();
-        localizedState.BroadcastedResetActions = 0;
 
         if (auto* pEarlyAnimComponent = m_world.try_get<EarlyAnimationBufferComponent>(cEntity))
         {
@@ -1362,12 +1348,7 @@ void CharacterService::CancelServerAssignment(const entt::entity aEntity, const 
                 pActor->Delete();
             }
             else
-            {
                 pActor->GetExtension()->SetRemote(false);
-                auto& localizedState = m_world.emplace_or_replace<LocalizedActorState>(aEntity);
-                localizedState.LocalizedTick = m_world.GetTick();
-                localizedState.BroadcastedResetActions = 0;
-            }
         }
 
         DeleteRemoteEntityComponents(aEntity);
