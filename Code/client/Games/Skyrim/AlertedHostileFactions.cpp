@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <filesystem>
 #include <fstream>
 #include <string_view>
 
@@ -19,7 +20,22 @@ std::vector<uint32_t> LoadFormIds()
 
     std::ifstream file(kConfigPath);
     if (!file.is_open())
-        return result;
+    {
+        std::error_code error;
+        std::filesystem::create_directories(std::filesystem::path(kConfigPath).parent_path(), error);
+        if (!error)
+        {
+            {
+                std::ofstream defaults(kConfigPath);
+                defaults << "; Aggression-1 factions to wake after localization.\n0x1BCC0\n";
+            }
+        }
+
+        file.clear();
+        file.open(kConfigPath);
+        if (!file.is_open())
+            return result;
+    }
 
     std::string line;
     while (std::getline(file, line))

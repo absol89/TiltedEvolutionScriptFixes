@@ -32,8 +32,7 @@ jobs:
         run: |
           mkdir -p str-build/SkyrimTogetherReborn
           mv build/windows/x64/release/* str-build/SkyrimTogetherReborn
-          Get-ChildItem GameFiles/Skyrim -Exclude SkyrimTogetherReborn | Copy-Item -Destination str-build -Recurse
-          Copy-Item GameFiles/Skyrim/SkyrimTogetherReborn/* -Destination str-build/SkyrimTogetherReborn -Recurse -Force
+          cp -r GameFiles/Skyrim/* str-build/
 
       - name: Remove unnecessary build files, keep .pdb
         run: |
