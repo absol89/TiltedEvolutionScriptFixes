@@ -2,6 +2,7 @@
 #include <Games/Skyrim/EquipManager.h>
 #include <AI/AIProcess.h>
 #include <Misc/MiddleProcess.h>
+#include <Games/Skyrim/AlertedHostileFactions.h>
 #include <Misc/GameVM.h>
 #include <DefaultObjectManager.h>
 #include <Forms/TESNPC.h>
@@ -983,6 +984,11 @@ bool Actor::IsDragon() const noexcept
 {
     const ActorExtension* pExtension = const_cast<Actor*>(this)->GetExtension();
     return BehaviorVar::IsDragon(pExtension->GraphDescriptorHash);
+}
+
+bool Actor::IsAlertedHostileFaction() const noexcept
+{
+    return AlertedHostileFactions::IsAlertedHostileFaction(this);
 }
 
 void Actor::Kill() noexcept

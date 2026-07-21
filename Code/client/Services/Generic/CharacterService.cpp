@@ -70,6 +70,32 @@
 #include <World.h>
 #include <Games/TES.h>
 
+namespace
+{
+bool ShouldWakeAtLocalization(Actor* apActor, Actor* apPlayer) noexcept
+{
+    const float aggression = apActor->GetActorValue(ActorValueInfo::kAggression);
+    const bool factionMatched = aggression >= 1.0f && apActor->IsAlertedHostileFaction();
+    auto* pCurrentTarget = apActor->GetCombatTarget();
+    const bool shouldWake = apPlayer != nullptr && pCurrentTarget != apPlayer && (aggression >= 2.0f || factionMatched);
+
+    spdlog::info("Localization wake: actor {:X}, aggression {}, faction match {}, target {:X}, wake {}",
+        apActor->formID, aggression, factionMatched, pCurrentTarget ? pCurrentTarget->formID : 0, shouldWake);
+    return shouldWake;
+}
+
+void WakeAtLocalization(Actor* apActor, Actor* apPlayer) noexcept
+{
+    const bool wasWeaponDrawn = apActor->actorState.IsWeaponDrawn();
+    apActor->StartCombat(apPlayer);
+    const auto* pCombatTarget = apActor->GetCombatTarget();
+    apActor->SetWeaponDrawnEx(true);
+
+    spdlog::info("Localization wake issued: actor {:X}, target {:X}, weapon drawn {} -> {}",
+        apActor->formID, pCombatTarget ? pCombatTarget->formID : 0, wasWeaponDrawn, apActor->actorState.IsWeaponDrawn());
+}
+}
+
 CharacterService::CharacterService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
     : m_world(aWorld)
     , m_dispatcher(aDispatcher)
@@ -234,6 +260,9 @@ bool CharacterService::TakeOwnership(const uint32_t acFormId, const uint32_t acS
     m_world.emplace_or_replace<LocalComponent>(acEntity, acServerId);
     m_world.emplace_or_replace<LocalAnimationComponent>(acEntity);
     DeleteRemoteEntityComponents(acEntity);
+
+    if (auto* pPlayer = PlayerCharacter::Get(); ShouldWakeAtLocalization(pActor, pPlayer))
+        WakeAtLocalization(pActor, pPlayer);
 
     RequestOwnershipClaim request;
     request.ServerId = acServerId;
@@ -446,17 +475,8 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
 
         pActor->GetExtension()->SetRemote(false);
 
-        // Issue #810: start a fresh reconcile grace window for this (re)localized NPC.
-        pActor->GetExtension()->LocalizedTick = m_world.GetTick();
-        pActor->GetExtension()->BroadcastedUnequip = false;
-        pActor->GetExtension()->BroadcastedCombatStanceStop = false;
-
-        // Issue #810 / #741: record whether this NPC arrived combat-ready. Transferred
-        // hostiles (bandits, etc.) arrive with their weapon already drawn (true) from the
-        // previous owner; peaceful NPCs arrive sheathed (false). The detection hook uses
-        // this to engage combat ONLY for already-hostile NPCs, never force-aggro'ing a
-        // friendly NPC that merely happens to detect the player.
-        pActor->GetExtension()->ArrivedHostile = pActor->actorState.IsWeaponDrawn();
+        if (auto* pPlayer = PlayerCharacter::Get(); ShouldWakeAtLocalization(pActor, pPlayer))
+            WakeAtLocalization(pActor, pPlayer);
         if (auto* pEarlyAnimComponent = m_world.try_get<EarlyAnimationBufferComponent>(cEntity))
         {
             for (const auto& action : pEarlyAnimComponent->Actions)
@@ -1569,13 +1589,7 @@ void CharacterService::CancelServerAssignment(const entt::entity aEntity, const 
                 pActor->Delete();
             }
             else
-            {
                 pActor->GetExtension()->SetRemote(false);
-                // Issue #810: start a fresh reconcile grace window for this (re)localized NPC.
-                pActor->GetExtension()->LocalizedTick = m_world.GetTick();
-                pActor->GetExtension()->BroadcastedUnequip = false;
-                pActor->GetExtension()->BroadcastedCombatStanceStop = false;
-            }
         }
 
         DeleteRemoteEntityComponents(aEntity);
