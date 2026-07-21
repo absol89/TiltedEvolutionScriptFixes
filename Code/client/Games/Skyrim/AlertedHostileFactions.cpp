@@ -14,6 +14,16 @@ namespace
 {
 constexpr char kConfigPath[] = "Data/SkyrimTogetherReborn/config/AlertedHostileFactions.ini";
 
+std::string_view Trim(std::string_view aValue)
+{
+    const auto first = aValue.find_first_not_of(" \t\r");
+    if (first == std::string_view::npos)
+        return {};
+
+    const auto last = aValue.find_last_not_of(" \t\r");
+    return aValue.substr(first, last - first + 1);
+}
+
 std::vector<uint32_t> LoadFormIds()
 {
     std::vector<uint32_t> result;
@@ -40,21 +50,17 @@ std::vector<uint32_t> LoadFormIds()
     std::string line;
     while (std::getline(file, line))
     {
-        const auto first = line.find_first_not_of(" \t\r");
-        if (first == std::string::npos)
-            continue;
-
-        const auto last = line.find_last_not_of(" \t\r");
-        const auto trimmed = std::string_view(line.data() + first, last - first + 1);
+        const auto trimmed = Trim(line);
         if (trimmed.empty() || trimmed[0] == ';' || trimmed[0] == '#')
             continue;
 
-        if (trimmed.starts_with('[') || trimmed.starts_with("0x") == false)
+        const auto formIdText = Trim(trimmed.substr(0, trimmed.find('=')));
+        if (formIdText.starts_with('[') || formIdText.starts_with("0x") == false)
             continue;
 
         uint32_t formId = 0;
-        const auto* pBegin = trimmed.data() + 2;
-        const auto* pEnd = trimmed.data() + trimmed.size();
+        const auto* pBegin = formIdText.data() + 2;
+        const auto* pEnd = formIdText.data() + formIdText.size();
         const auto [pParsedEnd, error] = std::from_chars(pBegin, pEnd, formId, 16);
         if (error == std::errc{} && pParsedEnd == pEnd)
             result.push_back(static_cast<uint32_t>(formId));
