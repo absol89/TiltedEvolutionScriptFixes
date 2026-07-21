@@ -8,6 +8,6 @@ namespace AlertedHostileFactions
 std::vector<TESFaction*> GetAlertedFactions();
 
 // True if the actor/world model belongs to a configured alerted hostile faction.
-bool IsAlertedHostileFaction(TESActorBase* apActorBase);
+bool IsAlertedHostileFaction(Actor* apActor);
 bool IsAlertedHostileFaction(TESForm* apForm);
 }
