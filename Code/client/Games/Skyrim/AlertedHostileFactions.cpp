@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string_view>
+#include <vector>
 
 #include <Forms/TESFaction.h>
 #include <Forms/TESNPC.h>
@@ -83,16 +84,16 @@ std::vector<uint32_t> LoadFormIds()
     spdlog::info("Alerted hostile factions: loaded {} entries from {}", result.size(), kConfigPath);
     return result;
 }
-}
 
-namespace AlertedHostileFactions
-{
 const std::vector<uint32_t>& GetAlertedHostileFactionIds() noexcept
 {
     static const std::vector<uint32_t> s_ids = LoadFormIds();
     return s_ids;
 }
+}
 
+namespace AlertedHostileFactions
+{
 bool IsAlertedHostileFaction(const Actor* apActor) noexcept
 {
     if (!apActor)
