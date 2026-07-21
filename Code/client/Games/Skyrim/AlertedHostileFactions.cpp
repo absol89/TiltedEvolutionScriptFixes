@@ -1,92 +1,45 @@
 #include "AlertedHostileFactions.h"
 
-#include <base/simpleini/SimpleIni.h>
-
-#include <algorithm>
-#include <charconv>
-#include <filesystem>
+#include <fstream>
 #include <string_view>
-#include <vector>
 
 #include <Games/Primitives.h>
 
 namespace
 {
-constexpr char kConfigPathName[] = "Data/SkyrimTogetherReborn/config";
-constexpr char kSettingsFileName[] = "AlertedHostileFactions.ini";
-constexpr char kSectionName[] = "AlertedHostileFactions";
+constexpr char kConfigPath[] = "Data/SkyrimTogetherReborn/config/AlertedHostileFactions.ini";
+constexpr char kDefaultFactionId = 0x1BCC0u;
 
-bool TryParseFormId(std::string_view aValue, uint32_t& aOutFormId) noexcept
+std::vector<uint32_t> LoadFormIds()
 {
-    unsigned long formId = 0;
-    const auto* pBegin = aValue.data();
-    const auto* pEnd = pBegin + aValue.size();
-    const auto result = std::from_chars(pBegin, pEnd, formId, 16);
-    if (result.ec != std::errc{} || result.ptr != pEnd)
-        return false;
-    aOutFormId = static_cast<uint32_t>(formId);
-    return true;
-}
+    std::vector<uint32_t> result{kDefaultFactionId};
 
-std::string_view Trim(std::string_view aValue) noexcept
-{
-    constexpr std::string_view whitespace{" \t\r\n"};
-    const auto start = aValue.find_first_not_of(whitespace);
-    if (start == std::string_view::npos)
-        return {};
-    const auto end = aValue.find_last_not_of(whitespace);
-    return aValue.substr(start, end - start + 1);
-}
+    std::ifstream file(kConfigPath);
+    if (!file.is_open())
+        return result;
 
-std::vector<uint32_t> LoadFormIds() noexcept
-{
-    std::vector<uint32_t> result;
-
-    try
+    std::string line;
+    while (std::getline(file, line))
     {
-        const std::filesystem::path path =
-            std::filesystem::current_path() / kConfigPathName / kSettingsFileName;
-
-        std::error_code error{};
-        if (!std::filesystem::exists(path, error))
+        const auto trimmed = std::string_view(line.data(), line.size());
+        if (trimmed.empty() || trimmed[0] == ';' || trimmed[0] == '#')
         {
-            CSimpleIni ini;
-            ini.SetUnicode();
-            ini.SetValue(kSectionName, nullptr, nullptr,
-                         "; Faction form IDs (hex) treated as alerted hostile at aggression 1.\n"
-                         "; Add one per line. 0x1BCC0 = BanditFaction. Delete section to disable.\n"
-                         "0x1BCC0=\n");
-
-            std::string buf;
-            if (ini.Save(buf, true) == SI_Error::SI_OK)
-                TiltedPhoques::SaveFile(path, TiltedPhoques::String(buf));
+            continue;
         }
 
-        if (error || !std::filesystem::exists(path, error))
-            return result;
-
-        std::string content = TiltedPhoques::LoadFile(path);
-        CSimpleIni ini;
-        ini.SetUnicode();
-        if (ini.LoadData(content.c_str()) != SI_Error::SI_OK)
-            return result;
-
-        const auto* pSection = ini.GetSection(kSectionName);
-        if (!pSection)
-            return result;
-
-        for (const auto& entry : *pSection)
+        if (trimmed.starts_with('[') || trimmed.starts_with("0x") == false)
         {
-            if (!entry.first.pItem || !entry.second)
-                continue;
-
-            uint32_t formId = 0;
-            if (TryParseFormId(Trim(entry.second), formId))
-                result.push_back(formId);
+            continue;
         }
-    }
-    catch (...)
-    {
+
+        unsigned long formId = 0;
+        const auto* pBegin = trimmed.data() + 2;
+        const auto* pEnd = trimmed.data() + trimmed.size();
+        if (std::from_chars(pBegin, pEnd, formId, 16).ec == std::errc{})
+        {
+            result.push_back(static_cast<uint32_t>(formId));
+            break;
+        }
     }
 
     std::sort(result.begin(), result.end());
@@ -121,7 +74,7 @@ bool IsAlertedHostileFaction(const Actor* apActor) noexcept
         if (!pFaction)
             continue;
 
-        if (std::binary_search(ids.begin(), ids.end(), pFaction->formID))
+        if (pFaction->formID == kDefaultFactionId)
             return true;
     }
     return false;
