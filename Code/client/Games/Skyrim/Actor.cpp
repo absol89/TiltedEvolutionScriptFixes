@@ -1,6 +1,7 @@
 #include <Games/References.h>
 #include <Games/Skyrim/EquipManager.h>
 #include <AI/AIProcess.h>
+#include <Games/Misc/ActorKnowledge.h>
 #include <Misc/MiddleProcess.h>
 #include <Games/Skyrim/AlertedHostileFactions.h>
 #include <Misc/GameVM.h>
