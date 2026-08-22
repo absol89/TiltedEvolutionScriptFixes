@@ -731,7 +731,38 @@ void CharacterService::ApplyActorData(const entt::entity acEntity, const ActorDa
         const auto& incoming = acActorData.InitialInventory;
         const bool isDestructiveNaked = incoming.IsFullyNaked() && pInventoryComponent->Content.HasWornItems() && !acActorData.IsDead;
         if (!isDestructiveNaked)
+        {
             pInventoryComponent->Content = incoming;
+
+            // Normalize duplicate BaseId entries (issue #5): ownership fights used to
+            // commit stacked outfit copies into authoritative Content, where nothing
+            // ever merged them again. Collapse same-BaseId runs here so a bad snapshot
+            // cannot persist; worn entries keep the first copy, non-worn counts sum.
+            auto& entries = pInventoryComponent->Content.Entries;
+            for (size_t i = 0; i < entries.size(); ++i)
+            {
+                if (entries[i].Count == 0)
+                    continue;
+
+                for (size_t j = i + 1; j < entries.size();)
+                {
+                    if (entries[j].BaseId != entries[i].BaseId || entries[j].Count == 0)
+                    {
+                        ++j;
+                        continue;
+                    }
+
+                    // Worn items: one physical copy per actor -- drop extras entirely.
+                    if (entries[i].IsWorn() || entries[j].IsWorn())
+                        entries.erase(entries.begin() + j);
+                    else
+                    {
+                        entries[i].Count += entries[j].Count;
+                        entries.erase(entries.begin() + j);
+                    }
+                }
+            }
+        }
     }
 
     auto* pCharacterComponent = m_world.try_get<CharacterComponent>(acEntity);
