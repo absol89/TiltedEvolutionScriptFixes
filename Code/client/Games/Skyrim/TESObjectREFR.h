@@ -175,6 +175,11 @@ struct TESObjectREFR : TESForm
 
     void SaveAnimationVariables(AnimationVariables& aWriter) const noexcept;
     void LoadAnimationVariables(const AnimationVariables& aReader) const noexcept;
+
+    // Issue #6/#810: clear every descriptor-synced boolean in the behavior graph so a
+    // freshly localized NPC's tree doesn't resume inside the departed owner's stale
+    // sheathed/motion-driven branch. Call before the localization wake.
+    void ResetSyncedBooleanVariables() const noexcept;
     uint32_t GetAnimationVariableInt(BSFixedString* apVariableName) noexcept;
 
     void RemoveAllItems() noexcept;

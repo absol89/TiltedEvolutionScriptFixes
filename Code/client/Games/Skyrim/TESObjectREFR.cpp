@@ -26,6 +26,7 @@
 #include <DefaultObjectManager.h>
 #include <BSAnimationGraphManager.h>
 #include <Havok/BShkbAnimationGraph.h>
+#include <Havok/BShkbHkxDB.h>
 #include <Havok/hkbBehaviorGraph.h>
 #include <Havok/hkbVariableValueSet.h>
 #include <Havok/hkbStateMachine.h>
@@ -291,6 +292,102 @@ void TESObjectREFR::LoadAnimationVariables(const AnimationVariables& aVariables)
 
         pManager->Release();
     }
+}
+
+void TESObjectREFR::ResetSyncedBooleanVariables() const noexcept
+{
+    // Issue #6/#810 root cause: when an NPC localizes on a client, its behavior graph
+    // still carries the DEPARTED owner's last-synced drive booleans -- notably
+    // bAnimationDriven / bMotionDriven. With those stuck, the behavior tree resumes
+    // inside the sheathed/motion-driven branch and never transitions out even after
+    // StartCombat, so the NPC charges unarmed. Clearing the drive flags hands the tree
+    // a neutral slate; the subsequent wake (StartCombat + weapon draw) re-establishes
+    // the correct combat state through the normal engine path.
+    // Identity booleans (kIsNPC, kIsBeastRace, kIs1HM, ...) are left untouched.
+    BSAnimationGraphManager* pManager = nullptr;
+    if (!animationGraphHolder.GetBSAnimationGraph(&pManager))
+        return;
+
+    BSScopedLock<BSRecursiveLock> _{pManager->lock};
+
+    if (pManager->animationGraphIndex >= pManager->animationGraphs.size)
+    {
+        pManager->Release();
+        return;
+    }
+
+    const auto* pGraph = pManager->animationGraphs.Get(pManager->animationGraphIndex);
+    if (!pGraph || !pGraph->behaviorGraph || !pGraph->behaviorGraph->stateMachine ||
+        !pGraph->behaviorGraph->stateMachine->name || !pGraph->behaviorGraph->animationVariables)
+    {
+        pManager->Release();
+        return;
+    }
+
+    auto* pActor = Cast<Actor>(this);
+    if (!pActor)
+    {
+        pManager->Release();
+        return;
+    }
+
+    auto* pVariableSet = pGraph->behaviorGraph->animationVariables;
+
+    // Targeted reset, NOT a blanket zero: the synced boolean set also carries identity
+    // flags (kIsNPC, kIsBeastRace, kIs1HM, ...) that must survive. Only clear the
+    // motion/animation-drive flags that pin the tree inside the sheathed/motion-driven
+    // branch when they're stale from the departed owner. Name->index resolution walks
+    // the hkxDB variable hash table, same as DumpAnimationVariables.
+    const auto* pBuckets = pGraph->hkxDB ? pGraph->hkxDB->animationVariables.buckets : nullptr;
+    if (!pBuckets)
+    {
+        pManager->Release();
+        return;
+    }
+
+    static constexpr const char* kDriveFlags[] = {
+        "bAnimationDriven",
+        "bMotionDriven",
+        "bAnimationDrivenDialogue",
+        "bMotionDrivenDialogue",
+    };
+
+    uint32_t cleared = 0;
+    for (const char* flagName : kDriveFlags)
+    {
+        bool found = false;
+        for (decltype(pGraph->hkxDB->animationVariables.bucketCount) i = 0;
+             i < pGraph->hkxDB->animationVariables.bucketCount && !found; ++i)
+        {
+            auto pBucket = &pBuckets[i];
+            if (!pBucket->next)
+                continue;
+
+            while (pBucket != pGraph->hkxDB->animationVariables.end)
+            {
+                if (strcmp(pBucket->key.AsAscii(), flagName) == 0)
+                {
+                    const auto variableIndex = pBucket->value;
+                    if (pVariableSet->size > static_cast<uint32_t>(variableIndex) &&
+                        pVariableSet->data[variableIndex] != 0)
+                    {
+                        pVariableSet->data[variableIndex] = 0;
+                        ++cleared;
+                        spdlog::info("[AnimReset] cleared {} (idx {}) on actor {:X}",
+                                     flagName, variableIndex, formID);
+                    }
+                    found = true;
+                    break;
+                }
+                pBucket = pBucket->next;
+            }
+        }
+    }
+
+    spdlog::info("[AnimReset] cleared {} stale drive booleans on actor {:X}",
+                 cleared, formID);
+
+    pManager->Release();
 }
 
 uint32_t TESObjectREFR::GetCellId() const noexcept
