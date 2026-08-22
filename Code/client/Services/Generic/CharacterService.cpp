@@ -162,6 +162,17 @@ namespace
         if (apActor == nullptr || apActor->GetExtension()->IsPlayer() || apActor->IsDead())
             return;
 
+        // Locality guard (issue #5): ownership can flip to another client between the
+        // self-heal being scheduled and a retry pass firing. Re-running SetActorInventory
+        // on a now-REMOTE actor equips each worn entry through the remote equip path and
+        // races the incoming snapshot apply -- the window where inventories duplicated.
+        // Only the owner may self-heal.
+        if (apActor->GetExtension()->IsRemote())
+        {
+            spdlog::debug("[NakedFix] owner self-heal: actor {:X} is now remote, skipping", apActor->formID);
+            return;
+        }
+
         // Honest signal: is the biped already wearing a BODY piece? (GetEquipment reads worn
         // items, not the logical container, so it reflects the actual render state.) We test the
         // body slot specifically, not "any worn item" -- an NPC wearing only a satchel/boots but
@@ -176,6 +187,36 @@ namespace
         Inventory current = apActor->GetActorInventory();
         if (current.HasWornItems())
         {
+            // Issue #5 cleanup: containers stacked by earlier builds keep every duplicate
+            // outfit copy, and a plain re-apply would faithfully re-add them all. Collapse
+            // duplicate BaseId entries here (same policy as the server-side normalize) so
+            // each self-heal actively shrinks a polluted container instead of preserving it.
+            {
+                auto& entries = current.Entries;
+                for (size_t i = 0; i < entries.size(); ++i)
+                {
+                    if (entries[i].Count == 0)
+                        continue;
+
+                    for (size_t j = i + 1; j < entries.size();)
+                    {
+                        if (entries[j].BaseId != entries[i].BaseId || entries[j].Count == 0)
+                        {
+                            ++j;
+                            continue;
+                        }
+
+                        if (entries[i].IsWorn() || entries[j].IsWorn())
+                            entries.erase(entries.begin() + j);
+                        else
+                        {
+                            entries[i].Count += entries[j].Count;
+                            entries.erase(entries.begin() + j);
+                        }
+                    }
+                }
+            }
+
             spdlog::info("[NakedFix] owner self-heal: reapplying inventory for local actor {:X} (base {:X})",
                          apActor->formID, aBaseFormId);
             // SetActorInventory re-dresses the NPC by equipping each worn item through
@@ -1872,6 +1913,16 @@ void CharacterService::ApplyCachedSelfHeals(const UpdateEvent& acUpdateEvent) co
 
         // Stages 1-2: gentle re-dress. OwnerSelfHealDress self-dedups on the body-piece check, so
         // this is a cheap no-op once the biped is actually wearing its body armor.
+        // Issue #5: ownership may have flipped since this retry was scheduled. Never escalate
+        // a remote actor -- drop the entry instead of risking a DisableImpl 3D rebuild on
+        // another client's NPC.
+        if (pActor->GetExtension()->IsRemote())
+        {
+            spdlog::info("[NakedFix] self-heal retry: actor {:X} became remote, dropping", pActor->formID);
+            toRemove.push_back(cId);
+            continue;
+        }
+
         const bool wornBefore = HasWornBodyPiece(pActor->GetEquipment());
         const uint32_t baseFormId = pActor->baseForm ? pActor->baseForm->formID : 0;
         OwnerSelfHealDress(pActor, baseFormId);
