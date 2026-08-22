@@ -21,19 +21,18 @@
     [(ngModel)]="password"
     (keydown.enter)="connect()"
   />
-
-  <div class="checkbox-row">
-    <span class="save-password">
+  <div class="password-options">
+    <span>
       <input type="checkbox" id="save-password" [(ngModel)]="savePassword" />
       <label for="save-password">{{
         'COMPONENT.CONNECT.SAVE_PASSWORD' | transloco
       }}</label>
     </span>
-    <span class="hide-password">
+    <span>
       <input type="checkbox" id="hide-password" [(ngModel)]="hidePassword" />
-      <label for="hide-password">
-        {{ 'COMPONENT.CONNECT.HIDE_PASSWORD' | transloco }}
-      </label>
+      <label for="hide-password">{{
+        'COMPONENT.CONNECT.HIDE_PASSWORD' | transloco
+      }}</label>
     </span>
   </div>
 
