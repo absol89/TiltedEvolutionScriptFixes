@@ -19,14 +19,6 @@
 #include <Messages/PartyKickRequest.h>
 #include <Messages/NotifyPlayerJoined.h>
 
-#include <Setting.h>
-
-namespace
-{
-Console::Setting bAutoPartyJoin{"Gameplay:bAutoPartyJoin", "Join parties automatically, as long as there is only one party in the server", true};
-Console::Setting bAnnounceServer{"LiveServices:bAnnounceServer", "If the server is on the public server list autojoin is guarded against", false};
-}
-
 PartyService::PartyService(World& aWorld, entt::dispatcher& aDispatcher) noexcept
     : m_world(aWorld)
     , m_updateEvent(aDispatcher.sink<UpdateEvent>().connect<&PartyService::OnUpdate>(this))
@@ -124,7 +116,7 @@ void PartyService::OnPartyCreate(const PacketEvent<PartyCreateRequest>& acPacket
         spdlog::debug("[PartyService]: Created party for {}", player->GetId());
         SendPartyJoinedEvent(party, player);
 
-        if (m_parties.size() == 1 && bAutoPartyJoin && !bAnnounceServer)
+        if (m_parties.size() == 1 && GameServer::Get()->AllowsAutoPartyJoin())
         {
             for (Player* otherPlayer : m_world.GetPlayerManager())
             {
@@ -220,7 +212,7 @@ void PartyService::OnPlayerJoin(const PlayerJoinEvent& acEvent) noexcept
 
     GameServer::Get()->SendToPlayers(notify, acEvent.pPlayer);
 
-    if (m_parties.size() == 1 && bAutoPartyJoin && !bAnnounceServer)
+    if (m_parties.size() == 1 && GameServer::Get()->AllowsAutoPartyJoin())
     {
         for (Player* player : m_world.GetPlayerManager())
         {
