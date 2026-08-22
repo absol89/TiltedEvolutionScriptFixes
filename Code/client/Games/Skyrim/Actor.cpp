@@ -678,8 +678,12 @@ Inventory Actor::DeriveOutfitInventory() const noexcept
             if (!pItem)
                 continue;
 
-            // Collect every armor this outfit item can resolve to: a direct ARMO, or
-            // any entry in a leveled item list (Skyrim only uses list A).
+            // Collect the armor(s) this outfit item resolves to. A leveled list entry
+            // must resolve to EXACTLY ONE pick, not every candidate: pushing all list
+            // members gave an NPC one cuirass per possible roll (issue #5's stacked
+            // outfit items). Taking the first valid member is deterministic -- leveled
+            // list order is identical in every client's load order, so both clients
+            // derive the same item and snapshots stay consistent across ownership flips.
             Vector<TESObjectARMO*> armors;
 
             if (pItem->formType == FormType::Armor)
@@ -702,7 +706,10 @@ Inventory Actor::DeriveOutfitInventory() const noexcept
                             if (pList[i].pForm)
                             {
                                 if (TESObjectARMO* pArmor = Cast<TESObjectARMO>(pList[i].pForm))
+                                {
                                     armors.push_back(pArmor);
+                                    break; // single deterministic roll per list
+                                }
                             }
                         }
                     }
