@@ -87,10 +87,7 @@ bool ShouldWakeAtLocalization(Actor* apActor, Actor* apPlayer) noexcept
 
 void WakeAtLocalization(Actor* apActor, Actor* apPlayer) noexcept
 {
-    // Issue #6/#810 root cause: the graph still holds the DEPARTED owner's synced
-    // booleans (bAnimationDriven etc.), which park the behavior tree in the sheathed
-    // state machine so StartCombat alone can't get it out. Reset the tree to a neutral
-    // slate FIRST, then issue the wake through the normal engine path.
+    // Unpark the behavior tree from its stale sheathed branch before waking.
     apActor->ResetSyncedBooleanVariables();
 
     const bool wasWeaponDrawn = apActor->actorState.IsWeaponDrawn();

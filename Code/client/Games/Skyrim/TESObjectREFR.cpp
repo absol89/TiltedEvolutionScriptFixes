@@ -296,14 +296,8 @@ void TESObjectREFR::LoadAnimationVariables(const AnimationVariables& aVariables)
 
 void TESObjectREFR::ResetSyncedBooleanVariables() const noexcept
 {
-    // Issue #6/#810 root cause: when an NPC localizes on a client, its behavior graph
-    // still carries the DEPARTED owner's last-synced drive booleans -- notably
-    // bAnimationDriven / bMotionDriven. With those stuck, the behavior tree resumes
-    // inside the sheathed/motion-driven branch and never transitions out even after
-    // StartCombat, so the NPC charges unarmed. Clearing the drive flags hands the tree
-    // a neutral slate; the subsequent wake (StartCombat + weapon draw) re-establishes
-    // the correct combat state through the normal engine path.
-    // Identity booleans (kIsNPC, kIsBeastRace, kIs1HM, ...) are left untouched.
+    // Clears stale behavior-graph drive booleans (bAnimationDriven etc.) left by a
+    // departed AI owner so the tree can leave its sheathed branch. See commit ee0ded58.
     BSAnimationGraphManager* pManager = nullptr;
     if (!animationGraphHolder.GetBSAnimationGraph(&pManager))
         return;
@@ -333,11 +327,8 @@ void TESObjectREFR::ResetSyncedBooleanVariables() const noexcept
 
     auto* pVariableSet = pGraph->behaviorGraph->animationVariables;
 
-    // Targeted reset, NOT a blanket zero: the synced boolean set also carries identity
-    // flags (kIsNPC, kIsBeastRace, kIs1HM, ...) that must survive. Only clear the
-    // motion/animation-drive flags that pin the tree inside the sheathed/motion-driven
-    // branch when they're stale from the departed owner. Name->index resolution walks
-    // the hkxDB variable hash table, same as DumpAnimationVariables.
+    // Targeted reset: only the motion/animation-drive flags, identity flags like
+    // kIsNPC must survive. Name->index resolution same as DumpAnimationVariables.
     const auto* pBuckets = pGraph->hkxDB ? pGraph->hkxDB->animationVariables.buckets : nullptr;
     if (!pBuckets)
     {
