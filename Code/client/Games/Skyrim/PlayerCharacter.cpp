@@ -21,7 +21,7 @@
 #include <Forms/TESWorldSpace.h>
 
 #include <Forms/TESObjectCELL.h>
-#include <Games/Skyrim/RespawnOverrides.h>
+#include <Games/Skyrim/CellRespawnOverrides.h>
 
 #include <ModCompat/BehaviorVar.h>
 
@@ -115,10 +115,13 @@ NiPoint3 PlayerCharacter::RespawnPlayer() noexcept
     NiPoint3 rot{};
 
     if (!pCell)
+    {
+        SetNoBleedoutRecovery(true);
         return pos;
+    }
 
     // If we find an override position for this respawn cell, we will use that instead of COC.
-    if (!RespawnOverrides::GetRespawnPos(pCell, pos))
+    if (!CellRespawnOverrides::GetRespawnPos(pCell, pos))
     {
         pCell->GetCOCPlacementInfo(&pos, &rot, true);
     }
