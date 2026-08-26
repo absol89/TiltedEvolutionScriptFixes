@@ -70,9 +70,6 @@ private:
     bool m_godmodeStart = false;
     std::chrono::steady_clock::time_point m_godmodeDeadline;
 
-    bool m_fallbackKnockdownStart = false;
-    double m_fallbackKnockdownTimer = 0.0;
-
     uint32_t m_cachedMainSpellId = 0;
     uint32_t m_cachedSecondarySpellId = 0;
     uint32_t m_cachedPowerId = 0;

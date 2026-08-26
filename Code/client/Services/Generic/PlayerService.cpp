@@ -256,18 +256,6 @@ void PlayerService::RunPostDeathUpdates() noexcept
     if (!m_isDeathSystemEnabled)
         return;
 
-    // Count down the fallback timer started after respawn before trying the delayed unstuck knockdown.
-    if (m_fallbackKnockdownTimer > 0.0)
-    {
-        m_fallbackKnockdownTimer -= acDeltaTime;
-    }
-    else if (m_fallbackKnockdownTimer <= 0.0 && m_fallbackKnockdownStart)
-    {
-        m_fallbackKnockdownTimer = 0.0;
-        m_knockdownStart = true;
-        m_fallbackKnockdownStart = false;
-    }
-
     // If a player dies in ragdoll, it gets stuck.
     // This code ragdolls the player again upon respawning.
     // It also makes the player invincible for 10 seconds.
