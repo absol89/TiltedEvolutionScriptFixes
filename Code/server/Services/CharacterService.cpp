@@ -746,19 +746,25 @@ void CharacterService::ApplyActorData(const entt::entity acEntity, const ActorDa
 
                 for (size_t j = i + 1; j < entries.size();)
                 {
-                    if (entries[j].BaseId != entries[i].BaseId || entries[j].Count == 0)
+                    // Never collapse {0,0} entries: an unmapped mod item shares that
+                    // sentinel with every other unmapped item, so merging would erase
+                    // distinct pieces (observed as NPCs reduced to a single boot).
+                    if (entries[j].BaseId == entries[i].BaseId &&
+                        (entries[j].BaseId.ModId != 0 || entries[j].BaseId.BaseId != 0) &&
+                        entries[j].Count != 0)
                     {
-                        ++j;
-                        continue;
+                        // Worn items: one physical copy per actor -- drop extras entirely.
+                        if (entries[i].IsWorn() || entries[j].IsWorn())
+                            entries.erase(entries.begin() + j);
+                        else
+                        {
+                            entries[i].Count += entries[j].Count;
+                            entries.erase(entries.begin() + j);
+                        }
                     }
-
-                    // Worn items: one physical copy per actor -- drop extras entirely.
-                    if (entries[i].IsWorn() || entries[j].IsWorn())
-                        entries.erase(entries.begin() + j);
                     else
                     {
-                        entries[i].Count += entries[j].Count;
-                        entries.erase(entries.begin() + j);
+                        ++j;
                     }
                 }
             }

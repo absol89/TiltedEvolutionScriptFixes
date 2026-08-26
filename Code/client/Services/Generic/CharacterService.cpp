@@ -3,6 +3,8 @@
 #include "Services/PapyrusService.h"
 #include <Services/PartyService.h>
 
+#include <algorithm>
+
 #include <Services/CharacterService.h>
 #include <Services/QuestService.h>
 #include <Services/TransportService.h>
@@ -200,7 +202,12 @@ namespace
 
                     for (size_t j = i + 1; j < entries.size();)
                     {
-                        if (entries[j].BaseId != entries[i].BaseId || entries[j].Count == 0)
+                        // Never collapse {0,0} entries: unmapped items all share the
+                        // sentinel and would erase distinct pieces under merge.
+                        const bool isSentinel = entries[i].BaseId.ModId == 0 &&
+                                                entries[i].BaseId.BaseId == 0;
+                        if (entries[j].BaseId != entries[i].BaseId || entries[j].Count == 0 ||
+                            isSentinel)
                         {
                             ++j;
                             continue;
@@ -1944,11 +1951,18 @@ void CharacterService::ApplyCachedSelfHeals(const UpdateEvent& acUpdateEvent) co
         // rebuild actors whose 3D is actually present (distant/unloaded actors stay pending).
         if (data.m_pass >= 1)
         {
-            const bool containerHasBody = HasWornBodyPiece(pActor->GetActorInventory());
-            if (containerHasBody && pActor->loadedState && !pActor->IsDisabled())
+            // Escalate whenever the container holds any worn armor, even a non-body
+            // piece: a boot-only container previously blocked escalation forever
+            // (city NPCs stranded with exactly one boot). The rebuild re-runs the
+            // derive path which now guarantees a body piece.
+            const bool containerHasArmor = pActor->GetActorInventory().Entries.end() !=
+                std::find_if(pActor->GetActorInventory().Entries.begin(),
+                             pActor->GetActorInventory().Entries.end(),
+                             [](const auto& entry) { return entry.IsWorn(); });
+            if (containerHasArmor && pActor->loadedState && !pActor->IsDisabled())
             {
                 spdlog::info("[NakedFix] self-heal escalating to 3D rebuild for actor {:X} (base {:X}): "
-                             "container has body armor but biped naked", pActor->formID, baseFormId);
+                             "biped naked after gentle passes", pActor->formID, baseFormId);
                 pActor->DisableImpl();
                 data.m_rebuildPending = true;
                 data.m_timer = 0.0;

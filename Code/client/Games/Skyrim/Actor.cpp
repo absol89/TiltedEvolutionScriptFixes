@@ -681,10 +681,20 @@ Inventory Actor::DeriveOutfitInventory() const noexcept
             // Collect the armor(s) this outfit item resolves to. A leveled list entry
             // must resolve to EXACTLY ONE pick, not every candidate: pushing all list
             // members gave an NPC one cuirass per possible roll (issue #5's stacked
-            // outfit items). Taking the first valid member is deterministic -- leveled
-            // list order is identical in every client's load order, so both clients
-            // derive the same item and snapshots stay consistent across ownership flips.
+            // outfit items). Prefer the first MAPPED BODY-PIECE member (fall back to
+            // first mapped member): leveled-list order is identical across clients, so
+            // the pick stays deterministic while guaranteeing outfits resolve to a
+            // torso -- a boot-only pick left city NPCs permanently half-naked because
+            // every downstream check tests the body slot.
             Vector<TESObjectARMO*> armors;
+
+            auto& modSystem = World::Get().GetModSystem();
+            auto isMapped = [&modSystem](TESObjectARMO* apArmor)
+            {
+                GameId id{};
+                modSystem.GetServerModId(apArmor->formID, id);
+                return id != GameId{};
+            };
 
             if (pItem->formType == FormType::Armor)
             {
@@ -706,27 +716,36 @@ Inventory Actor::DeriveOutfitInventory() const noexcept
                             if (pList[i].pForm)
                             {
                                 if (TESObjectARMO* pArmor = Cast<TESObjectARMO>(pList[i].pForm))
-                                {
                                     armors.push_back(pArmor);
-                                    break; // single deterministic roll per list
-                                }
                             }
                         }
                     }
                 }
             }
 
-            for (TESObjectARMO* pArmor : armors)
+            TESObjectARMO* pPick = nullptr;
+            for (TESObjectARMO* pCandidate : armors)
+            {
+                // Unmapped armor (mod not registered with the server) resolves to a
+                // {0,0} BaseId which collides with every other unmapped entry under
+                // dedup -- committing one erases distinct pieces. Skip them.
+                if (!isMapped(pCandidate))
+                    continue;
+                pPick = pCandidate;
+                if (pPick->IsBodyPiece())
+                    break;
+            }
+
+            if (pPick)
             {
                 Inventory::Entry entry{};
-                World::Get().GetModSystem().GetServerModId(pArmor->formID, entry.BaseId);
+                World::Get().GetModSystem().GetServerModId(pPick->formID, entry.BaseId);
                 entry.Count = 1;
                 entry.ExtraWorn = true;
                 fallback.Entries.push_back(std::move(entry));
 
                 ++wearable;
-                if (entry.BaseId != GameId{})
-                    ++mapped;
+                ++mapped;
             }
         }
 
@@ -734,8 +753,24 @@ Inventory Actor::DeriveOutfitInventory() const noexcept
                      pOutfit->formID, pOutfit->outfitItems.length, wearable, mapped,
                      fallback.HasWornItems());
 
-        // Use the first outfit slot that yields worn items; otherwise keep trying.
-        if (fallback.HasWornItems())
+        // Accept this outfit slot only if it yields a wearable set INCLUDING a body
+        // piece; otherwise try the next slot/template. A non-body-only derive (boot,
+        // satchel) is what stranded the city NPCs in the unrecoverable state.
+        bool hasBody = false;
+        for (const auto& entry : fallback.Entries)
+        {
+            const uint32_t gameId = World::Get().GetModSystem().GetGameId(entry.BaseId);
+            if (TESObjectARMO* pArmor = Cast<TESObjectARMO>(TESForm::GetById(gameId)))
+            {
+                if (pArmor->IsBodyPiece())
+                {
+                    hasBody = true;
+                    break;
+                }
+            }
+        }
+
+        if (fallback.HasWornItems() && hasBody)
             break;
     }
 
