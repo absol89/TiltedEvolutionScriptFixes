@@ -36,6 +36,7 @@
 #include <ExtraData/ExtraCount.h>
 #include <ExtraData/ExtraEnchantment.h>
 #include <ExtraData/ExtraHealth.h>
+#include <ExtraData/ExtraLeveledCreature.h>
 #include <ExtraData/ExtraPoison.h>
 #include <ExtraData/ExtraSoul.h>
 #include <ExtraData/ExtraTextDisplayData.h>
@@ -162,6 +163,15 @@ uint16_t Actor::GetLevel() const noexcept
     TP_THIS_FUNCTION(TGetLevel, uint16_t, const Actor);
     POINTER_SKYRIMSE(TGetLevel, s_getLevel, 37334);
     return TiltedPhoques::ThisCall(s_getLevel, this);
+}
+
+TESNPC* Actor::GetTemplateBase() noexcept
+{
+    auto* pLeveledCreature = Cast<ExtraLeveledCreature>(extraData.GetByType(ExtraDataType::LeveledCreature));
+    if (pLeveledCreature)
+        return static_cast<TESNPC*>(pLeveledCreature->templateBase);
+
+    return Cast<TESNPC>(baseForm);
 }
 
 void Actor::ForcePosition(const NiPoint3& acPosition) noexcept

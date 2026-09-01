@@ -41,6 +41,7 @@ struct NotifyActorTeleport;
 struct PartyJoinedEvent;
 
 struct Actor;
+struct TESNPC;
 struct World;
 struct TransportService;
 
@@ -88,6 +89,16 @@ struct CharacterService
     void ProcessNewEntity(entt::entity aEntity) const noexcept;
 
 private:
+    struct LeveledConformData
+    {
+        entt::entity Entity{entt::null};
+        Actor* ExpectedActor{};
+        TESNPC* ExpectedPick{};
+        uint32_t ActorFormId{};
+        uint32_t PickFormId{};
+        bool Disabled{};
+    };
+
     void MoveActor(const Actor* apActor, const GameId& acWorldSpaceId, const GameId& acCellId, const Vector3_NetQuantize& acPosition) const noexcept;
 
     void RequestServerAssignment(entt::entity aEntity) const noexcept;
@@ -98,7 +109,9 @@ private:
 
     Actor* CreateCharacterForEntity(entt::entity aEntity) const noexcept;
     ActorData BuildActorData(Actor* apActor) const noexcept;
-    void ApplyLeveledNpcPick(Actor* apActor, const GameId& acPickId) const noexcept;
+    void ApplyLeveledNpcPick(entt::entity aEntity, Actor* apActor, const GameId& acPickId) const noexcept;
+    Actor* GetLeveledConformActor(const LeveledConformData& acConform) const noexcept;
+    void CleanupLeveledNpcConforms(uint32_t aActorFormId = 0) const noexcept;
     void ProcessLeveledConforms() noexcept;
 
     void RunLocalUpdates() const noexcept;
@@ -130,13 +143,7 @@ private:
 
     Map<uint32_t, WeaponDrawData> m_weaponDrawUpdates{};
 
-    struct LeveledConformData
-    {
-        uint32_t PickFormId{};
-        bool Disabled{};
-    };
-
-    // Written from const message handlers, drained by ProcessLeveledConforms
+    // Written from const message handlers and drained by ProcessLeveledConforms.
     mutable Map<uint32_t, LeveledConformData> m_pendingLeveledConforms{};
 
     entt::scoped_connection m_referenceAddedConnection;

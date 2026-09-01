@@ -20,41 +20,6 @@ struct TESNPC : TESActorBase
 
     static TESNPC* Create(const String& acBuffer, uint32_t aChangeFlags) noexcept;
 
-    TESNPC* GetTemplateBase() const noexcept
-    {
-        TESNPC* pTemplate = npcTemplate;
-
-        while (pTemplate && pTemplate->IsTemporary())
-            pTemplate = pTemplate->npcTemplate;
-
-        return pTemplate;
-    }
-
-    static uint32_t GetLeveledPickFormId(uint32_t aTempNpcFormId) noexcept;
-
-    // Best-effort pick recovery for temp bases the hooked resolver never saw
-    // (some engine spawn paths bypass fn 14375, e.g. live cell attach): the
-    // first static NPC in the template chain is the pick - unless it is the
-    // placed shell itself, recognizable by templating off a leveled list.
-    // Chain entries can be TESLevCharacter posing as TESNPC*, whose layout is
-    // too small to hold npcTemplate - hence the formType guards.
-    TESNPC* GetLeveledPick() const noexcept
-    {
-        TESNPC* pTemplate = npcTemplate;
-
-        while (pTemplate && pTemplate->formType == FormType::Npc && pTemplate->IsTemporary())
-            pTemplate = pTemplate->npcTemplate;
-
-        if (!pTemplate || pTemplate->formType != FormType::Npc)
-            return nullptr;
-
-        TESNPC* pShellTemplate = pTemplate->npcTemplate;
-        if (pShellTemplate && pShellTemplate->formType == FormType::LeveledCharacter)
-            return nullptr;
-
-        return pTemplate;
-    }
-
     struct FaceMorphs
     {
         float option[19];
@@ -85,14 +50,15 @@ struct TESNPC : TESActorBase
     uintptr_t unk114;
     TESCombatStyle* combatStyle;
     size_t unk11C;
-    TESRace* overlayRace;
-    TESNPC* npcTemplate;
+    TESRace* originalRace;
+    TESNPC* faceNPC;
     float height;
     float weight;
-    uintptr_t unk130;
+    void* sounds;
     BSFixedString shortName;
-    TESObjectARMO* farArmo;
-    BGSOutfit* outfits[2];
+    TESObjectARMO* farSkin;
+    BGSOutfit* defaultOutfit;
+    BGSOutfit* sleepOutfit;
     uintptr_t unk144;
     TESFaction* faction;
 
@@ -121,5 +87,6 @@ struct TESNPC : TESActorBase
 };
 
 static_assert(offsetof(TESNPC, npcClass) == 0x1C0);
+static_assert(offsetof(TESNPC, faceNPC) == 0x1F0);
 static_assert(offsetof(TESNPC, color) == 0x246);
 static_assert(offsetof(TESNPC, relationships) == 0x250);

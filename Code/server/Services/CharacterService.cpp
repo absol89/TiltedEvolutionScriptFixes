@@ -215,11 +215,15 @@ void CharacterService::OnAssignCharacterRequest(const PacketEvent<AssignCharacte
             const bool isOwner = ownerComponent.GetOwner() == acMessage.pPlayer;
             const bool transferToLeader = !isOwner && CanClaimOwnership(acMessage.pPlayer, *itor, ownerComponent.OwnershipEpoch, OwnershipTransferReason::LeaderAssignment);
 
-            if (transferToLeader)
+            if (!characterComponent.LeveledNpcPickId && message.LeveledNpcPickId != GameId{})
             {
-                // A party leader's local roll becomes authoritative when ownership moves to them.
-                // An empty pick means the resolved identity is unknown, so clear the old value.
                 characterComponent.LeveledNpcPickId = FormIdComponent(message.LeveledNpcPickId);
+                spdlog::debug(
+                    "Stored previously unknown leveled NPC pick {:x}:{:x} for FormId {:x}:{:x}",
+                    message.LeveledNpcPickId.ModId,
+                    message.LeveledNpcPickId.BaseId,
+                    refId.ModId,
+                    refId.BaseId);
             }
 
             AssignCharacterResponse response{};
@@ -599,8 +603,9 @@ void CharacterService::CreateCharacter(const PacketEvent<AssignCharacterRequest>
     characterComponent.ChangeFlags = message.ChangeFlags;
     characterComponent.SaveBuffer = std::move(message.AppearanceBuffer);
     characterComponent.BaseId = FormIdComponent(message.FormId);
-    // Client-authoritative like BaseId; worst case a forged id changes which NPC identity renders
-    characterComponent.LeveledNpcPickId = FormIdComponent(message.LeveledNpcPickId);
+    // Client-authoritative like BaseId; worst case a forged id changes which NPC identity renders.
+    if (message.LeveledNpcPickId != GameId{})
+        characterComponent.LeveledNpcPickId = FormIdComponent(message.LeveledNpcPickId);
 
     if (characterComponent.LeveledNpcPickId)
         spdlog::debug("Stored leveled NPC pick {:x}:{:x} for FormId {:x}:{:x}", message.LeveledNpcPickId.ModId, message.LeveledNpcPickId.BaseId, gameId.ModId, gameId.BaseId);
