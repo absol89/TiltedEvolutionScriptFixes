@@ -89,7 +89,7 @@ void ActorValueService::OnActorRemoved(const ActorRemovedEvent& acEvent) noexcep
             return formIdComponent.Id == formId;
         });
 
-    if (it != std::end(view))
+    if (it != std::end(view) && !m_world.all_of<LeveledNpcConformComponent>(*it))
         m_world.remove<ActorValuesComponent>(*it);
 }
 

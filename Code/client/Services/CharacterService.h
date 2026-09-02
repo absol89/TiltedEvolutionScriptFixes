@@ -97,6 +97,7 @@ private:
         uint32_t ActorFormId{};
         uint32_t PickFormId{};
         bool Disabled{};
+        bool Cancelled{};
     };
 
     void MoveActor(const Actor* apActor, const GameId& acWorldSpaceId, const GameId& acCellId, const Vector3_NetQuantize& acPosition) const noexcept;

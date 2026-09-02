@@ -307,15 +307,6 @@ void CharacterService::OnActorAdded(const ActorAddedEvent& acEvent) noexcept
 
 void CharacterService::OnActorRemoved(const ActorRemovedEvent& acEvent) noexcept
 {
-    auto conformIt = m_pendingLeveledConforms.find(acEvent.FormId);
-    if (conformIt != m_pendingLeveledConforms.end() && conformIt.value().Disabled && GetLeveledConformActor(conformIt.value()))
-    {
-        // DisableImpl removes the actor from discovery for one frame. Keep its
-        // entity intact until the conform's re-enable phase runs.
-        spdlog::debug("Ignoring conform-driven removal of actor {:X}", acEvent.FormId);
-        return;
-    }
-
     auto view = m_world.view<FormIdComponent>();
     const auto entityIt = std::find_if(view.begin(), view.end(), [view, formId = acEvent.FormId](auto aEntity) { return view.get<FormIdComponent>(aEntity).Id == formId; });
 
@@ -326,6 +317,11 @@ void CharacterService::OnActorRemoved(const ActorRemovedEvent& acEvent) noexcept
     }
 
     const auto cId = *entityIt;
+    if (m_world.all_of<LeveledNpcConformComponent>(cId))
+    {
+        spdlog::debug("Ignoring conform-driven removal of actor {:X}", acEvent.FormId);
+        return;
+    }
 
     auto& formIdComponent = view.get<FormIdComponent>(cId);
     CancelServerAssignment(*entityIt, formIdComponent.Id);
@@ -1697,6 +1693,8 @@ void CharacterService::ApplyLeveledNpcPick(const entt::entity aEntity, Actor* ap
         }
 
         CleanupLeveledNpcConforms(apActor->formID);
+        if (m_pendingLeveledConforms.find(apActor->formID) != m_pendingLeveledConforms.end())
+            return;
     }
 
     if (apActor->IsDisabled())
@@ -1712,7 +1710,7 @@ void CharacterService::ApplyLeveledNpcPick(const entt::entity aEntity, Actor* ap
 
     // Message handlers can run while cell attach still owns the reference.
     // The service update tick performs the mutation after the world settles.
-    m_pendingLeveledConforms[apActor->formID] = {aEntity, apActor, pPick, apActor->formID, cPickId, false};
+    m_pendingLeveledConforms[apActor->formID] = {aEntity, apActor, pPick, apActor->formID, cPickId};
 }
 
 Actor* CharacterService::GetLeveledConformActor(const LeveledConformData& acConform) const noexcept
@@ -1744,17 +1742,19 @@ void CharacterService::CleanupLeveledNpcConforms(const uint32_t aActorFormId) co
             continue;
         }
 
-        const LeveledConformData& conform = it.value();
-        if (conform.Disabled)
+        LeveledConformData& conform = it.value();
+        Actor* pActor = Cast<Actor>(TESForm::GetById(conform.ActorFormId));
+        if (conform.Disabled && pActor == conform.ExpectedActor && pActor->IsDisabled())
         {
-            Actor* pActor = Cast<Actor>(TESForm::GetById(conform.ActorFormId));
-            if (pActor == conform.ExpectedActor && pActor->IsDisabled())
-            {
-                pActor->EnableImpl();
-                pActor->GetExtension()->GraphDescriptorHash = 0;
-                spdlog::debug("Re-enabled actor {:X} while cancelling its pending leveled conform", conform.ActorFormId);
-            }
+            // Re-enable from the regular update path, never from teardown or
+            // while a loading screen may own the reference.
+            conform.Cancelled = true;
+            ++it;
+            continue;
         }
+
+        if (m_world.valid(conform.Entity))
+            m_world.remove<LeveledNpcConformComponent>(conform.Entity);
 
         it = m_pendingLeveledConforms.erase(it);
     }
@@ -1771,6 +1771,12 @@ void CharacterService::ProcessLeveledConforms() noexcept
     if (pUI && pUI->GetMenuOpen(BSFixedString("Loading Menu")))
         return;
 
+    const auto clearConformMarker = [this](const LeveledConformData& acConform)
+    {
+        if (m_world.valid(acConform.Entity))
+            m_world.remove<LeveledNpcConformComponent>(acConform.Entity);
+    };
+
     for (auto it = m_pendingLeveledConforms.begin(); it != m_pendingLeveledConforms.end();)
     {
         LeveledConformData& conform = it.value();
@@ -1778,10 +1784,18 @@ void CharacterService::ProcessLeveledConforms() noexcept
 
         Actor* pActor = GetLeveledConformActor(conform);
         TESNPC* pPick = Cast<TESNPC>(TESForm::GetById(conform.PickFormId));
-        if (!pActor || !pPick || pPick != conform.ExpectedPick)
+        if (conform.Cancelled || !pActor || !pPick || pPick != conform.ExpectedPick)
         {
-            CleanupLeveledNpcConforms(cActorFormId);
-            it = m_pendingLeveledConforms.begin();
+            Actor* pExpectedActor = Cast<Actor>(TESForm::GetById(cActorFormId));
+            if (conform.Disabled && pExpectedActor == conform.ExpectedActor && pExpectedActor->IsDisabled())
+            {
+                pExpectedActor->EnableImpl();
+                pExpectedActor->GetExtension()->GraphDescriptorHash = 0;
+                spdlog::debug("Re-enabled actor {:X} while cancelling its pending leveled conform", cActorFormId);
+            }
+
+            clearConformMarker(conform);
+            it = m_pendingLeveledConforms.erase(it);
             continue;
         }
 
@@ -1789,8 +1803,8 @@ void CharacterService::ProcessLeveledConforms() noexcept
         {
             if (!pActor->IsDisabled())
             {
-                CleanupLeveledNpcConforms(cActorFormId);
-                it = m_pendingLeveledConforms.begin();
+                clearConformMarker(conform);
+                it = m_pendingLeveledConforms.erase(it);
                 continue;
             }
 
@@ -1806,27 +1820,29 @@ void CharacterService::ProcessLeveledConforms() noexcept
             // Recompute the descriptor from the rebuilt graph on the next tick.
             pActor->GetExtension()->GraphDescriptorHash = 0;
 
+            clearConformMarker(conform);
             spdlog::info("Re-enabled conformed leveled actor {:X}, base {:X}", cActorFormId, conform.PickFormId);
-            CleanupLeveledNpcConforms(cActorFormId);
-            it = m_pendingLeveledConforms.begin();
+            it = m_pendingLeveledConforms.erase(it);
             continue;
         }
 
         if (pActor->IsDisabled())
         {
-            CleanupLeveledNpcConforms(cActorFormId);
-            it = m_pendingLeveledConforms.begin();
+            it = m_pendingLeveledConforms.erase(it);
             continue;
         }
 
-        if (!pActor->loadedState && !IsUnresolvedLeveledShell(Cast<TESNPC>(pActor->baseForm)))
+        const bool isUnresolvedShell = IsUnresolvedLeveledShell(Cast<TESNPC>(pActor->baseForm));
+        const bool hasStable3D = pActor->loadedState && pActor->GetNiNode() && pActor->currentProcess;
+        if (!isUnresolvedShell && !hasStable3D)
         {
-            // Distant actors may stream in much later. Keep the conform pending;
-            // unresolved shells are exempt because they have no model to load.
+            // Distant actors may stream in much later, and attached actors can
+            // briefly lose their node or process. Wait for a stable 3D state.
             ++it;
             continue;
         }
 
+        m_world.emplace_or_replace<LeveledNpcConformComponent>(conform.Entity);
         conform.Disabled = true;
         pActor->DisableImpl();
         ++it;
