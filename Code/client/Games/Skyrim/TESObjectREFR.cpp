@@ -2,6 +2,8 @@
 
 #include <Games/References.h>
 #include <Games/Overrides.h>
+#include <Forms/TESObjectARMO.h>
+#include <Games/TES.h>
 
 #include <World.h>
 #include <Services/PapyrusService.h>
@@ -809,11 +811,49 @@ void TESObjectREFR::SetInventory(const Inventory& aInventory) noexcept
 {
     spdlog::debug("Setting inventory for {:X}", formID);
 
+    // Adapted from upstream PR #880, commit 040ecbde: supply a body model
+    // when a remote player's snapshot has no worn torso armor. The received
+    // snapshot stays unchanged; only the inventory applied on this client differs.
+    Inventory applied = aInventory;
+    if (auto* pActor = Cast<Actor>(this); pActor && pActor->GetExtension()->IsRemotePlayer())
+    {
+        auto& modSystem = World::Get().GetModSystem();
+        const bool hasBody = std::any_of(applied.Entries.begin(), applied.Entries.end(),
+            [&modSystem](const Inventory::Entry& aEntry)
+            {
+                if (aEntry.Count <= 0 || !aEntry.IsWorn())
+                    return false;
+
+                auto* pArmor = Cast<TESObjectARMO>(TESForm::GetById(modSystem.GetGameId(aEntry.BaseId)));
+                return pArmor && (pArmor->slotType & 0x4) != 0;
+            });
+
+        if (!hasBody)
+        {
+            // Preserve the original commit's Dawnguard body stand-in, but resolve
+            // both the local form and server mod ID instead of assuming load order.
+            if (auto* pDawnguard = ModManager::Get()->GetByName("Dawnguard.esm"))
+            {
+                auto* pBodyArmor = Cast<TESObjectARMO>(TESForm::GetById(pDawnguard->GetFormId(0x11A85)));
+                GameId bodyId;
+                if (pBodyArmor && (pBodyArmor->slotType & 0x4) != 0 && modSystem.GetServerModId(pBodyArmor->formID, bodyId))
+                {
+                    Inventory::Entry bodyEntry{};
+                    bodyEntry.BaseId = bodyId;
+                    bodyEntry.Count = 1;
+                    bodyEntry.ExtraWorn = true;
+                    applied.Entries.push_back(bodyEntry);
+                    spdlog::debug("[NakedFix] Applied body fallback to remote player {:X}", formID);
+                }
+            }
+        }
+    }
+
     ScopedInventoryOverride _;
 
     RemoveAllItems();
 
-    for (const Inventory::Entry& entry : aInventory.Entries)
+    for (const Inventory::Entry& entry : applied.Entries)
     {
         if (entry.Count != 0)
             AddOrRemoveItem(entry, true);
