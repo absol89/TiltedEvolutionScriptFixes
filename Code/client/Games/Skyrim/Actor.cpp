@@ -642,7 +642,7 @@ void Actor::SetActorValue(uint32_t aId, float aValue) noexcept
 
 void Actor::ForceActorValue(ActorValueOwner::ForceMode aMode, uint32_t aId, float aValue) noexcept
 {
-    float initialValue = aMode == ActorValueOwner::ForceMode::PERMANENT 
+    float initialValue = aMode == ActorValueOwner::ForceMode::PERMANENT
                          ? GetActorPermanentValue(aId)
                          : GetActorValue(aId);
 
@@ -1203,7 +1203,7 @@ uint64_t TP_MAKE_THISCALL(HookProcessResponse, void, DialogueItem* apVoice, Acto
     if (apTalkingActor)
     {
         if (apTalkingActor->GetExtension()->IsRemotePlayer())
-            return 0;  
+            return 0;
     }
     return TiltedPhoques::ThisCall(RealProcessResponse, apThis, apVoice, apTalkingActor, apTalkedToActor);
 }
@@ -1284,12 +1284,12 @@ float Actor::GetVoiceRecoveryTime() noexcept
     return fVoiceTimer;
 }
 
-bool Actor::IsSpeakingInScene() 
+bool Actor::IsSpeakingInScene()
 {
     auto pScene = GetCurrentScene();
-    bool isSpeakingInScene = IsInScene(); 
+    bool isSpeakingInScene = IsInScene();
     isSpeakingInScene = isSpeakingInScene && GetVoiceRecoveryTime() > 0.0f;
-    const bool isTalking = IsTalking(); 
+    const bool isTalking = IsTalking();
     const bool isLeader = World::Get().GetPartyService().IsLeader(); // Helps distinguish logs in 2-party
 
     spdlog::debug(__FUNCTION__ ": isSpeakingInScene {}, isTalking {}, voiceRecoveryTime {}, isLeader {}, formId {:X}, name {}", isSpeakingInScene, isTalking, GetVoiceRecoveryTime(), isLeader, formID, baseForm->GetName());
@@ -1333,7 +1333,7 @@ bool TP_MAKE_THISCALL(HookIsFleeing, Actor)
     // TODO: investigate why the flee flag is set at all on remote players sometimes.
     if (apThis->GetExtension()->IsPlayer())
         return false;
-    
+
     return TiltedPhoques::ThisCall(RealIsFleeing, apThis);
 }
 

@@ -276,7 +276,7 @@ TEST_CASE("Differential structures", "[encoding.differential]")
     GIVEN("AnimationVariables")
     {
         AnimationVariables vars, recvVars;
- 
+
         vars.Booleans.resize(76);
         String testString("\xDE\xAD\xBE\xEF"
                           "\xDE\xAD\xBE\xEF\x76\xB");

@@ -356,7 +356,7 @@ void MagicService::OnAddTargetEvent(const AddTargetEvent& acEvent) noexcept
         if (casterIt == std::end(view))
         {
             MagicQueue::Spdlog("{}: server entity for caster formID not found, formID: {:X}, queueing", __FUNCTION__, acEvent.CasterID);
-            m_queuedEffects.push(MagicAddTargetEventQueue(acEvent));  
+            m_queuedEffects.push(MagicAddTargetEventQueue(acEvent));
             return;
         }
 
@@ -594,9 +594,9 @@ void MagicService::ApplyQueuedEffects() noexcept
             }
 
             // At this point, it will succeed or fail, but not queue another one ad infinitum
-            MagicQueue::Spdlog("{}: retrying AddTargetEvent for caster {}({:X}), spell {:X}, effect {:X}, target {}({:X})", 
+            MagicQueue::Spdlog("{}: retrying AddTargetEvent for caster {}({:X}), spell {:X}, effect {:X}, target {}({:X})",
                                __FUNCTION__, pCasterName, target.CasterID, target.SpellID, target.EffectID, pTargetName, target.TargetID);
-            OnAddTargetEvent(target);        
+            OnAddTargetEvent(target);
         }
         m_queuedEffects.pop();
     }
@@ -605,10 +605,10 @@ void MagicService::ApplyQueuedEffects() noexcept
     while (!m_queuedRemoteEffects.empty())
     {
         NotifyAddTarget target = m_queuedRemoteEffects.front().Target();
-        Actor* pTarget = Utils::GetByServerId<Actor>(target.TargetId); 
-        Actor* pCaster = Utils::GetByServerId<Actor>(target.CasterId); 
+        Actor* pTarget = Utils::GetByServerId<Actor>(target.TargetId);
+        Actor* pCaster = Utils::GetByServerId<Actor>(target.CasterId);
         auto pTargetName = !pTarget ? "" : pTarget->baseForm->GetName();
-        auto pCasterName = !pCaster ? "" : pCaster->baseForm->GetName(); 
+        auto pCasterName = !pCaster ? "" : pCaster->baseForm->GetName();
 
         if (m_queuedRemoteEffects.front().Expired())
             MagicQueue::Spdlog("{}: removing expired NotifyAddTarget event from queue: caster {}({:X}), spell {:X}, effect {:X}, target {}({:X})",
@@ -626,7 +626,7 @@ void MagicService::ApplyQueuedEffects() noexcept
             {
                 spdlog::debug("{}: Actor for caster serverID still not found for NotifyAddTarget: caster {}({:X}), spell {:X}, effect {:X}, target {}({:X})",
                               __FUNCTION__, pCasterName, target.CasterId, target.SpellId, target.EffectId, pTargetName, target.TargetId);
-                break; 
+                break;
             }
 
             MagicQueue::Spdlog("{}: retrying NotifyAddTarget for caster {}({:X}), spell {:X}, effect {:X}, target {}({:X})",

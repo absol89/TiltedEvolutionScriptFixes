@@ -468,8 +468,8 @@ static constexpr std::array kNonSyncableQuestIds = std::to_array<uint32_t>({
 
 bool QuestService::IsNonSyncableQuest(TESQuest* apQuest)
 {
-    // Quests with no quest stages are never synced (check both lists). 
-    // Most TESQues::Type:: quests should be synced, including Type::None 
+    // Quests with no quest stages are never synced (check both lists).
+    // Most TESQues::Type:: quests should be synced, including Type::None
     // and Type::Miscellaneous, but there are a few // known exceptions to exclude.
     bool noStages = !apQuest->pExecutedStages || apQuest->pExecutedStages->Empty();
     noStages = noStages || !apQuest->pWaitingStages || apQuest->pWaitingStages->Empty();

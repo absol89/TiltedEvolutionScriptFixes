@@ -21,7 +21,7 @@ export class CommandHandler {
       );
     },
   }
-  
+
   private SetTime: Command = {
     name: 'settime',
     executor: async (args) => {

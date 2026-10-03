@@ -96,7 +96,7 @@ bool TESQuest::SetStage(uint16_t stageIndex)
     bool bSuccess = SetStage(this, stageIndex);
     if (!bSuccess)
     {
-        spdlog::warn(__FUNCTION__ ": returned false quest formId {:X}, currentStage {}, newStage {}, name {}", 
+        spdlog::warn(__FUNCTION__ ": returned false quest formId {:X}, currentStage {}, newStage {}, name {}",
                      formID, currentStage, stageIndex, fullName.value.AsAscii());
     }
     return bSuccess;
@@ -182,9 +182,8 @@ void BGSScene::ScriptStop()
 }
 
 static TiltedPhoques::Initializer s_questInitHooks(
-    []() 
+    []()
     {
     // kill quest init in cold blood
     // TiltedPhoques::Write<uint8_t>(25003, 0xC3);
     });
-

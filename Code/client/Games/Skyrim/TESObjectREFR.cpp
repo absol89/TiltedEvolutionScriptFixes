@@ -1032,7 +1032,7 @@ bool TP_MAKE_THISCALL(HookActivate, TESObjectREFR, TESObjectREFR* apActivator, u
     Actor* pActivator = Cast<Actor>(apActivator);
 
     // Exclude books from activation since only reading them removes them from the cell
-    // Note: Books are now unsynced 
+    // Note: Books are now unsynced
     if (pActivator && apThis->baseForm->formType != FormType::Book)
     {
         auto openState = TESObjectREFR::kNone;

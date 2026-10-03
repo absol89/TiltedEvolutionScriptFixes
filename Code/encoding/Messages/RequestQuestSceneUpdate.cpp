@@ -31,4 +31,3 @@ void RequestQuestSceneUpdate::DeserializeRaw(TiltedPhoques::Buffer::Reader& aRea
     aReader.ReadBits(tmp, 8);
     SceneType = tmp & 0xFF;
 }
-

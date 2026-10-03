@@ -212,9 +212,9 @@ struct TESScenePhaseEvent
 {
     void* callback;
     uint32_t sceneFormId;
-    uint16_t phaseIndex;   
+    uint16_t phaseIndex;
     uint32_t sceneType;     // BEGIN (0) or END (1)
-    uint32_t questStageId; 
+    uint32_t questStageId;
 };
 
 struct TESSellEvent

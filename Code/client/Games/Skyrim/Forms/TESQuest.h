@@ -162,7 +162,7 @@ struct TESQuest : BGSStoryManagerTreeForm
     void ScriptReset();
     void ScriptResetAndUpdate();
     void SetStopped();
-    bool IsAnyCutscenePlaying();    
+    bool IsAnyCutscenePlaying();
 };
 
 static_assert(sizeof(TESQuest) == 0x268);

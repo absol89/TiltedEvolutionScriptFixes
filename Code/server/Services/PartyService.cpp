@@ -221,7 +221,7 @@ void PartyService::OnPlayerJoin(const PlayerJoinEvent& acEvent) noexcept
                 break;
             }
         }
-        
+
     }
 }
 

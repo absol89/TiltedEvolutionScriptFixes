@@ -1102,7 +1102,7 @@ void CharacterService::OnDialogueEvent(const DialogueEvent& acEvent) noexcept
         spdlog::debug(__FUNCTION__ ": server id not found for formId {:X}, isLeader {}", acEvent.ActorID, isLeader);
         return;
     }
-    
+
     Actor* pActor = Cast<Actor>(TESForm::GetById(acEvent.ActorID));
     if (!pActor)
         return;

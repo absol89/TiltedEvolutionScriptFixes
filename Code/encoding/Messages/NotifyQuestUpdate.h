@@ -26,7 +26,7 @@ struct NotifyQuestUpdate final : ServerMessage
     };
 
     GameId Id;
-    uint32_t SceneMaster{0}; 
+    uint32_t SceneMaster{0};
     uint16_t Stage;
     uint8_t Status;
     uint8_t ClientQuestType;
