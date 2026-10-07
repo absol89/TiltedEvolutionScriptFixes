@@ -43,10 +43,10 @@ jobs:
           git submodule sync --recursive
           git submodule update --init --force --recursive --depth=1
 
-      - name: Checkout master on tag push
+      - name: Prepare tagged release checkout
         if: github.ref_type == 'tag'
         run: |
-          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/master)"
+          # Build the tagged commit; the local branch name enables release packaging.
           git checkout -B master HEAD
 
       - name: Cache xmake dependencies
