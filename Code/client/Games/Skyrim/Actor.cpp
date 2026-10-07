@@ -1086,6 +1086,7 @@ void TP_MAKE_THISCALL(HookAddInventoryItem, Actor, TESBoundObject* apItem, Extra
 
         Inventory::Entry item{};
         modSystem.GetServerModId(apItem->formID, item.BaseId);
+        AlchemyItem::Capture(apItem, item);
         item.Count = aCount;
 
         if (apExtraData)
@@ -1105,6 +1106,7 @@ void* TP_MAKE_THISCALL(HookPickUpObject, Actor, TESObjectREFR* apObject, int32_t
 
         Inventory::Entry item{};
         modSystem.GetServerModId(apObject->baseForm->formID, item.BaseId);
+        AlchemyItem::Capture(apObject->baseForm, item);
         item.Count = aCount;
 
         if (apObject->GetExtraDataList())
@@ -1135,6 +1137,7 @@ void* TP_MAKE_THISCALL(HookDropObject, Actor, void* apResult, TESBoundObject* ap
 
     Inventory::Entry item{};
     modSystem.GetServerModId(apObject->formID, item.BaseId);
+    AlchemyItem::Capture(apObject, item);
     item.Count = -aCount;
 
     if (apExtraData)

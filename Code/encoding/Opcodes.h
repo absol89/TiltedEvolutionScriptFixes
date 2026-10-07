@@ -58,6 +58,12 @@ enum ClientOpcode : unsigned char
     kDropItemRequest,
     kDroppedItemMoveRequest,
     kPickUpDroppedItemRequest,
+    kTradeInviteRequest,
+    kTradeInviteResponseRequest,
+    kTradeOfferUpdateRequest,
+    kTradeSetReadyRequest,
+    kTradeCancelRequest,
+    kTradeInventorySyncRequest,
     kClientOpcodeMax
 };
 
@@ -123,5 +129,10 @@ enum ServerOpcode : unsigned char
     kNotifyDroppedItemsSpawn,
     kNotifyDroppedItemMove,
     kNotifyDroppedItemsRemove,
+    kNotifyTradeInvite,
+    kNotifyTradeStarted,
+    kNotifyTradeState,
+    kNotifyTradeCancel,
+    kNotifyTradeComplete,
     kServerOpcodeMax
 };
