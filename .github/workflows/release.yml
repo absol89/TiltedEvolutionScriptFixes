@@ -16,6 +16,8 @@ jobs:
       upload-build-for-next-job: true
 
   publish:
+    # Retagging builds CI artifacts without changing an existing release or its assets.
+    if: ${{ github.event.created }}
     needs: [build-windows, build-linux]
     runs-on: ubuntu-24.04
     permissions:
