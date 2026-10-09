@@ -7,6 +7,8 @@ target("TPTests")
     add_headerfiles("**.h")
     add_files("*.cpp")
     add_files("../client/Systems/ObjectSystem.cpp")
+    -- Has no game dependencies, so the client's remote playback timing can be tested here
+    add_files("../client/Systems/PlaybackClock.cpp")
     add_deps("SkyrimEncoding")
     add_packages(
         "tiltedcore",
