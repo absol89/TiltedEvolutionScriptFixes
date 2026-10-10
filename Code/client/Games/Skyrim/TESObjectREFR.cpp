@@ -400,7 +400,6 @@ void TESObjectREFR::LoadAnimationVariables(const AnimationVariables& aVariables)
             }
         }
 
-        pManager->Release();
     }
 }
 
