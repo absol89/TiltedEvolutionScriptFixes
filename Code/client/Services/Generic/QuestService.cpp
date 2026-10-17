@@ -577,8 +577,6 @@ static constexpr std::array kNonSyncableQuestIds = std::to_array<uint32_t>({
     0x2BA16,   // Werewolf transformation quest
     0x20071D0, // Vampire transformation quest
     0x3AC44,   // MS13BleakFallsBarrowLeverScene
-    0xAA0B3,   // Riften Scripted Scene North Gate: per-player gate guard toll scene, restarts while anyone
-               // stands in its trigger and looped stage 200 updates through the party (freeze on player join)
     // 0xFE014801,  // Unknown dynamic ID, kept as note, maybe lookup correct ID this game?
     0xF2593 // Skill experience quest
 });
