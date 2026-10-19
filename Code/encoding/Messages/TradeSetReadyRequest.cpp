@@ -1,5 +1,7 @@
 #include <Messages/TradeSetReadyRequest.h>
 
+#include <Decoding.h>
+
 void TradeSetReadyRequest::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) const noexcept
 {
     Serialization::WriteBool(aWriter, Ready);
@@ -13,12 +15,5 @@ void TradeSetReadyRequest::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader
     ClientMessage::DeserializeRaw(aReader);
 
     Ready = Serialization::ReadBool(aReader);
-    AcceptedItems.clear();
-    const auto count = Serialization::ReadVarInt(aReader);
-    for (uint64_t i = 0; i < count; ++i)
-    {
-        Inventory::Entry item;
-        item.Deserialize(aReader);
-        AcceptedItems.push_back(std::move(item));
-    }
+    Decoding::ReadList(aReader, AcceptedItems, Inventory::kMaxEntries);
 }

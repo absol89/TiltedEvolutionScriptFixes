@@ -8,6 +8,10 @@ using TiltedPhoques::Vector;
 
 struct Inventory
 {
+    // Decoding limits for data read from the network.
+    static constexpr uint64_t kMaxEffects = 32;
+    static constexpr uint64_t kMaxEntries = 1 << 14;
+
     struct EffectItem
     {
         float Magnitude{};
@@ -34,6 +38,9 @@ struct Inventory
         Vector<EffectItem> Effects{};
         bool operator==(const PotionData& acRhs) const noexcept;
         bool IsValid() const noexcept;
+
+        void Serialize(TiltedPhoques::Buffer::Writer& aWriter) const noexcept;
+        void Deserialize(TiltedPhoques::Buffer::Reader& aReader) noexcept;
     };
 
     struct Entry

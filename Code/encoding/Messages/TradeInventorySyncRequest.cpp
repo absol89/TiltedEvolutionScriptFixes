@@ -1,5 +1,7 @@
 #include <Messages/TradeInventorySyncRequest.h>
 
+#include <Decoding.h>
+
 void TradeInventorySyncRequest::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) const noexcept
 {
     Serialization::WriteVarInt(aWriter, Entries.size());
@@ -11,12 +13,5 @@ void TradeInventorySyncRequest::DeserializeRaw(TiltedPhoques::Buffer::Reader& aR
 {
     ClientMessage::DeserializeRaw(aReader);
 
-    Entries.clear();
-    const auto count = Serialization::ReadVarInt(aReader);
-    for (uint64_t i = 0; i < count; ++i)
-    {
-        Inventory::Entry entry;
-        entry.Deserialize(aReader);
-        Entries.push_back(std::move(entry));
-    }
+    Decoding::ReadList(aReader, Entries, Inventory::kMaxEntries);
 }

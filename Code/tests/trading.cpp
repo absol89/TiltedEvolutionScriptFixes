@@ -11,6 +11,7 @@
 #include <catch2/catch.hpp>
 #include <limits>
 #include <Messages/TradeInventorySyncRequest.h>
+#include <Decoding.h>
 
 namespace
 {
@@ -405,4 +406,170 @@ TEST_CASE("Inventory sync keeps only offered items the live inventory still cove
     REQUIRE(message->GetOpcode() == kTradeInventorySyncRequest);
     const auto* decoded = static_cast<TradeInventorySyncRequest*>(message.get());
     REQUIRE(decoded->Entries == request.Entries);
+}
+
+namespace
+{
+Inventory::Entry FullEntry()
+{
+    auto item = CraftedPotion(7);
+    item.ExtraEnchantId.BaseId = 0x800;
+    item.EnchantData.IsWeapon = true;
+    item.EnchantData.Effects = item.Potion.Effects;
+    item.ExtraPoisonId.ModId = 0xFFFFFFFF;
+    item.ExtraPoisonId.BaseId = 0x801;
+    item.ExtraPoisonCount = 3;
+    item.PoisonData = item.Potion;
+    item.PoisonData.IsPoison = true;
+    return item;
+}
+
+// A copy of the first aSize bytes, so the reader runs out where a truncated packet would.
+TiltedPhoques::Buffer Prefix(const TiltedPhoques::Buffer& acBuffer, size_t aSize)
+{
+    return TiltedPhoques::Buffer(acBuffer.GetData(), aSize);
+}
+} // namespace
+
+TEST_CASE("Inventory entries round trip with every effect list", "[trading][encoding]")
+{
+    const auto item = FullEntry();
+    Inventory::Entry plain;
+    plain.BaseId.BaseId = 0xF;
+    plain.Count = 1;
+
+    TiltedPhoques::Buffer buffer(4096);
+    TradeOfferUpdateRequest request;
+    request.Items = {item, plain};
+    TiltedPhoques::Buffer::Writer writer(&buffer);
+    request.Serialize(writer);
+
+    TiltedPhoques::Buffer exact = Prefix(buffer, writer.Size());
+    TiltedPhoques::Buffer::Reader reader(&exact);
+    auto message = ClientMessageFactory{}.Extract(reader);
+    REQUIRE(message);
+    const auto* decoded = static_cast<TradeOfferUpdateRequest*>(message.get());
+    REQUIRE(decoded->Items.size() == 2);
+    REQUIRE(SameTradeItem(decoded->Items[0], item));
+    REQUIRE(decoded->Items[0].Potion == item.Potion);
+    REQUIRE(decoded->Items[0].PoisonData == item.PoisonData);
+    REQUIRE(decoded->Items[0].ExtraPoisonCount == item.ExtraPoisonCount);
+    REQUIRE(decoded->Items[1] == plain);
+    REQUIRE(decoded->Items[1].Potion.Effects.empty());
+    REQUIRE_FALSE(decoded->Items[1].Potion.IsPoison);
+    REQUIRE(decoded->Items[1].PoisonData.Effects.empty());
+}
+
+TEST_CASE("Truncated trade packets are rejected", "[trading][encoding]")
+{
+    TiltedPhoques::Buffer buffer(1 << 16);
+    TradeInventorySyncRequest request;
+    for (uint32_t i = 0; i < 50; ++i)
+    {
+        auto item = FullEntry();
+        item.BaseId.BaseId = 0x1000 + i;
+        request.Entries.push_back(item);
+    }
+    TiltedPhoques::Buffer::Writer writer(&buffer);
+    request.Serialize(writer);
+    const size_t cSize = writer.Size();
+
+    // Cut into the first entry, halfway, and a few entries short.
+    for (size_t size : {size_t{3}, cSize / 2, cSize - 3 * (cSize / 50)})
+    {
+        TiltedPhoques::Buffer truncated = Prefix(buffer, size);
+        TiltedPhoques::Buffer::Reader reader(&truncated);
+        REQUIRE_FALSE(ClientMessageFactory{}.Extract(reader));
+    }
+
+    TiltedPhoques::Buffer exact = Prefix(buffer, cSize);
+    TiltedPhoques::Buffer::Reader reader(&exact);
+    auto message = ClientMessageFactory{}.Extract(reader);
+    REQUIRE(message);
+    REQUIRE(static_cast<TradeInventorySyncRequest*>(message.get())->Entries.size() == 50);
+}
+
+TEST_CASE("Absurd list lengths are rejected without allocating", "[trading][encoding]")
+{
+    TiltedPhoques::Buffer buffer(4096);
+    constexpr uint64_t cHuge = uint64_t{1} << 62;
+
+    SECTION("Client trade lists")
+    {
+        for (ClientOpcode opcode : {kTradeOfferUpdateRequest, kTradeInventorySyncRequest, kTradeSetReadyRequest})
+        {
+            TiltedPhoques::Buffer::Writer writer(&buffer);
+            writer.WriteBits(opcode, sizeof(ClientOpcode) * 8);
+            if (opcode == kTradeSetReadyRequest)
+                TiltedPhoques::Serialization::WriteBool(writer, true);
+            TiltedPhoques::Serialization::WriteVarInt(writer, cHuge);
+            TiltedPhoques::Buffer::Reader reader(&buffer);
+            REQUIRE_FALSE(ClientMessageFactory{}.Extract(reader));
+        }
+    }
+    SECTION("Server trade state")
+    {
+        TiltedPhoques::Buffer::Writer writer(&buffer);
+        writer.WriteBits(kNotifyTradeState, sizeof(ServerOpcode) * 8);
+        TiltedPhoques::Serialization::WriteVarInt(writer, 42);
+        TiltedPhoques::Serialization::WriteBool(writer, false);
+        TiltedPhoques::Serialization::WriteBool(writer, false);
+        TiltedPhoques::Serialization::WriteVarInt(writer, 0);
+        TiltedPhoques::Serialization::WriteVarInt(writer, 0);
+        TiltedPhoques::Serialization::WriteVarInt(writer, 0);
+        TiltedPhoques::Serialization::WriteVarInt(writer, cHuge);
+        TiltedPhoques::Buffer::Reader reader(&buffer);
+        REQUIRE_FALSE(ServerMessageFactory{}.Extract(reader));
+    }
+    SECTION("Effect lists over the limit")
+    {
+        auto item = FullEntry();
+        SECTION("Potion") { item.Potion.Effects.resize(Inventory::kMaxEffects + 1, item.Potion.Effects[0]); }
+        SECTION("Poison") { item.PoisonData.Effects.resize(Inventory::kMaxEffects + 1, item.PoisonData.Effects[0]); }
+        SECTION("Enchantment") { item.EnchantData.Effects.resize(Inventory::kMaxEffects + 1, item.EnchantData.Effects[0]); }
+
+        NotifyTradeState state;
+        state.PartnerItems.push_back(item);
+        TiltedPhoques::Buffer::Writer writer(&buffer);
+        state.Serialize(writer);
+        TiltedPhoques::Buffer::Reader reader(&buffer);
+        REQUIRE_FALSE(ServerMessageFactory{}.Extract(reader));
+    }
+    SECTION("Effect list at the limit")
+    {
+        auto item = FullEntry();
+        item.Potion.Effects.resize(Inventory::kMaxEffects, item.Potion.Effects[0]);
+        NotifyTradeState state;
+        state.PartnerItems.push_back(item);
+        TiltedPhoques::Buffer::Writer writer(&buffer);
+        state.Serialize(writer);
+        TiltedPhoques::Buffer::Reader reader(&buffer);
+        auto message = ServerMessageFactory{}.Extract(reader);
+        REQUIRE(message);
+        REQUIRE(static_cast<NotifyTradeState*>(message.get())->PartnerItems[0].Potion == item.Potion);
+    }
+    SECTION("Effect count past the end of the data")
+    {
+        // A present potion recipe that claims five effects and stops.
+        TiltedPhoques::Buffer::Writer writer(&buffer);
+        TiltedPhoques::Serialization::WriteBool(writer, true);
+        TiltedPhoques::Serialization::WriteBool(writer, false);
+        TiltedPhoques::Serialization::WriteVarInt(writer, 5);
+        TiltedPhoques::Buffer potion = Prefix(buffer, writer.Size());
+        TiltedPhoques::Buffer::Reader reader(&potion);
+        Inventory::PotionData decoded;
+        decoded.Deserialize(reader);
+        REQUIRE(Decoding::IsMalformed(reader));
+        REQUIRE(decoded.Effects.empty());
+    }
+    SECTION("Inventories")
+    {
+        TiltedPhoques::Buffer::Writer writer(&buffer);
+        TiltedPhoques::Serialization::WriteVarInt(writer, cHuge);
+        TiltedPhoques::Buffer::Reader reader(&buffer);
+        Inventory inventory;
+        inventory.Deserialize(reader);
+        REQUIRE(Decoding::IsMalformed(reader));
+        REQUIRE(inventory.Entries.empty());
+    }
 }

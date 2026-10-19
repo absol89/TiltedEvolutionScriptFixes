@@ -1,5 +1,7 @@
 #include <Messages/NotifyTradeState.h>
 
+#include <Decoding.h>
+
 void NotifyTradeState::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) const noexcept
 {
     Serialization::WriteVarInt(aWriter, PartnerPlayerId);
@@ -35,39 +37,8 @@ void NotifyTradeState::DeserializeRaw(TiltedPhoques::Buffer::Reader& aReader) no
     CountdownMs = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
     CountdownTotalMs = Serialization::ReadVarInt(aReader) & 0xFFFFFFFF;
 
-    auto selfCount = Serialization::ReadVarInt(aReader);
-    SelfItems.reserve(selfCount);
-    for (size_t i = 0; i < selfCount; ++i)
-    {
-        Inventory::Entry entry;
-        entry.Deserialize(aReader);
-        SelfItems.push_back(entry);
-    }
-
-    auto partnerCount = Serialization::ReadVarInt(aReader);
-    PartnerItems.reserve(partnerCount);
-    for (size_t i = 0; i < partnerCount; ++i)
-    {
-        Inventory::Entry entry;
-        entry.Deserialize(aReader);
-        PartnerItems.push_back(entry);
-    }
-
-    auto inventoryCount = Serialization::ReadVarInt(aReader);
-    SelfInventory.reserve(inventoryCount);
-    for (size_t i = 0; i < inventoryCount; ++i)
-    {
-        Inventory::Entry entry;
-        entry.Deserialize(aReader);
-        SelfInventory.push_back(entry);
-    }
-
-    auto acceptedCount = Serialization::ReadVarInt(aReader);
-    SelfAcceptedItems.reserve(acceptedCount);
-    for (size_t i = 0; i < acceptedCount; ++i)
-    {
-        Inventory::Entry entry;
-        entry.Deserialize(aReader);
-        SelfAcceptedItems.push_back(entry);
-    }
+    Decoding::ReadList(aReader, SelfItems, Inventory::kMaxEntries);
+    Decoding::ReadList(aReader, PartnerItems, Inventory::kMaxEntries);
+    Decoding::ReadList(aReader, SelfInventory, Inventory::kMaxEntries);
+    Decoding::ReadList(aReader, SelfAcceptedItems, Inventory::kMaxEntries);
 }

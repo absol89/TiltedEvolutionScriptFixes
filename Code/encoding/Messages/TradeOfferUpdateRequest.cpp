@@ -1,5 +1,7 @@
 #include <Messages/TradeOfferUpdateRequest.h>
 
+#include <Decoding.h>
+
 void TradeOfferUpdateRequest::SerializeRaw(TiltedPhoques::Buffer::Writer& aWriter) const noexcept
 {
     Serialization::WriteVarInt(aWriter, Items.size());
@@ -11,12 +13,5 @@ void TradeOfferUpdateRequest::DeserializeRaw(TiltedPhoques::Buffer::Reader& aRea
 {
     ClientMessage::DeserializeRaw(aReader);
 
-    const auto count = Serialization::ReadVarInt(aReader);
-    Items.reserve(count);
-    for (size_t i = 0; i < count; ++i)
-    {
-        Inventory::Entry entry;
-        entry.Deserialize(aReader);
-        Items.push_back(entry);
-    }
+    Decoding::ReadList(aReader, Items, Inventory::kMaxEntries);
 }
