@@ -113,7 +113,7 @@
       "PLAYER_UI": {
         "TITLE": "Oyuncu arayüzü filtreleri",
         "STRANGER_NAMES": "Yabancıların adları",
-        "STRANGER_NAMES_HINT": "Grubunuzda olmayan oyuncular adlarını yalnızca grup veya takas davetlerinde gösterir. Oyuncu listesindeki göz simgesi bunu oyuncu adı bazında geçersiz kılar.",
+        "STRANGER_NAMES_HINT": "Grubunuzda olmayan oyuncular davetler dahil \"Yabancı\" olarak görünür. Oyuncu listesindeki göz simgesi bunu oyuncu adı bazında geçersiz kılar.",
         "PARTY_INVITES": "Grup davetleri",
         "PARTY_INVITES_HINT": "Kapalı: gelen grup davetleri sessizce reddedilir.",
         "TRADE_INVITES": "Takas davetleri",

@@ -111,7 +111,7 @@
       "PLAYER_UI": {
         "TITLE": "Filtros de interfaz de jugadores",
         "STRANGER_NAMES": "Nombres de desconocidos",
-        "STRANGER_NAMES_HINT": "Los jugadores fuera de tu grupo solo revelan su nombre en invitaciones de grupo o de comercio. El ojo de la lista de jugadores anula esto para cada nombre.",
+        "STRANGER_NAMES_HINT": "Los jugadores fuera de tu grupo aparecen como «Desconocido», también en las invitaciones. El ojo de la lista de jugadores anula esto para cada nombre.",
         "PARTY_INVITES": "Invitaciones de grupo",
         "PARTY_INVITES_HINT": "No: las invitaciones de grupo se rechazan en silencio.",
         "TRADE_INVITES": "Invitaciones de comercio",

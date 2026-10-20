@@ -114,7 +114,7 @@
       "PLAYER_UI": {
         "TITLE": "Spieler-UI-Filter",
         "STRANGER_NAMES": "Namen von Fremden",
-        "STRANGER_NAMES_HINT": "Spieler außerhalb deiner Gruppe zeigen ihren Namen nur bei Gruppen- oder Handelseinladungen. Das Auge in der Spielerliste überschreibt dies pro Spielername.",
+        "STRANGER_NAMES_HINT": "Spieler außerhalb deiner Gruppe werden als „Fremder“ angezeigt, auch in Einladungen. Das Auge in der Spielerliste überschreibt dies pro Spielername.",
         "PARTY_INVITES": "Gruppeneinladungen",
         "PARTY_INVITES_HINT": "Aus: Eingehende Gruppeneinladungen werden still abgelehnt.",
         "TRADE_INVITES": "Handelseinladungen",

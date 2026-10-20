@@ -76,7 +76,7 @@
     <section>
       <h2>{{ 'COMPONENT.SETTINGS.PLAYER_UI.TITLE' | transloco }}</h2>
       <div class="setting">
-        <label for="strangerNames"
+        <label for="hideStrangerNames"
           >{{ 'COMPONENT.SETTINGS.PLAYER_UI.STRANGER_NAMES' | transloco }}
           <small class="hint">{{
             'COMPONENT.SETTINGS.PLAYER_UI.STRANGER_NAMES_HINT' | transloco
@@ -84,9 +84,9 @@
         </label>
         <input
           type="checkbox"
-          id="strangerNames"
-          [ngModel]="settings.strangerNames | async"
-          (ngModelChange)="settings.strangerNames.next($event)"
+          id="hideStrangerNames"
+          [ngModel]="settings.hideStrangerNames | async"
+          (ngModelChange)="settings.hideStrangerNames.next($event)"
         />
       </div>
       <div class="setting">

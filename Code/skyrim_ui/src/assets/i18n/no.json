@@ -110,7 +110,7 @@
       "PLAYER_UI": {
         "TITLE": "Filtre for spiller-UI",
         "STRANGER_NAMES": "Navn på fremmede",
-        "STRANGER_NAMES_HINT": "Spillere utenfor gruppen din viser bare navnet sitt ved gruppe- eller handelsinvitasjoner. Øyet i spillerlisten overstyrer dette per spillernavn.",
+        "STRANGER_NAMES_HINT": "Spillere utenfor gruppen din vises som «Fremmed», også i invitasjoner. Øyet i spillerlisten overstyrer dette per spillernavn.",
         "PARTY_INVITES": "Gruppeinvitasjoner",
         "PARTY_INVITES_HINT": "Av: innkommende gruppeinvitasjoner avslås stille.",
         "TRADE_INVITES": "Handelsinvitasjoner",

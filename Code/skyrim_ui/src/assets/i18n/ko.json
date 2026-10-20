@@ -110,7 +110,7 @@
       "PLAYER_UI": {
         "TITLE": "플레이어 UI 필터",
         "STRANGER_NAMES": "낯선 플레이어 이름",
-        "STRANGER_NAMES_HINT": "파티에 없는 플레이어는 파티 또는 거래 초대 중에만 이름이 표시됩니다. 플레이어 목록의 눈 아이콘으로 이름별로 덮어쓸 수 있습니다.",
+        "STRANGER_NAMES_HINT": "파티에 없는 플레이어는 초대를 포함해 '낯선 사람'으로 표시됩니다. 플레이어 목록의 눈 아이콘으로 이름별로 덮어쓸 수 있습니다.",
         "PARTY_INVITES": "파티 초대",
         "PARTY_INVITES_HINT": "끄기: 받은 파티 초대를 조용히 거절합니다.",
         "TRADE_INVITES": "거래 초대",

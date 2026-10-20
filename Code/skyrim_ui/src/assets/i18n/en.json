@@ -116,7 +116,7 @@
       "PLAYER_UI": {
         "TITLE": "Player UI filters",
         "STRANGER_NAMES": "Global stranger names",
-        "STRANGER_NAMES_HINT": "Players not in your party only reveal their name during party or trade invites. The eye in the player list overrides this per player name.",
+        "STRANGER_NAMES_HINT": "Players not in your party show as \"Stranger\", invites included. The eye in the player list overrides this per player name.",
         "PARTY_INVITES": "Party invitations",
         "PARTY_INVITES_HINT": "Off: incoming party invites are declined silently.",
         "TRADE_INVITES": "Trade invitations",

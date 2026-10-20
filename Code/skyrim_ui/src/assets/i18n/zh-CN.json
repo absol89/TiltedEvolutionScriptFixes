@@ -110,7 +110,7 @@
       "PLAYER_UI": {
         "TITLE": "玩家界面过滤",
         "STRANGER_NAMES": "陌生人名字",
-        "STRANGER_NAMES_HINT": "不在你队伍中的玩家只会在组队或交易邀请时显示名字。玩家列表中的眼睛图标可按玩家名覆盖此设置。",
+        "STRANGER_NAMES_HINT": "不在你队伍中的玩家（包括邀请中）显示为“陌生人”。玩家列表中的眼睛图标可按玩家名覆盖此设置。",
         "PARTY_INVITES": "组队邀请",
         "PARTY_INVITES_HINT": "关闭：静默拒绝收到的组队邀请。",
         "TRADE_INVITES": "交易邀请",

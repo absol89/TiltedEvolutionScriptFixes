@@ -114,7 +114,7 @@
       "PLAYER_UI": {
         "TITLE": "Filtry interfejsu graczy",
         "STRANGER_NAMES": "Imiona nieznajomych",
-        "STRANGER_NAMES_HINT": "Gracze spoza twojej drużyny ujawniają imię tylko przy zaproszeniach do drużyny lub handlu. Oko na liście graczy nadpisuje to dla danego imienia.",
+        "STRANGER_NAMES_HINT": "Gracze spoza twojej drużyny są wyświetlani jako „Nieznajomy”, także w zaproszeniach. Oko na liście graczy nadpisuje to dla danego imienia.",
         "PARTY_INVITES": "Zaproszenia do drużyny",
         "PARTY_INVITES_HINT": "Wył.: przychodzące zaproszenia do drużyny są po cichu odrzucane.",
         "TRADE_INVITES": "Zaproszenia do handlu",

@@ -116,7 +116,7 @@
       "PLAYER_UI": {
         "TITLE": "Filter för spelar-UI",
         "STRANGER_NAMES": "Namn på främlingar",
-        "STRANGER_NAMES_HINT": "Spelare utanför din grupp visar bara sitt namn vid grupp- eller handelsinbjudningar. Ögat i spelarlistan åsidosätter detta per spelarnamn.",
+        "STRANGER_NAMES_HINT": "Spelare utanför din grupp visas som ”Främling”, även i inbjudningar. Ögat i spelarlistan åsidosätter detta per spelarnamn.",
         "PARTY_INVITES": "Gruppinbjudningar",
         "PARTY_INVITES_HINT": "Av: inkommande gruppinbjudningar avböjs tyst.",
         "TRADE_INVITES": "Handelsinbjudningar",

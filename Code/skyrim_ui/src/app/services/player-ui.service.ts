@@ -52,10 +52,10 @@ export class PlayerUiService implements OnDestroy {
     this.players$ = combineLatest([
       this.playerListService.playerList,
       this.groupService.group,
-      this.settings.strangerNames,
+      this.settings.hideStrangerNames,
       this.settingService.nameOverrides,
     ]).pipe(
-      map(([playerList, group, strangerNames, overrides]) => {
+      map(([playerList, group]) => {
         const members = group?.members ?? [];
         return (playerList?.players ?? []).map(player => {
           const isMember = members.includes(player.id);
@@ -64,8 +64,10 @@ export class PlayerUiService implements OnDestroy {
             isMember,
             // The eye wins over both defaults, so party members can be
             // hidden too.
-            isNameRevealed:
-              overrides[player.name] ?? (isMember || strangerNames),
+            isNameRevealed: this.settingService.isNameRevealed(
+              player.name,
+              isMember,
+            ),
           };
         });
       }),

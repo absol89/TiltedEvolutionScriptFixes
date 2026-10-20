@@ -141,7 +141,12 @@ export class PlayerListService implements OnDestroy {
             invitingPlayer.hasInvitedLocalPlayer = true;
             this.playerList.next(playerList);
             this.popupNotificationService.addPartyInvite(
-              invitingPlayer.name,
+              // The inviter can't be in our party yet.
+              this.settingService.isNameRevealed(invitingPlayer.name, false)
+                ? invitingPlayer.name
+                : this.translocoService.translate(
+                    'COMPONENT.PARTY_LIST.STRANGER',
+                  ),
               () => this.acceptPartyInvite(inviterId),
             );
           }

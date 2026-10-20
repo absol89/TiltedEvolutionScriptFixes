@@ -110,7 +110,7 @@
       "PLAYER_UI": {
         "TITLE": "Filtry hráčského rozhraní",
         "STRANGER_NAMES": "Jména cizích hráčů",
-        "STRANGER_NAMES_HINT": "Hráči mimo vaši partu odhalí své jméno jen při pozvánce do party nebo k obchodu. Oko v seznamu hráčů toto nastavení přepíše pro konkrétní jméno.",
+        "STRANGER_NAMES_HINT": "Hráči mimo vaši partu se zobrazují jako „Cizinec“, i v pozvánkách. Oko v seznamu hráčů toto nastavení přepíše pro konkrétní jméno.",
         "PARTY_INVITES": "Pozvánky do party",
         "PARTY_INVITES_HINT": "Vypnuto: příchozí pozvánky do party jsou tiše odmítnuty.",
         "TRADE_INVITES": "Pozvánky k obchodu",

@@ -109,7 +109,7 @@
       "PLAYER_UI": {
         "TITLE": "Speler-UI-filters",
         "STRANGER_NAMES": "Namen van vreemden",
-        "STRANGER_NAMES_HINT": "Spelers buiten je groep tonen hun naam alleen bij groeps- of handelsuitnodigingen. Het oog in de spelerslijst overschrijft dit per spelersnaam.",
+        "STRANGER_NAMES_HINT": "Spelers buiten je groep worden als 'Vreemde' getoond, ook in uitnodigingen. Het oog in de spelerslijst overschrijft dit per spelersnaam.",
         "PARTY_INVITES": "Groepsuitnodigingen",
         "PARTY_INVITES_HINT": "Uit: inkomende groepsuitnodigingen worden stil geweigerd.",
         "TRADE_INVITES": "Handelsuitnodigingen",
