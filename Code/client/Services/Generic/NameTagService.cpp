@@ -184,15 +184,22 @@ void NameTagService::OnDraw() noexcept
             continue;
 
         // Name from the party UI's player list (keyed by player id).
-        const bool isNameRevealed = m_settings.RevealedPlayerIds.count(playerComponent.Id) > 0;
+        bool isNameRevealed = m_settings.RevealedPlayerIds.count(playerComponent.Id) > 0;
         std::string displayName = strangerLabel;
         if (isNameRevealed)
         {
-            displayName = "#" + std::to_string(playerComponent.Id);
             const auto& players = partyService.GetPlayers();
             auto it = players.find(playerComponent.Id);
             if (it != players.end() && !it->second.empty())
+            {
                 displayName = it->second.c_str();
+            }
+            else
+            {
+                // No name known (e.g. after a kick): keep the player id so they can still be identified.
+                displayName += "#" + std::to_string(playerComponent.Id);
+                isNameRevealed = false;
+            }
         }
 
         const NiPoint3 anchor = BuildAnchorPoint(pActor);
