@@ -1,10 +1,14 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
-import { combineLatest, Observable, pluck, ReplaySubject, share } from 'rxjs';
+import { faEye, faEyeSlash } from '@fortawesome/free-solid-svg-icons';
+import { Observable, ReplaySubject, share } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { ClientService } from 'src/app/services/client.service';
 import { GroupService } from 'src/app/services/group.service';
 import { PlayerListService } from 'src/app/services/player-list.service';
-import { Player } from '../../models/player';
+import {
+  PlayerUiEntry,
+  PlayerUiService,
+} from 'src/app/services/player-ui.service';
 
 @Component({
   selector: 'app-player-list',
@@ -13,33 +17,20 @@ import { Player } from '../../models/player';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PlayerListComponent {
-  playerList$: Observable<(Player & { isMember: boolean })[]>;
+  readonly faEye = faEye;
+  readonly faEyeSlash = faEyeSlash;
+
+  playerList$: Observable<PlayerUiEntry[]>;
   playerListLength$: Observable<number>;
   isPartyLeader$: Observable<boolean>;
 
   constructor(
     private readonly playerListService: PlayerListService,
+    private readonly playerUiService: PlayerUiService,
     private readonly clientService: ClientService,
     private readonly groupService: GroupService,
   ) {
-    this.playerList$ = combineLatest([
-      this.playerListService.playerList.asObservable().pipe(pluck('players')),
-      this.groupService.group.asObservable().pipe(pluck('members')),
-    ]).pipe(
-      map(([players, members]) => {
-        if (!players) {
-          return [];
-        }
-        return players.map(player => ({
-          ...player,
-          isMember: members.includes(player.id),
-        }));
-      }),
-      share({
-        connector: () => new ReplaySubject(1),
-        resetOnRefCountZero: true,
-      }),
-    );
+    this.playerList$ = this.playerUiService.players$;
     this.playerListLength$ = this.playerList$.pipe(
       map(players => players?.length ?? 0),
     );
@@ -53,6 +44,10 @@ export class PlayerListComponent {
         resetOnRefCountZero: true,
       }),
     );
+  }
+
+  public toggleName(player: PlayerUiEntry) {
+    this.playerUiService.toggleName(player);
   }
 
   public sendPartyInvite(inviteeId: number) {

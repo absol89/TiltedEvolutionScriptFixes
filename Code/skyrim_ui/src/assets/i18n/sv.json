@@ -68,6 +68,9 @@
       "LEAVE_PARTY": "Lämna party"
     },
     "PARTY_LIST": {
+      "STRANGER": "Främling",
+      "SHOW_NAME": "Visa namn",
+      "HIDE_NAME": "Dölj namn",
       "NO_OTHER_PLAYERS": "Inte en kotte här, bara hönorna",
       "TABLE_HEADERS": {
         "LEVEL": "Lv.",
@@ -109,6 +112,36 @@
       "JOIN": "Anslut"
     },
     "SETTINGS": {
+      "PLAYER_UI": {
+        "TITLE": "Filter för spelar-UI",
+        "STRANGER_NAMES": "Namn på främlingar",
+        "STRANGER_NAMES_HINT": "Spelare utanför din grupp visar bara sitt namn vid grupp- eller handelsinbjudningar. Ögat i spelarlistan åsidosätter detta per spelarnamn.",
+        "PARTY_INVITES": "Gruppinbjudningar",
+        "PARTY_INVITES_HINT": "Av: inkommande gruppinbjudningar avböjs tyst.",
+        "TRADE_INVITES": "Handelsinbjudningar",
+        "TRADE_INVITES_HINT": "Grupp: bara gruppmedlemmar kan bjuda in dig till handel.",
+        "MINI_CHAT": "Förhandsvisning av minichatt",
+        "MINI_CHAT_HINT": "Visar den senaste vita chattexten när F2-gränssnittet inte är öppet.",
+        "NAME_TAGS": "Namnskyltar",
+        "NAME_TAGS_HINT": "Grupp: namnskyltar bara ovanför gruppmedlemmar.",
+        "NAME_TAG_LEVEL": "Visa spelarnivå",
+        "NAME_TAG_BACKPLATE": "Visa bakgrundsplatta",
+        "NAME_TAG_BACKPLATE_HINT": "Mörk platta bakom namnskylten. Bara grupp: skilj snabbt gruppmedlemmar från främlingar, eller Av för mindre påträngande skyltar.",
+        "NAME_TAG_SIZE": "Storlek på namnskyltar",
+        "DISTANCES": "Avstånd",
+        "NAME_FADE_START": "Namnet börjar tona ut",
+        "NAME_FADE_START_HINT": "Närmare: 100 % opacitet.",
+        "NAME_INVISIBLE": "Namnet är osynligt",
+        "NAME_INVISIBLE_HINT": "Längre bort: 0 % opacitet.",
+        "PARTY_FADE_START": "Gruppen börjar tona ut",
+        "PARTY_INVISIBLE": "Gruppen är osynlig",
+        "UNITS": "enheter",
+        "FILTERS": {
+          "ON": "På",
+          "PARTY": "Grupp",
+          "OFF": "Av"
+        }
+      },
       "VERSION": {
         "HEADER": "Version",
         "INFO": "Nuvarande installation:",

@@ -14,25 +14,52 @@ struct NiPoint3;
 struct ImguiService;
 
 /**
- * @brief Draws 3D-aware name tags above party members' heads.
+ * @brief Draws 3D-aware name tags above other players' heads.
  *
- * Minimal port: character name + level, no avatar. Tags only render for
- * party members within range and with line-of-sight (or very close).
+ * Character name + level, no avatar. Which tags show, and how, is set by the
+ * "Player UI filters" settings in the overlay (see SetSettings).
  */
 struct NameTagService
 {
+    // Matches the order of PlayerUiFilter in the UI.
+    enum class Filter : uint8_t
+    {
+        kOn = 0,
+        kParty = 1,
+        kOff = 2,
+    };
+
+    struct Settings
+    {
+        Filter NameTags = Filter::kOn;
+        Filter Level = Filter::kOn;
+        Filter Backplate = Filter::kOn;
+        float FontSize = 16.f;
+        float NameFadeStart = 2000.f;
+        float NameInvisible = 3000.f;
+        float PartyFadeStart = 2000.f;
+        float PartyInvisible = 3000.f;
+        // Drawn in italics instead of the name of players whose name is hidden.
+        String StrangerLabel = "Stranger";
+        // Players whose real name may be shown (party members, plus strangers
+        // revealed globally or with the eye in the player list).
+        Set<uint32_t> RevealedPlayerIds;
+    };
+
     NameTagService(World& aWorld, entt::dispatcher& aDispatcher) noexcept;
     ~NameTagService() noexcept = default;
 
     TP_NOCOPYMOVE(NameTagService);
 
+    void SetSettings(Settings aSettings) noexcept;
+
     // Tunables (kept few on purpose).
-    static constexpr float kMaxDistance = 3000.f;
-    static constexpr float kFadeDistance = 2000.f;
     static constexpr float kNearBypassDistance = 600.f;
     static constexpr float kVerticalOffset = 24.f;
     static constexpr float kForwardOffset = 10.f;
-    static constexpr float kScale = 1.f;
+    // UI font sizes are tuned for the overlay; tags read better a bit larger.
+    static constexpr float kFontSizeScale = 1.25f;
+    static constexpr float kItalicShear = 0.2f;
     static constexpr float kVisibilityEpsilon = 1e-3f;
 
 private:
@@ -48,10 +75,12 @@ private:
     [[nodiscard]] bool ShouldRenderTag(uint32_t aPlayerId) const noexcept;
     [[nodiscard]] bool ProjectWorldPoint(const NiPoint3& aWorldPoint, ImVec2& aScreenPos, float& aDepth, const ImVec2& aViewport) const noexcept;
     [[nodiscard]] NiPoint3 BuildAnchorPoint(Actor* apActor) const noexcept;
+    [[nodiscard]] static bool IsEnabledFor(Filter aFilter, bool aIsPartyMember) noexcept;
     [[nodiscard]] static ImU32 ColorWithAlpha(const ImVec4& aColor, float aAlpha) noexcept;
 
     World& m_world;
 
+    Settings m_settings;
     std::unordered_map<uint32_t, VisibilityInfo> m_visibility;
 
     entt::scoped_connection m_drawConnection;

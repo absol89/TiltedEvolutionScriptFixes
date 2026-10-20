@@ -11,6 +11,12 @@
       <thead class="list-header">
         <tr>
           <th>{{ 'COMPONENT.PARTY_LIST.TABLE_HEADERS.LEVEL' | transloco }}</th>
+          <th class="eye-col">
+            <fa-icon
+              [icon]="faEye"
+              [title]="'COMPONENT.PARTY_LIST.SHOW_NAME' | transloco"
+            ></fa-icon>
+          </th>
           <th>{{ 'COMPONENT.PARTY_LIST.TABLE_HEADERS.NAME' | transloco }}</th>
           <th></th>
         </tr>
@@ -18,7 +24,36 @@
       <tbody class="listBody">
         <tr *ngFor="let player of playerList$ | async">
           <td>{{ player.level }}</td>
-          <td>{{ player.name }}</td>
+          <td class="eye-col">
+            <button
+              type="button"
+              class="eye-button"
+              [class.hidden-name]="!player.isNameRevealed"
+              [disabled]="!player.canToggleName"
+              [attr.aria-pressed]="player.isNameRevealed"
+              [attr.aria-label]="
+                (player.isNameRevealed
+                  ? 'COMPONENT.PARTY_LIST.HIDE_NAME'
+                  : 'COMPONENT.PARTY_LIST.SHOW_NAME'
+                ) | transloco
+              "
+              (click)="toggleName(player)"
+            >
+              <fa-icon
+                [icon]="player.isNameRevealed ? faEye : faEyeSlash"
+              ></fa-icon>
+            </button>
+          </td>
+          <td>
+            <span *ngIf="player.isNameRevealed; else stranger">{{
+              player.name
+            }}</span>
+            <ng-template #stranger>
+              <span class="stranger-name">{{
+                'COMPONENT.PARTY_LIST.STRANGER' | transloco
+              }}</span>
+            </ng-template>
+          </td>
           <td class="actions-col">
             <button
               [class.hidden]="player.isMember || !(isPartyLeader$ | async)"

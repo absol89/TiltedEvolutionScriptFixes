@@ -63,6 +63,9 @@
       "LEAVE_PARTY": "Leave party"
     },
     "PARTY_LIST": {
+      "STRANGER": "Fremmed",
+      "SHOW_NAME": "Vis navn",
+      "HIDE_NAME": "Skjul navn",
       "NO_OTHER_PLAYERS": "Nobody here but us chickens",
       "TABLE_HEADERS": {
         "LEVEL": "Lv.",
@@ -103,6 +106,36 @@
       "JOIN": "Bli med"
     },
     "SETTINGS": {
+      "PLAYER_UI": {
+        "TITLE": "Filtre for spiller-UI",
+        "STRANGER_NAMES": "Navn på fremmede",
+        "STRANGER_NAMES_HINT": "Spillere utenfor gruppen din viser bare navnet sitt ved gruppe- eller handelsinvitasjoner. Øyet i spillerlisten overstyrer dette per spillernavn.",
+        "PARTY_INVITES": "Gruppeinvitasjoner",
+        "PARTY_INVITES_HINT": "Av: innkommende gruppeinvitasjoner avslås stille.",
+        "TRADE_INVITES": "Handelsinvitasjoner",
+        "TRADE_INVITES_HINT": "Gruppe: bare gruppemedlemmer kan invitere deg til handel.",
+        "MINI_CHAT": "Forhåndsvisning av minichat",
+        "MINI_CHAT_HINT": "Viser den nyeste hvite chatteksten når F2-grensesnittet ikke er åpent.",
+        "NAME_TAGS": "Navneskilt",
+        "NAME_TAGS_HINT": "Gruppe: navneskilt bare over gruppemedlemmer.",
+        "NAME_TAG_LEVEL": "Vis spillernivå",
+        "NAME_TAG_BACKPLATE": "Vis bakgrunnsplate",
+        "NAME_TAG_BACKPLATE_HINT": "Mørk plate bak navneskiltet. Bare gruppe: skill raskt gruppemedlemmer fra fremmede, eller Av for mindre påtrengende navneskilt.",
+        "NAME_TAG_SIZE": "Størrelse på navneskilt",
+        "DISTANCES": "Avstander",
+        "NAME_FADE_START": "Navnet begynner å tone ut",
+        "NAME_FADE_START_HINT": "Nærmere: 100 % synlighet.",
+        "NAME_INVISIBLE": "Navnet er usynlig",
+        "NAME_INVISIBLE_HINT": "Lenger unna: 0 % synlighet.",
+        "PARTY_FADE_START": "Gruppen begynner å tone ut",
+        "PARTY_INVISIBLE": "Gruppen er usynlig",
+        "UNITS": "enheter",
+        "FILTERS": {
+          "ON": "På",
+          "PARTY": "Gruppe",
+          "OFF": "Av"
+        }
+      },
       "VERSION": {
         "HEADER": "Versjon",
         "INFO": "Nåverende installert:",

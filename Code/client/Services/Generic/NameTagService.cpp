@@ -14,6 +14,8 @@
 #include <Games/Skyrim/Interface/UI.h>
 #include <Games/Skyrim/Misc/BSFixedString.h>
 
+#include <imgui_internal.h>
+
 #include <string>
 
 namespace
@@ -30,6 +32,22 @@ float SmoothStep(float aEdge0, float aEdge1, float aValue) noexcept
 
     const float t = Clamp01((aValue - aEdge0) / (aEdge1 - aEdge0));
     return t * t * (3.f - 2.f * t);
+}
+
+bool HasAllGlyphs(ImFont* apFont, const String& acText) noexcept
+{
+    const char* pText = acText.c_str();
+    const char* pEnd = pText + acText.size();
+    while (pText < pEnd)
+    {
+        unsigned int codepoint = 0;
+        pText += ImTextCharFromUtf8(&codepoint, pText, pEnd);
+        if (codepoint < 0x80)
+            continue;
+        if (!apFont->FindGlyphNoFallback(static_cast<ImWchar>(codepoint)))
+            return false;
+    }
+    return true;
 }
 } // namespace
 
@@ -86,8 +104,22 @@ void NameTagService::OnUpdate(const UpdateEvent&) noexcept
     }
 }
 
+void NameTagService::SetSettings(Settings aSettings) noexcept
+{
+    aSettings.NameFadeStart = std::max(aSettings.NameFadeStart, 0.f);
+    aSettings.NameInvisible = std::max(aSettings.NameInvisible, aSettings.NameFadeStart + 1.f);
+    aSettings.PartyFadeStart = std::max(aSettings.PartyFadeStart, 0.f);
+    aSettings.PartyInvisible = std::max(aSettings.PartyInvisible, aSettings.PartyFadeStart + 1.f);
+    aSettings.FontSize = std::clamp(aSettings.FontSize, 8.f, 48.f);
+
+    m_settings = std::move(aSettings);
+}
+
 void NameTagService::OnDraw() noexcept
 {
+    if (m_settings.NameTags == Filter::kOff)
+        return;
+
     auto* pLocalPlayer = PlayerCharacter::Get();
     if (!pLocalPlayer)
         return;
@@ -111,16 +143,23 @@ void NameTagService::OnDraw() noexcept
     if (view.begin() == view.end())
         return;
 
-    const auto& partyMembers = m_world.GetPartyService().GetPartyMembers();
     const auto& partyService = m_world.GetPartyService();
+    const auto& partyMembers = partyService.GetPartyMembers();
 
     ImDrawList* drawList = ImGui::GetForegroundDrawList();
     if (!drawList)
         return;
 
     const ImVec2 viewport = ImGui::GetIO().DisplaySize;
-    ImFont* font = ImGui::GetFont();
-    const float baseFontSize = font ? font->FontSize : 16.f;
+    ImFont* font = m_world.ctx().at<ImguiService>().GetNameTagFont();
+    if (!font)
+        font = ImGui::GetFont();
+
+    // The label comes translated from the UI; fall back to English when the
+    // tag font lacks its glyphs (e.g. CJK).
+    const char* strangerLabel = m_settings.StrangerLabel.c_str();
+    if (!HasAllGlyphs(font, m_settings.StrangerLabel))
+        strangerLabel = "Stranger";
 
     const glm::vec3 localPos = {pLocalPlayer->position.x, pLocalPlayer->position.y, pLocalPlayer->position.z};
 
@@ -137,28 +176,24 @@ void NameTagService::OnDraw() noexcept
         if (!pExtension || pExtension->IsLocalPlayer())
             continue;
 
-        // Only show tags for party members.
-        bool isPartyMember = false;
-        for (size_t i = 0; i < partyMembers.size(); ++i)
-        {
-            if (partyMembers[i] == playerComponent.Id)
-            {
-                isPartyMember = true;
-                break;
-            }
-        }
-        if (!isPartyMember)
+        const bool isPartyMember = std::find(partyMembers.begin(), partyMembers.end(), playerComponent.Id) != partyMembers.end();
+        if (!IsEnabledFor(m_settings.NameTags, isPartyMember))
             continue;
 
         if (!ShouldRenderTag(playerComponent.Id))
             continue;
 
         // Name from the party UI's player list (keyed by player id).
-        std::string displayName = "#" + std::to_string(playerComponent.Id);
-        const auto& players = partyService.GetPlayers();
-        auto it = players.find(playerComponent.Id);
-        if (it != players.end() && !it->second.empty())
-            displayName = it->second.c_str();
+        const bool isNameRevealed = isPartyMember || m_settings.RevealedPlayerIds.count(playerComponent.Id) > 0;
+        std::string displayName = strangerLabel;
+        if (isNameRevealed)
+        {
+            displayName = "#" + std::to_string(playerComponent.Id);
+            const auto& players = partyService.GetPlayers();
+            auto it = players.find(playerComponent.Id);
+            if (it != players.end() && !it->second.empty())
+                displayName = it->second.c_str();
+        }
 
         const NiPoint3 anchor = BuildAnchorPoint(pActor);
 
@@ -167,60 +202,85 @@ void NameTagService::OnDraw() noexcept
         if (!ProjectWorldPoint(anchor, screenPos, depth, viewport))
             continue;
 
+        const float fadeStart = isPartyMember ? m_settings.PartyFadeStart : m_settings.NameFadeStart;
+        const float invisible = isPartyMember ? m_settings.PartyInvisible : m_settings.NameInvisible;
+
         const glm::vec3 remotePos = {anchor.x, anchor.y, anchor.z};
         const float distance = glm::distance(localPos, remotePos);
-        if (distance > kMaxDistance)
+        if (distance > invisible)
             continue;
 
         float alpha = 1.f;
-        if (distance > kFadeDistance)
+        if (distance > fadeStart)
         {
-            const float fadeSpan = std::max(kMaxDistance - kFadeDistance, 1.f);
-            const float fadeT = Clamp01((distance - kFadeDistance) / fadeSpan);
+            const float fadeT = Clamp01((distance - fadeStart) / (invisible - fadeStart));
             alpha = 1.f - SmoothStep(0.f, 1.f, fadeT);
         }
         alpha *= Clamp01(1.f - std::max(depth - 0.95f, 0.f) * 4.f);
         if (alpha <= 0.01f)
             continue;
 
+        const bool showLevel = IsEnabledFor(m_settings.Level, isPartyMember);
+        const bool showBackplate = IsEnabledFor(m_settings.Backplate, isPartyMember);
+
         const uint16_t level = pActor->GetLevel();
-        const std::string levelText = level > 0 ? ("Lv. " + std::to_string(level)) : std::string("Lv. --");
+        const std::string levelText = !showLevel ? std::string() : level > 0 ? ("Lv. " + std::to_string(level)) : std::string("Lv. --");
 
-        const float nameFontSize = baseFontSize * kScale;
+        const float scale = m_settings.FontSize / 16.f;
+        const float nameFontSize = m_settings.FontSize * kFontSizeScale;
         const float levelFontSize = nameFontSize * 0.75f;
-        const ImVec2 nameTextSize = font ? font->CalcTextSizeA(nameFontSize, FLT_MAX, 0.f, displayName.c_str(), displayName.c_str() + displayName.size()) : ImVec2(static_cast<float>(displayName.size()) * nameFontSize * 0.5f, nameFontSize);
-        const ImVec2 levelTextSize = font ? font->CalcTextSizeA(levelFontSize, FLT_MAX, 0.f, levelText.c_str(), levelText.c_str() + levelText.size()) : ImVec2(static_cast<float>(levelText.size()) * levelFontSize * 0.5f, levelFontSize);
+        const float lineSpacing = showLevel ? 4.f * scale : 0.f;
+        const ImVec2 nameTextSize = font->CalcTextSizeA(nameFontSize, FLT_MAX, 0.f, displayName.c_str(), displayName.c_str() + displayName.size());
+        const ImVec2 levelTextSize = showLevel ? font->CalcTextSizeA(levelFontSize, FLT_MAX, 0.f, levelText.c_str(), levelText.c_str() + levelText.size()) : ImVec2(0.f, 0.f);
 
-        const float paddingX = 14.f * kScale;
-        const float paddingY = 6.f * kScale;
+        const float paddingX = 14.f * scale;
+        const float paddingY = 6.f * scale;
         const float textColumnWidth = std::max(nameTextSize.x, levelTextSize.x);
-        const float textColumnHeight = nameTextSize.y + 4.f * kScale + levelTextSize.y;
+        const float textColumnHeight = nameTextSize.y + lineSpacing + levelTextSize.y;
         const float totalWidth = textColumnWidth + paddingX * 2.f;
         const float totalHeight = textColumnHeight + paddingY * 2.f;
 
         ImVec2 topLeft(screenPos.x - totalWidth * 0.5f, screenPos.y - totalHeight * 0.5f);
         ImVec2 bottomRight(screenPos.x + totalWidth * 0.5f, screenPos.y + totalHeight * 0.5f);
 
-        const ImU32 bgColor = ColorWithAlpha(ImVec4(0.f, 0.f, 0.f, 0.65f), alpha);
-        drawList->AddRectFilled(topLeft, bottomRight, bgColor, 6.f);
+        if (showBackplate)
+        {
+            const ImU32 bgColor = ColorWithAlpha(ImVec4(0.f, 0.f, 0.f, 0.65f), alpha);
+            drawList->AddRectFilled(topLeft, bottomRight, bgColor, 6.f * scale);
 
-        const ImU32 borderColor = ColorWithAlpha(ImVec4(1.f, 1.f, 1.f, 0.35f), alpha);
-        drawList->AddRect(topLeft, bottomRight, borderColor, 6.f);
+            const ImU32 borderColor = ColorWithAlpha(ImVec4(1.f, 1.f, 1.f, 0.35f), alpha);
+            drawList->AddRect(topLeft, bottomRight, borderColor, 6.f * scale);
+        }
 
-        ImVec2 namePos(topLeft.x + paddingX, topLeft.y + paddingY + (textColumnHeight - nameTextSize.y - 4.f * kScale - levelTextSize.y) * 0.5f);
-        ImVec2 levelPos(namePos.x, namePos.y + nameTextSize.y + 4.f * kScale);
+        // Without a backplate a soft shadow keeps the text readable.
+        auto drawText = [&](float aSize, ImVec2 aPos, const ImVec4& aColor, const std::string& acText, bool aItalic) {
+            const int firstVertex = drawList->VtxBuffer.Size;
 
-        const ImU32 textColor = ColorWithAlpha(ImVec4(0.95f, 0.95f, 0.95f, 1.f), alpha);
-        if (font)
-            drawList->AddText(font, nameFontSize, namePos, textColor, displayName.c_str(), displayName.c_str() + displayName.size());
-        else
-            drawList->AddText(namePos, textColor, displayName.c_str());
+            if (!showBackplate)
+            {
+                const ImU32 shadowColor = ColorWithAlpha(ImVec4(0.f, 0.f, 0.f, 0.8f), alpha);
+                drawList->AddText(font, aSize, ImVec2(aPos.x + 1.f, aPos.y + 1.f), shadowColor, acText.c_str(), acText.c_str() + acText.size());
+            }
+            drawList->AddText(font, aSize, aPos, ColorWithAlpha(aColor, alpha), acText.c_str(), acText.c_str() + acText.size());
 
-        const ImU32 levelColor = ColorWithAlpha(ImVec4(0.85f, 0.92f, 1.f, 0.95f), alpha);
-        if (font)
-            drawList->AddText(font, levelFontSize, levelPos, levelColor, levelText.c_str(), levelText.c_str() + levelText.size());
-        else
-            drawList->AddText(levelPos, levelColor, levelText.c_str());
+            // ImGui has no italic style: shear the glyph quads around the baseline.
+            if (aItalic)
+            {
+                const float baseline = aPos.y + aSize;
+                for (int i = firstVertex; i < drawList->VtxBuffer.Size; ++i)
+                    drawList->VtxBuffer[i].pos.x += (baseline - drawList->VtxBuffer[i].pos.y) * kItalicShear;
+            }
+        };
+
+        const ImVec2 namePos(screenPos.x - nameTextSize.x * 0.5f, topLeft.y + paddingY);
+        const ImVec4 nameColor = isNameRevealed ? ImVec4(0.95f, 0.95f, 0.95f, 1.f) : ImVec4(0.75f, 0.75f, 0.75f, 1.f);
+        drawText(nameFontSize, namePos, nameColor, displayName, !isNameRevealed);
+
+        if (showLevel)
+        {
+            const ImVec2 levelPos(screenPos.x - levelTextSize.x * 0.5f, namePos.y + nameTextSize.y + lineSpacing);
+            drawText(levelFontSize, levelPos, ImVec4(0.85f, 0.92f, 1.f, 0.95f), levelText, false);
+        }
     }
 }
 
@@ -264,6 +324,11 @@ NiPoint3 NameTagService::BuildAnchorPoint(Actor* apActor) const noexcept
     anchor.y += std::cos(yaw) * kForwardOffset;
 
     return anchor;
+}
+
+bool NameTagService::IsEnabledFor(Filter aFilter, bool aIsPartyMember) noexcept
+{
+    return aFilter == Filter::kOn || (aFilter == Filter::kParty && aIsPartyMember);
 }
 
 ImU32 NameTagService::ColorWithAlpha(const ImVec4& aColor, float aAlpha) noexcept
