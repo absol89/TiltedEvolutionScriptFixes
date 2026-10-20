@@ -97,6 +97,10 @@ export class PlayerUiService implements OnDestroy {
     this.settingService.setNameOverride(player.name, !player.isNameRevealed);
   }
 
+  public isNameHidden(name: string): boolean {
+    return this.settingService.isNameHidden(name);
+  }
+
   public acceptsPartyInvites(): boolean {
     return this.settings.partyInvites.getValue();
   }

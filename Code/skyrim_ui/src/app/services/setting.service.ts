@@ -245,6 +245,11 @@ export class SettingService {
     );
   }
 
+  /** Whether this name was hidden with the eye in the player list. */
+  public isNameHidden(name: string): boolean {
+    return this.nameOverrides.getValue()[name] === false;
+  }
+
   public setNameOverride(name: string, revealed: boolean) {
     const overrides = { ...this.nameOverrides.getValue(), [name]: revealed };
     this.storeService.set(

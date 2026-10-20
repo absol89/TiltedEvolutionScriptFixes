@@ -47,7 +47,11 @@ function setup() {
     view: 'players', view$: new BehaviorSubject('players'), getView() { return this.view; },
     openView(view) { this.view = view; this.view$.next(view); },
   };
-  const playerUi = { tradeInvitesAllowed: true, acceptsTradeInvite() { return this.tradeInvitesAllowed; } };
+  const playerUi = {
+    tradeInvitesAllowed: true, hiddenNames: new Set(),
+    acceptsTradeInvite() { return this.tradeInvitesAllowed; },
+    isNameHidden(name) { return this.hiddenNames.has(name); },
+  };
   const service = new exported.TradeUiService(client, players, popups, { translate: key => key }, ui, playerUi);
   return { client, calls, service, notifications, ui, playerUi };
 }
@@ -142,6 +146,17 @@ test('invitations filtered by the trade invitation setting are declined without 
   fixture.client.tradeInviteChange.next({ inviterId: 2, expiryTick: 1000 });
   assert.equal(fixture.notifications.length, 0);
   assert.deepEqual(fixture.calls, [['respondTradeInvite', 2, false]]);
+  // The server echoes the decline back; that must not pop up the inviter's name either.
+  fixture.client.tradeCancelledChange.next({ partnerId: 2, reason: 0, wasInitiator: false });
+  assert.equal(fixture.notifications.length, 0);
+  fixture.service.ngOnDestroy();
+});
+
+test('names hidden with the eye stay hidden in trade popups', () => {
+  const fixture = setup();
+  fixture.playerUi.hiddenNames.add('Partner');
+  fixture.client.tradeInviteChange.next({ inviterId: 2, expiryTick: 1000 });
+  assert.equal(fixture.notifications.at(-1)[1], 'COMPONENT.PARTY_LIST.STRANGER');
   fixture.service.ngOnDestroy();
 });
 

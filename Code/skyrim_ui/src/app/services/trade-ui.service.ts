@@ -88,6 +88,8 @@ export class TradeUiService implements OnDestroy {
   private state?: TradeStatePayload;
   private previousView: View | null = null;
   private readonly incoming = new Set<number>();
+  // Invites declined by the "Trade invitations" filter; the server echoes the decline back to us.
+  private readonly silentlyDeclined = new Set<number>();
 
   constructor(
     private readonly clientService: ClientService,
@@ -105,6 +107,7 @@ export class TradeUiService implements OnDestroy {
       this.incoming.add(invite.inviterId);
       // Filtered by the "Trade invitations" setting: decline without a popup.
       if (!this.playerUiService.acceptsTradeInvite(invite.inviterId)) {
+        this.silentlyDeclined.add(invite.inviterId);
         this.respond(invite.inviterId, false);
         return;
       }
@@ -115,6 +118,7 @@ export class TradeUiService implements OnDestroy {
     this.subscriptions.add(clientService.tradeCancelledChange.subscribe(cancelled => {
       this.incoming.delete(cancelled.partnerId);
       this.removeOutgoing(cancelled.partnerId);
+      if (this.silentlyDeclined.delete(cancelled.partnerId) && !cancelled.wasInitiator) return;
       const reasons = ['DECLINED', 'CANCELLED', 'PARTNER_BUSY', 'SELF_BUSY', 'PLAYER_LEFT', 'TIMEOUT', 'FAILED_VALIDATION'];
       this.popupNotificationService.addTradeCancelled(this.getDisplayName(cancelled.partnerId),
         this.transloco.translate('SERVICE.TRADE.CANCELLED_REASONS.' + (reasons[cancelled.reason] ?? 'UNKNOWN')));
@@ -192,8 +196,10 @@ export class TradeUiService implements OnDestroy {
   }
 
   public getDisplayName(id: number): string {
-    return this.playerListService.playerList.value?.players.find(player => player.id === id)?.name
-      ?? this.transloco.translate('SERVICE.TRADE.UNKNOWN_PLAYER', { id });
+    const name = this.playerListService.playerList.value?.players.find(player => player.id === id)?.name;
+    if (name === undefined) return this.transloco.translate('SERVICE.TRADE.UNKNOWN_PLAYER', { id });
+    // A name hidden with the eye stays hidden, invites and trades included.
+    return this.playerUiService.isNameHidden(name) ? this.transloco.translate('COMPONENT.PARTY_LIST.STRANGER') : name;
   }
 
   private removeOutgoing(id: number): void {
@@ -204,6 +210,7 @@ export class TradeUiService implements OnDestroy {
 
   private reset(): void {
     this.incoming.clear();
+    this.silentlyDeclined.clear();
     this.outgoing.next(new Set());
     this.applyState(undefined);
   }
