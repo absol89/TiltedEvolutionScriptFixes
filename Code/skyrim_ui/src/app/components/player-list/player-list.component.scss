@@ -45,6 +45,32 @@
       padding: 15px;
     }
 
+    .eye-col {
+      width: 2.5em;
+      text-align: center;
+    }
+
+    .eye-button {
+      padding: 0.25vw 0.5vw;
+      background: none;
+      border: 0;
+      cursor: pointer;
+
+      &.hidden-name {
+        color: #e0483e;
+      }
+
+      &[disabled] {
+        opacity: 0.4;
+        cursor: default;
+      }
+    }
+
+    .stranger-name {
+      font-style: italic;
+      opacity: 0.75;
+    }
+
     .user-action-button {
       padding: 0.25vw;
       background-color: #292929;

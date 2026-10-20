@@ -35,7 +35,10 @@
     "NOTIFICATIONS": {
       "MESSAGE_FROM": "Wiadomość od",
       "ACCEPT": "Zaakceptuj",
-      "DECLINE": "Odrzuć"
+      "DECLINE": "Odrzuć",
+      "OPEN_GUIDE": "Otwórz przewodnik",
+      "DISMISS": "Zamknij",
+      "DONT_SHOW": "Nie pokazuj"
     },
     "PARTY_MENU": {
       "ACCEPT_INVITE": "Zaakceptuj zaproszenie od {{name}}",
@@ -64,6 +67,9 @@
       "LEAVE_PARTY": "Odejdź z grupy"
     },
     "PARTY_LIST": {
+      "STRANGER": "Nieznajomy",
+      "SHOW_NAME": "Pokaż imię",
+      "HIDE_NAME": "Ukryj imię",
       "NO_OTHER_PLAYERS": "Nikogo tutaj nie ma poza nami Kurczakami!",
       "TABLE_HEADERS": {
         "LEVEL": "Lv.",
@@ -104,6 +110,36 @@
       "JOIN": "dołącz"
     },
     "SETTINGS": {
+      "PLAYER_UI": {
+        "TITLE": "Filtry interfejsu graczy",
+        "STRANGER_NAMES": "Imiona nieznajomych",
+        "STRANGER_NAMES_HINT": "Gracze spoza twojej drużyny ujawniają imię tylko przy zaproszeniach do drużyny lub handlu. Oko na liście graczy nadpisuje to dla danego imienia.",
+        "PARTY_INVITES": "Zaproszenia do drużyny",
+        "PARTY_INVITES_HINT": "Wył.: przychodzące zaproszenia do drużyny są po cichu odrzucane.",
+        "TRADE_INVITES": "Zaproszenia do handlu",
+        "TRADE_INVITES_HINT": "Drużyna: tylko członkowie drużyny mogą zaprosić cię do handlu.",
+        "MINI_CHAT": "Podgląd minichatu",
+        "MINI_CHAT_HINT": "Pokazuje najnowszy biały tekst czatu, gdy interfejs F2 jest zamknięty.",
+        "NAME_TAGS": "Plakietki z imieniem",
+        "NAME_TAGS_HINT": "Drużyna: plakietki tylko nad członkami drużyny.",
+        "NAME_TAG_LEVEL": "Pokaż poziom gracza",
+        "NAME_TAG_BACKPLATE": "Pokaż tło",
+        "NAME_TAG_BACKPLATE_HINT": "Ciemne tło za plakietką. Tylko drużyna: szybko odróżnisz drużynę od nieznajomych, lub Wył. dla mniej rzucających się w oczy plakietek.",
+        "NAME_TAG_SIZE": "Rozmiar plakietek",
+        "DISTANCES": "Odległości",
+        "NAME_FADE_START": "Początek zanikania imienia",
+        "NAME_FADE_START_HINT": "Bliżej: 100% krycia.",
+        "NAME_INVISIBLE": "Imię jest niewidoczne",
+        "NAME_INVISIBLE_HINT": "Dalej: 0% krycia.",
+        "PARTY_FADE_START": "Początek zanikania drużyny",
+        "PARTY_INVISIBLE": "Drużyna jest niewidoczna",
+        "UNITS": "jednostek",
+        "FILTERS": {
+          "ON": "Wł.",
+          "PARTY": "Drużyna",
+          "OFF": "Wył."
+        }
+      },
       "VERSION": {
         "HEADER": "Wersja",
         "INFO": "Aktualnie Zainstalowana:",
@@ -171,6 +207,9 @@
     },
     "PLAYER_LIST": {
       "PARTY_INVITE": "{{from}} Zaprosił cię do drużyny"
+    },
+    "PARTY_HINT": {
+      "MESSAGE": "Chcesz porobić wspólnie questy? Stwórz grupę i trzymaj się jej blisko, aby współdzielić postęp w questach! Przeczytaj nasz przewodnik, aby dowiedzieć się więcej."
     }
   }
 }

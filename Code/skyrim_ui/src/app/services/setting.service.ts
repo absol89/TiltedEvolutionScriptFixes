@@ -11,11 +11,17 @@ export enum FontSize {
   XL = 'xl',
 }
 
-export enum PartyAnchor {
+export enum ScreenCorner {
   TOP_LEFT = 0,
   TOP_RIGHT,
   BOTTOM_RIGHT,
   BOTTOM_LEFT,
+}
+
+export enum PlayerUiFilter {
+  ON = 'on',
+  PARTY = 'party',
+  OFF = 'off',
 }
 
 export const autoHideTimerLengths = [1, 3, 5];
@@ -97,10 +103,11 @@ export class SettingService {
     this.translocoService.getAvailableLangs(),
   ).map(lang => lang.id);
   private readonly fontSizeValues = Object.values(FontSize);
-  private readonly partyAnchorValues = Object.values(
-    PartyAnchor,
-  ) as PartyAnchor[];
+  private readonly screenCornerValues = Object.values(
+    ScreenCorner,
+  ) as ScreenCorner[];
   private readonly autoHideTimeValues = autoHideTimerLengths;
+  private readonly playerUiFilterValues = Object.values(PlayerUiFilter);
 
   public settings = {
     volume: new SliderSetting(this.storeService, 'audio_volume', 0.5),
@@ -132,8 +139,8 @@ export class SettingService {
     partyAnchor: new SelectSetting(
       this.storeService,
       'party_anchor',
-      this.partyAnchorValues,
-      PartyAnchor.TOP_LEFT,
+      this.screenCornerValues,
+      ScreenCorner.TOP_LEFT,
     ),
     partyAnchorOffsetX: new SliderSetting(
       this.storeService,
@@ -146,7 +153,88 @@ export class SettingService {
       3,
     ),
     isDebugShown: new ToggleSetting(this.storeService, 'debug_isShown', false),
+    debugAnchor: new SelectSetting(
+      this.storeService,
+      'debug_anchor',
+      this.screenCornerValues,
+      ScreenCorner.TOP_LEFT,
+    ),
+    strangerNames: new ToggleSetting(
+      this.storeService,
+      'playerUi_strangerNames',
+      false,
+    ),
+    partyInvites: new ToggleSetting(
+      this.storeService,
+      'playerUi_partyInvites',
+      true,
+    ),
+    tradeInvites: new SelectSetting(
+      this.storeService,
+      'playerUi_tradeInvites',
+      this.playerUiFilterValues,
+      PlayerUiFilter.ON,
+    ),
+    miniChat: new SelectSetting(
+      this.storeService,
+      'playerUi_miniChat',
+      this.playerUiFilterValues,
+      PlayerUiFilter.ON,
+    ),
+    nameTags: new SelectSetting(
+      this.storeService,
+      'playerUi_nameTags',
+      this.playerUiFilterValues,
+      PlayerUiFilter.ON,
+    ),
+    nameTagLevel: new SelectSetting(
+      this.storeService,
+      'playerUi_nameTagLevel',
+      this.playerUiFilterValues,
+      PlayerUiFilter.ON,
+    ),
+    nameTagBackplate: new SelectSetting(
+      this.storeService,
+      'playerUi_nameTagBackplate',
+      this.playerUiFilterValues,
+      PlayerUiFilter.ON,
+    ),
+    nameTagSize: new SelectSetting(
+      this.storeService,
+      'playerUi_nameTagSize',
+      this.fontSizeValues,
+      FontSize.M,
+    ),
+    nameFadeStart: new SliderSetting(
+      this.storeService,
+      'playerUi_nameFadeStart',
+      2000,
+    ),
+    nameInvisible: new SliderSetting(
+      this.storeService,
+      'playerUi_nameInvisible',
+      3000,
+    ),
+    partyFadeStart: new SliderSetting(
+      this.storeService,
+      'playerUi_partyFadeStart',
+      2000,
+    ),
+    partyInvisible: new SliderSetting(
+      this.storeService,
+      'playerUi_partyInvisible',
+      3000,
+    ),
   };
+
+  /**
+   * Per-username overrides of the stranger name setting, set with the eye in
+   * the player list. Keyed by username so the choice follows that name across
+   * servers and applies to everyone using it.
+   */
+  public nameOverrides = new BehaviorSubject<Record<string, boolean>>(
+    this.loadNameOverrides(),
+  );
 
   constructor(
     private readonly storeService: StoreService,
@@ -155,5 +243,25 @@ export class SettingService {
     this.settings.language.subscribe(lang =>
       translocoService.setActiveLang(lang),
     );
+  }
+
+  public setNameOverride(name: string, revealed: boolean) {
+    const overrides = { ...this.nameOverrides.getValue(), [name]: revealed };
+    this.storeService.set(
+      'playerUi_nameOverrides',
+      JSON.stringify(overrides),
+    );
+    this.nameOverrides.next(overrides);
+  }
+
+  private loadNameOverrides(): Record<string, boolean> {
+    try {
+      const parsed = JSON.parse(
+        this.storeService.get('playerUi_nameOverrides', '{}'),
+      );
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
   }
 }

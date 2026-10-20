@@ -5,7 +5,8 @@ import { Tag } from 'src/app/models/tag';
 import {
   autoHideTimerLengths,
   FontSize,
-  PartyAnchor,
+  PlayerUiFilter,
+  ScreenCorner,
   SettingService,
 } from 'src/app/services/setting.service';
 import { Sound, SoundService } from '../../services/sound.service';
@@ -27,29 +28,44 @@ export class SettingsComponent {
     { id: FontSize.L, label: 'COMPONENT.SETTINGS.FONT_SIZES.L' },
     { id: FontSize.XL, label: 'COMPONENT.SETTINGS.FONT_SIZES.XL' },
   ];
-  readonly availablePartyAnchors: { id: PartyAnchor; label: string }[] = [
+  readonly availableCorners: { id: ScreenCorner; label: string }[] = [
     {
-      id: PartyAnchor.TOP_LEFT,
+      id: ScreenCorner.TOP_LEFT,
       label: 'COMPONENT.SETTINGS.PARTY_ANCHOR_POSITION.TOP_LEFT',
     },
     {
-      id: PartyAnchor.TOP_RIGHT,
+      id: ScreenCorner.TOP_RIGHT,
       label: 'COMPONENT.SETTINGS.PARTY_ANCHOR_POSITION.TOP_RIGHT',
     },
     {
-      id: PartyAnchor.BOTTOM_RIGHT,
-      label: 'COMPONENT.SETTINGS.PARTY_ANCHOR_POSITION.BOTTOM_LEFT',
+      id: ScreenCorner.BOTTOM_RIGHT,
+      label: 'COMPONENT.SETTINGS.PARTY_ANCHOR_POSITION.BOTTOM_RIGHT',
     },
     {
-      id: PartyAnchor.BOTTOM_LEFT,
-      label: 'COMPONENT.SETTINGS.PARTY_ANCHOR_POSITION.BOTTOM_RIGHT',
+      id: ScreenCorner.BOTTOM_LEFT,
+      label: 'COMPONENT.SETTINGS.PARTY_ANCHOR_POSITION.BOTTOM_LEFT',
     },
   ];
   readonly availableAutoHideTimes = autoHideTimerLengths;
+  readonly availablePlayerUiFilters: { id: PlayerUiFilter; label: string }[] =
+    [
+      {
+        id: PlayerUiFilter.ON,
+        label: 'COMPONENT.SETTINGS.PLAYER_UI.FILTERS.ON',
+      },
+      {
+        id: PlayerUiFilter.PARTY,
+        label: 'COMPONENT.SETTINGS.PLAYER_UI.FILTERS.PARTY',
+      },
+      {
+        id: PlayerUiFilter.OFF,
+        label: 'COMPONENT.SETTINGS.PLAYER_UI.FILTERS.OFF',
+      },
+    ];
 
   public settings = this.settingService.settings;
   public autoHideTime: number;
-  public partyAnchor: PartyAnchor;
+  public partyAnchor: ScreenCorner;
   public partyAnchorOffsetX: number;
   public partyAnchorOffsetY: number;
   public fontSize: FontSize;
