@@ -73,6 +73,7 @@
       "HIDE_NAME": "Скрыть имя",
       "NO_OTHER_PLAYERS": "Тут нет никого, кроме нас, курей",
       "TABLE_HEADERS": {
+        "KNOWN": "Знаком",
         "LEVEL": "Ур.",
         "NAME": "Имя",
         "LOCATION": "Локация"

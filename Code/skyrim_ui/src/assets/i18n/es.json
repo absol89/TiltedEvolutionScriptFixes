@@ -69,6 +69,7 @@
       "HIDE_NAME": "Ocultar nombre",
       "NO_OTHER_PLAYERS": "¡Aquí no hay nadie más que nosotros, polluelo!",
       "TABLE_HEADERS": {
+        "KNOWN": "Conocido",
         "LEVEL": "Nvl.",
         "NAME": "Nombre",
         "LOCATION": "Ubicación"

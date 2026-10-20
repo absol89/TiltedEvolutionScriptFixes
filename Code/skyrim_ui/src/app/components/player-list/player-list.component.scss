@@ -46,7 +46,7 @@
     }
 
     .eye-col {
-      width: 2.5em;
+      width: 4em;
       text-align: center;
     }
 
@@ -58,11 +58,6 @@
 
       &.hidden-name {
         color: #e0483e;
-      }
-
-      &[disabled] {
-        opacity: 0.4;
-        cursor: default;
       }
     }
 

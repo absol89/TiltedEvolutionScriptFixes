@@ -68,6 +68,7 @@
       "HIDE_NAME": "이름 숨기기",
       "NO_OTHER_PLAYERS": "여기엔 우리 닭들 외에는 아무도 없어",
       "TABLE_HEADERS": {
+        "KNOWN": "아는 사람",
         "LEVEL": "레벨",
         "NAME": "이름",
         "LOCATION": "위치"

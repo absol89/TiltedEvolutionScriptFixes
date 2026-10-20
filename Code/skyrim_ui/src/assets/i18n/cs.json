@@ -68,6 +68,7 @@
       "HIDE_NAME": "Skrýt jméno",
       "NO_OTHER_PLAYERS": "Nikdo tu není",
       "TABLE_HEADERS": {
+        "KNOWN": "Známý",
         "LEVEL": "Lv.",
         "NAME": "Jméno",
         "LOCATION": "Lokace"

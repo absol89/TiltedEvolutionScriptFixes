@@ -68,6 +68,7 @@
       "HIDE_NAME": "名前を隠す",
       "NO_OTHER_PLAYERS": "ニワトリしかいないね。",
       "TABLE_HEADERS": {
+        "KNOWN": "既知",
         "LEVEL": "Lv.",
         "NAME": "名前",
         "LOCATION": "位置"

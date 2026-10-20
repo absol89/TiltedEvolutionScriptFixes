@@ -41,8 +41,8 @@ struct NameTagService
         float PartyInvisible = 3000.f;
         // Drawn in italics instead of the name of players whose name is hidden.
         String StrangerLabel = "Stranger";
-        // Players whose real name may be shown (party members, plus strangers
-        // revealed globally or with the eye in the player list).
+        // Players whose real name may be shown. The UI decides this from the
+        // stranger name setting, party membership and the per-name eye.
         Set<uint32_t> RevealedPlayerIds;
     };
 

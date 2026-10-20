@@ -184,7 +184,7 @@ void NameTagService::OnDraw() noexcept
             continue;
 
         // Name from the party UI's player list (keyed by player id).
-        const bool isNameRevealed = isPartyMember || m_settings.RevealedPlayerIds.count(playerComponent.Id) > 0;
+        const bool isNameRevealed = m_settings.RevealedPlayerIds.count(playerComponent.Id) > 0;
         std::string displayName = strangerLabel;
         if (isNameRevealed)
         {

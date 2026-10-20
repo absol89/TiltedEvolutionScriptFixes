@@ -73,6 +73,7 @@
       "HIDE_NAME": "Dölj namn",
       "NO_OTHER_PLAYERS": "Inte en kotte här, bara hönorna",
       "TABLE_HEADERS": {
+        "KNOWN": "Känd",
         "LEVEL": "Lv.",
         "NAME": "Namn",
         "LOCATION": "Plats"

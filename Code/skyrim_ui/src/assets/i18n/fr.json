@@ -72,6 +72,7 @@
       "HIDE_NAME": "Masquer le nom",
       "NO_OTHER_PLAYERS": "Il n'y a personne ici à part nous poulets ",
       "TABLE_HEADERS": {
+        "KNOWN": "Connu",
         "LEVEL": "Lv.",
         "NAME": "Nom",
         "LOCATION": "Localisation"

@@ -69,6 +69,7 @@
       "HIDE_NAME": "隐藏名字",
       "NO_OTHER_PLAYERS": "没有其他的玩家。",
       "TABLE_HEADERS": {
+        "KNOWN": "已知",
         "LEVEL": "等级",
         "NAME": "名字",
         "LOCATION": "地点"

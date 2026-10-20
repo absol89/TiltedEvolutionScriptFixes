@@ -24,8 +24,6 @@ export interface PlayerUiEntry extends Player {
   isMember: boolean;
   /** Whether the real name may be shown, after the eye override. */
   isNameRevealed: boolean;
-  /** Whether the eye in the player list overrides the global setting. */
-  canToggleName: boolean;
 }
 
 /**
@@ -38,6 +36,8 @@ export interface PlayerUiEntry extends Player {
 })
 export class PlayerUiService implements OnDestroy {
   public readonly players$: Observable<PlayerUiEntry[]>;
+  /** Players whose name is hidden behind the "Stranger" label. */
+  public readonly hiddenPlayerIds$: Observable<Set<number>>;
 
   private readonly settings = this.settingService.settings;
   private nameTagSubscription: Subscription;
@@ -62,9 +62,10 @@ export class PlayerUiService implements OnDestroy {
           return {
             ...player,
             isMember,
+            // The eye wins over both defaults, so party members can be
+            // hidden too.
             isNameRevealed:
-              isMember || (overrides[player.name] ?? strangerNames),
-            canToggleName: !isMember,
+              overrides[player.name] ?? (isMember || strangerNames),
           };
         });
       }),
@@ -72,6 +73,17 @@ export class PlayerUiService implements OnDestroy {
         connector: () => new ReplaySubject(1),
         resetOnRefCountZero: false,
       }),
+    );
+
+    this.hiddenPlayerIds$ = this.players$.pipe(
+      map(
+        players =>
+          new Set(
+            players
+              .filter(player => !player.isNameRevealed)
+              .map(player => player.id),
+          ),
+      ),
     );
 
     this.onNameTagSettingsChanged();

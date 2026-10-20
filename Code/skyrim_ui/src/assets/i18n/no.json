@@ -68,6 +68,7 @@
       "HIDE_NAME": "Skjul navn",
       "NO_OTHER_PLAYERS": "Nobody here but us chickens",
       "TABLE_HEADERS": {
+        "KNOWN": "Kjent",
         "LEVEL": "Lv.",
         "NAME": "Navn",
         "LOCATION": "Sted"

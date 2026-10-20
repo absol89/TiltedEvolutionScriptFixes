@@ -70,6 +70,7 @@
       "HIDE_NAME": "Adı gizle",
       "NO_OTHER_PLAYERS": "Kimsecikler yok.",
       "TABLE_HEADERS": {
+        "KNOWN": "Tanıdık",
         "LEVEL": "Lv.",
         "NAME": "İsim",
         "LOCATION": "Konum"

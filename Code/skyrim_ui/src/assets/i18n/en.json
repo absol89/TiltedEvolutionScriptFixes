@@ -73,6 +73,7 @@
       "HIDE_NAME": "Hide name",
       "NO_OTHER_PLAYERS": "Nobody here but us chickens",
       "TABLE_HEADERS": {
+        "KNOWN": "Known",
         "LEVEL": "Lv.",
         "NAME": "Name",
         "LOCATION": "Location"

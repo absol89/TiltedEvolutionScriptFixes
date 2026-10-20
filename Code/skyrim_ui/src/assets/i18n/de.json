@@ -71,6 +71,7 @@
       "HIDE_NAME": "Namen verbergen",
       "NO_OTHER_PLAYERS": "Hm... keiner da. Mist.",
       "TABLE_HEADERS": {
+        "KNOWN": "Bekannt",
         "LEVEL": "Lv.",
         "NAME": "Name",
         "LOCATION": "Standort"

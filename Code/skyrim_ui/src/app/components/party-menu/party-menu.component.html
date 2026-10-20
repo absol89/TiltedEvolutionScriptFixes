@@ -79,7 +79,17 @@
         <tbody>
           <tr *ngFor="let player of members$ | async">
             <td>{{ player.level }}</td>
-            <td>{{ player.name }}</td>
+            <td>
+              <span
+                *ngIf="!(hiddenPlayerIds$ | async)?.has(player.id); else stranger"
+                >{{ player.name }}</span
+              >
+              <ng-template #stranger>
+                <span class="stranger-name">{{
+                  'COMPONENT.PARTY_LIST.STRANGER' | transloco
+                }}</span>
+              </ng-template>
+            </td>
             <td>{{ player.cellName }}</td>
             <td>
               <button

@@ -70,6 +70,7 @@
       "HIDE_NAME": "Naam verbergen",
       "NO_OTHER_PLAYERS": "Niemand aanwezig in de groep.",
       "TABLE_HEADERS": {
+        "KNOWN": "Bekend",
         "LEVEL": "Lv.",
         "NAME": "Naam",
         "LOCATION": "Locatie"

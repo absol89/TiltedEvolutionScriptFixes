@@ -72,6 +72,7 @@
       "HIDE_NAME": "Ukryj imię",
       "NO_OTHER_PLAYERS": "Nikogo tutaj nie ma poza nami Kurczakami!",
       "TABLE_HEADERS": {
+        "KNOWN": "Znany",
         "LEVEL": "Lv.",
         "NAME": "Nazwa",
         "LOCATION": "Lokalizacja"
