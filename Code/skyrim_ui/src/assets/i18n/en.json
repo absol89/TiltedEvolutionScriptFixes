@@ -255,7 +255,7 @@
       "MESSAGE": "Want to quest together? Form a party and stay close to share quest progress! Check out our play guide to learn more."
     },
     "TRADE": {
-      "UNKNOWN_PLAYER": "Player {{id}}",
+      "UNKNOWN_PLAYER": "Unknown player",
       "CANCELLED": "{{partner}} cancelled the trade ({{reason}}).",
       "COMPLETED": "Trade completed with {{partner}}.",
       "INVITE_SENT": "Trade invite sent to {{target}}.",

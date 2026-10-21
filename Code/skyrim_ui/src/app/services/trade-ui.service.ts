@@ -88,6 +88,9 @@ export class TradeUiService implements OnDestroy {
   private state?: TradeStatePayload;
   private previousView: View | null = null;
   private readonly incoming = new Set<number>();
+  // Last name seen per player id this session, so a partner who left or was
+  // dropped from the player list still shows by name rather than by id.
+  private readonly knownNames = new Map<number, string>();
   // Invites declined by the invite policy; the server echoes the decline back to us.
   private readonly silentlyDeclined = new Set<number>();
 
@@ -100,6 +103,11 @@ export class TradeUiService implements OnDestroy {
     @Optional() @Inject(TRADE_INVITE_POLICY) private readonly invitePolicy?: TradeInvitePolicy,
   ) {
     this.subscriptions.add(clientService.tradeStateChange.subscribe(state => this.applyState(state)));
+    this.subscriptions.add(playerListService.playerList.subscribe(list => {
+      for (const player of list?.players ?? []) {
+        if (player.name) this.knownNames.set(player.id, player.name);
+      }
+    }));
     this.subscriptions.add(clientService.connectionStateChange.subscribe(connected => {
       if (!connected) this.reset();
     }));
@@ -195,8 +203,9 @@ export class TradeUiService implements OnDestroy {
   }
 
   public getDisplayName(id: number): string {
-    const name = this.playerListService.playerList.value?.players.find(player => player.id === id)?.name;
-    if (name === undefined) return this.transloco.translate('SERVICE.TRADE.UNKNOWN_PLAYER', { id });
+    const name = this.playerListService.playerList.value?.players.find(player => player.id === id)?.name
+      ?? this.knownNames.get(id);
+    if (name === undefined) return this.transloco.translate('SERVICE.TRADE.UNKNOWN_PLAYER');
     return this.invitePolicy ? this.invitePolicy.displayName(id, name) : name;
   }
 
@@ -208,6 +217,7 @@ export class TradeUiService implements OnDestroy {
 
   private reset(): void {
     this.incoming.clear();
+    this.knownNames.clear();
     this.silentlyDeclined.clear();
     this.outgoing.next(new Set());
     this.applyState(undefined);
