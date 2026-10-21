@@ -331,6 +331,25 @@ TEST_CASE("Differential structures", "[encoding.differential]")
             REQUIRE(vars.Floats == recvVars.Floats);
             REQUIRE(vars.Integers == recvVars.Integers);
         }
+
+        // A size change restarts from zeros on both sides, so zeros are left out and the old values must not survive
+        vars.Floats.push_back(0.f);
+        vars.Floats[1] = 0.f;
+        vars.Integers.push_back(0);
+        vars.Integers[1] = 0;
+
+        {
+            Buffer::Writer writer(&buff);
+
+            vars.GenerateDiff(recvVars, writer);
+
+            Buffer::Reader reader(&buff);
+            recvVars.ApplyDiff(reader);
+
+            REQUIRE(vars.Booleans == recvVars.Booleans);
+            REQUIRE(vars.Floats == recvVars.Floats);
+            REQUIRE(vars.Integers == recvVars.Integers);
+        }
     }
 }
 
