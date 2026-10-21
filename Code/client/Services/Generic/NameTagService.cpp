@@ -14,6 +14,7 @@
 #include <Games/Skyrim/Interface/UI.h>
 #include <Games/Skyrim/Misc/BSFixedString.h>
 #include <Games/Skyrim/NetImmerse/NiNode.h>
+#include <Games/Skyrim/Misc/CrosshairPickData.h>
 
 #include <Messages/NotifyChatMessageBroadcast.h>
 
@@ -268,6 +269,10 @@ void NameTagService::OnDraw() noexcept
     const glm::vec3 localPos = {pLocalPlayer->position.x, pLocalPlayer->position.y, pLocalPlayer->position.z};
     const uint64_t tick = m_world.GetTick();
 
+    // The HUD's activate prompt shows over the player the crosshair is on, so their tag ducks.
+    const CrosshairPickData* pCrosshair = CrosshairPickData::Get();
+    const uint32_t crosshairTarget = pCrosshair ? pCrosshair->Target : 0;
+
     for (auto entity : view)
     {
         const auto& playerComponent = view.get<PlayerComponent>(entity);
@@ -290,6 +295,9 @@ void NameTagService::OnDraw() noexcept
             continue;
 
         if (!ShouldRenderTag(playerComponent.Id))
+            continue;
+
+        if (crosshairTarget != 0 && pActor->GetHandle().handle.iBits == crosshairTarget)
             continue;
 
         // Names are cached for the session, so a player dropped from the player list (e.g. after a kick)
