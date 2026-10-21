@@ -5,6 +5,7 @@ import { Tag } from 'src/app/models/tag';
 import {
   autoHideTimerLengths,
   FontSize,
+  KnownNames,
   PlayerUiFilter,
   ScreenCorner,
   SettingService,
@@ -49,6 +50,20 @@ export class SettingsComponent {
   readonly availableAutoHideTimes = autoHideTimerLengths;
   // Trade invitations only matter in builds that include player trading.
   readonly hasTrading = 'sendTradeInvite' in skyrimtogether;
+  readonly availableKnownNames: { id: KnownNames; label: string }[] = [
+    {
+      id: KnownNames.ALL,
+      label: 'COMPONENT.SETTINGS.PLAYER_UI.KNOWN_NAMES_OPTIONS.ALL',
+    },
+    {
+      id: KnownNames.PARTY,
+      label: 'COMPONENT.SETTINGS.PLAYER_UI.KNOWN_NAMES_OPTIONS.PARTY',
+    },
+    {
+      id: KnownNames.NONE,
+      label: 'COMPONENT.SETTINGS.PLAYER_UI.KNOWN_NAMES_OPTIONS.NONE',
+    },
+  ];
   readonly availablePlayerUiFilters: { id: PlayerUiFilter; label: string }[] =
     [
       {

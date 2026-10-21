@@ -24,6 +24,13 @@ export enum PlayerUiFilter {
   OFF = 'off',
 }
 
+/** Whose names are known by default; the eye in the player list overrides per name. */
+export enum KnownNames {
+  ALL = 'all',
+  PARTY = 'party',
+  NONE = 'none',
+}
+
 export const autoHideTimerLengths = [1, 3, 5];
 
 export const fontSizeToPixels: Record<FontSize, number> = {
@@ -159,11 +166,15 @@ export class SettingService {
       this.screenCornerValues,
       ScreenCorner.TOP_LEFT,
     ),
-    // On: players outside your party show as "Stranger", invites included.
-    hideStrangerNames: new ToggleSetting(
+    // Unknown names show as "Stranger", invites included. Replaces the old
+    // "Global stranger names" toggle: checked maps to None, unchecked to All.
+    knownNames: new SelectSetting(
       this.storeService,
-      'playerUi_hideStrangerNames',
-      false,
+      'playerUi_knownNames',
+      Object.values(KnownNames),
+      this.storeService.getBool('playerUi_hideStrangerNames', false)
+        ? KnownNames.NONE
+        : KnownNames.ALL,
     ),
     partyInvites: new ToggleSetting(
       this.storeService,
@@ -188,17 +199,12 @@ export class SettingService {
       this.playerUiFilterValues,
       PlayerUiFilter.ON,
     ),
-    nameTagLevel: new SelectSetting(
+    // New key: the old backplate setting defaulted to On.
+    nameBackdrop: new SelectSetting(
       this.storeService,
-      'playerUi_nameTagLevel',
+      'playerUi_nameBackdrop',
       this.playerUiFilterValues,
-      PlayerUiFilter.ON,
-    ),
-    nameTagBackplate: new SelectSetting(
-      this.storeService,
-      'playerUi_nameTagBackplate',
-      this.playerUiFilterValues,
-      PlayerUiFilter.ON,
+      PlayerUiFilter.PARTY,
     ),
     nameTagSize: new SelectSetting(
       this.storeService,
@@ -209,22 +215,22 @@ export class SettingService {
     nameFadeStart: new SliderSetting(
       this.storeService,
       'playerUi_nameFadeStart',
-      2000,
+      3000,
     ),
     nameInvisible: new SliderSetting(
       this.storeService,
       'playerUi_nameInvisible',
-      3000,
+      5000,
     ),
     partyFadeStart: new SliderSetting(
       this.storeService,
       'playerUi_partyFadeStart',
-      2000,
+      3000,
     ),
     partyInvisible: new SliderSetting(
       this.storeService,
       'playerUi_partyInvisible',
-      3000,
+      5000,
     ),
   };
 
@@ -248,12 +254,14 @@ export class SettingService {
 
   /**
    * Whether a player's real name may be shown: the eye in the player list
-   * wins, then party members show, then the global stranger setting.
+   * wins, then the known names setting.
    */
   public isNameRevealed(name: string, isPartyMember: boolean): boolean {
+    const knownNames = this.settings.knownNames.getValue();
     return (
       this.nameOverrides.getValue()[name] ??
-      (isPartyMember || !this.settings.hideStrangerNames.getValue())
+      (knownNames === KnownNames.ALL ||
+        (knownNames === KnownNames.PARTY && isPartyMember))
     );
   }
 

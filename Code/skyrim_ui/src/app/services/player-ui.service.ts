@@ -53,7 +53,7 @@ export class PlayerUiService implements OnDestroy, TradeInvitePolicy {
     this.players$ = combineLatest([
       this.playerListService.playerList,
       this.groupService.group,
-      this.settings.hideStrangerNames,
+      this.settings.knownNames,
       this.settingService.nameOverrides,
     ]).pipe(
       map(([playerList, group]) => {
@@ -159,8 +159,7 @@ export class PlayerUiService implements OnDestroy, TradeInvitePolicy {
     this.nameTagSubscription = combineLatest([
       this.players$,
       this.settings.nameTags,
-      this.settings.nameTagLevel,
-      this.settings.nameTagBackplate,
+      this.settings.nameBackdrop,
       this.settings.nameTagSize,
       this.settings.nameFadeStart,
       this.settings.nameInvisible,
@@ -173,8 +172,7 @@ export class PlayerUiService implements OnDestroy, TradeInvitePolicy {
         ([
           players,
           nameTags,
-          level,
-          backplate,
+          backdrop,
           size,
           nameFadeStart,
           nameInvisible,
@@ -184,8 +182,7 @@ export class PlayerUiService implements OnDestroy, TradeInvitePolicy {
         ]) => {
           this.clientService.setNameTagSettings({
             nameTags: filterIndex(nameTags),
-            level: filterIndex(level),
-            backplate: filterIndex(backplate),
+            backdrop: filterIndex(backdrop),
             fontSize: fontSizeToPixels[size],
             nameFadeStart: Number(nameFadeStart),
             nameInvisible: Number(nameInvisible),

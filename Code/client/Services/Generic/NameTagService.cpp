@@ -13,6 +13,7 @@
 #include <Games/Skyrim/Interface/Menus/HUDMenuUtils.h>
 #include <Games/Skyrim/Interface/UI.h>
 #include <Games/Skyrim/Misc/BSFixedString.h>
+#include <Games/Skyrim/NetImmerse/NiNode.h>
 
 #include <imgui_internal.h>
 
@@ -151,6 +152,7 @@ void NameTagService::OnDraw() noexcept
         return;
 
     const ImVec2 viewport = ImGui::GetIO().DisplaySize;
+    const float uiScale = viewport.y / 1080.f;
     ImFont* font = m_world.ctx().at<ImguiService>().GetNameTagFont();
     if (!font)
         font = ImGui::GetFont();
@@ -183,37 +185,31 @@ void NameTagService::OnDraw() noexcept
         if (!ShouldRenderTag(playerComponent.Id))
             continue;
 
-        // Name from the party UI's player list (keyed by player id).
+        // Names are cached for the session, so a player dropped from the player list (e.g. after a kick)
+        // keeps their name. Without one, the stranger label is shown; never a player id.
         bool isNameRevealed = m_settings.RevealedPlayerIds.count(playerComponent.Id) > 0;
         std::string displayName = strangerLabel;
         if (isNameRevealed)
         {
-            const auto& players = partyService.GetPlayers();
-            auto it = players.find(playerComponent.Id);
-            if (it != players.end() && !it->second.empty())
-            {
-                displayName = it->second.c_str();
-            }
+            if (const String* pName = partyService.GetKnownName(playerComponent.Id))
+                displayName = pName->c_str();
             else
-            {
-                // No name known (e.g. after a kick): keep the player id so they can still be identified.
-                displayName += "#" + std::to_string(playerComponent.Id);
                 isNameRevealed = false;
-            }
         }
 
-        const NiPoint3 anchor = BuildAnchorPoint(pActor);
+        const bool isLeader = isPartyMember && partyService.GetLeaderPlayerId() == playerComponent.Id;
 
-        ImVec2 screenPos;
+        const NiPoint3 headTop = BuildHeadTopPoint(pActor);
+
+        ImVec2 headScreen;
         float depth = 0.f;
-        if (!ProjectWorldPoint(anchor, screenPos, depth, viewport))
+        if (!ProjectWorldPoint(headTop, headScreen, depth, viewport))
             continue;
 
         const float fadeStart = isPartyMember ? m_settings.PartyFadeStart : m_settings.NameFadeStart;
         const float invisible = isPartyMember ? m_settings.PartyInvisible : m_settings.NameInvisible;
 
-        const glm::vec3 remotePos = {anchor.x, anchor.y, anchor.z};
-        const float distance = glm::distance(localPos, remotePos);
+        const float distance = glm::distance(localPos, glm::vec3{headTop.x, headTop.y, headTop.z});
         if (distance > invisible)
             continue;
 
@@ -227,66 +223,71 @@ void NameTagService::OnDraw() noexcept
         if (alpha <= 0.01f)
             continue;
 
-        const bool showLevel = IsEnabledFor(m_settings.Level, isPartyMember);
-        const bool showBackplate = IsEnabledFor(m_settings.Backplate, isPartyMember);
+        // Helmet clearance: a world-space gap, clamped on screen so close tags don't float and far ones don't sit on the head.
+        const float heightScale = std::clamp(pActor->GetHeight() / 128.f, 0.5f, 2.f);
+        NiPoint3 clearancePoint = headTop;
+        clearancePoint.z += kHelmetClearance * heightScale;
+        float gap = kMaxGapPx * uiScale;
+        ImVec2 clearanceScreen;
+        float clearanceDepth = 0.f;
+        if (ProjectWorldPoint(clearancePoint, clearanceScreen, clearanceDepth, viewport))
+            gap = std::clamp(headScreen.y - clearanceScreen.y, kMinGapPx * uiScale, kMaxGapPx * uiScale);
 
-        const uint16_t level = pActor->GetLevel();
-        const std::string levelText = !showLevel ? std::string() : level > 0 ? ("Lv. " + std::to_string(level)) : std::string("Lv. --");
+        const float distanceScale = std::clamp(kScaleDistance / std::max(distance, 1.f), kMinScale, kMaxScale);
+        const float fontSize = m_settings.FontSize * kFontSizeScale * uiScale * distanceScale;
+        // Proportions below are tuned at the 22 px base size.
+        const float k = fontSize / 22.f;
 
-        const float scale = m_settings.FontSize / 16.f;
-        const float nameFontSize = m_settings.FontSize * kFontSizeScale;
-        const float levelFontSize = nameFontSize * 0.75f;
-        const float lineSpacing = showLevel ? 4.f * scale : 0.f;
-        const ImVec2 nameTextSize = font->CalcTextSizeA(nameFontSize, FLT_MAX, 0.f, displayName.c_str(), displayName.c_str() + displayName.size());
-        const ImVec2 levelTextSize = showLevel ? font->CalcTextSizeA(levelFontSize, FLT_MAX, 0.f, levelText.c_str(), levelText.c_str() + levelText.size()) : ImVec2(0.f, 0.f);
+        const ImVec2 textSize = font->CalcTextSizeA(fontSize, FLT_MAX, 0.f, displayName.c_str(), displayName.c_str() + displayName.size());
+        const float crownWidth = isLeader ? fontSize * 0.8f : 0.f;
+        const float crownGap = isLeader ? fontSize * 0.25f : 0.f;
+        const float paddingX = 5.f * k;
+        const float paddingY = 2.f * k;
+        const float contentWidth = crownWidth + crownGap + textSize.x;
 
-        const float paddingX = 14.f * scale;
-        const float paddingY = 6.f * scale;
-        const float textColumnWidth = std::max(nameTextSize.x, levelTextSize.x);
-        const float textColumnHeight = nameTextSize.y + lineSpacing + levelTextSize.y;
-        const float totalWidth = textColumnWidth + paddingX * 2.f;
-        const float totalHeight = textColumnHeight + paddingY * 2.f;
+        const ImVec2 bottomRight(headScreen.x + contentWidth * 0.5f + paddingX, headScreen.y - gap);
+        const ImVec2 topLeft(headScreen.x - contentWidth * 0.5f - paddingX, bottomRight.y - textSize.y - paddingY * 2.f);
 
-        ImVec2 topLeft(screenPos.x - totalWidth * 0.5f, screenPos.y - totalHeight * 0.5f);
-        ImVec2 bottomRight(screenPos.x + totalWidth * 0.5f, screenPos.y + totalHeight * 0.5f);
+        // A thin box with no border, so it reads as a backdrop rather than a plate.
+        if (IsEnabledFor(m_settings.Backdrop, isPartyMember))
+            drawList->AddRectFilled(topLeft, bottomRight, ColorWithAlpha(ImVec4(0.f, 0.f, 0.f, 0.30f), alpha));
 
-        if (showBackplate)
+        const ImU32 shadowColor = ColorWithAlpha(ImVec4(0.f, 0.f, 0.f, 0.8f), alpha);
+        const ImVec2 contentPos(topLeft.x + paddingX, topLeft.y + paddingY);
+
+        if (isLeader)
         {
-            const ImU32 bgColor = ColorWithAlpha(ImVec4(0.f, 0.f, 0.f, 0.65f), alpha);
-            drawList->AddRectFilled(topLeft, bottomRight, bgColor, 6.f * scale);
+            // Outline crown, drawn rather than taken from a font so no icon font is needed.
+            const float crownHeight = fontSize * 0.62f;
+            const ImVec2 origin(contentPos.x, contentPos.y + (textSize.y - crownHeight) * 0.55f);
+            constexpr float kCrown[][2] = {{0.08f, 1.f}, {0.f, 0.25f}, {0.3f, 0.55f}, {0.5f, 0.f}, {0.7f, 0.55f}, {1.f, 0.25f}, {0.92f, 1.f}};
+            constexpr int kCrownPoints = static_cast<int>(std::size(kCrown));
+            ImVec2 points[kCrownPoints];
+            ImVec2 shadowPoints[kCrownPoints];
+            for (int i = 0; i < kCrownPoints; ++i)
+            {
+                points[i] = ImVec2(origin.x + kCrown[i][0] * crownWidth, origin.y + kCrown[i][1] * crownHeight);
+                shadowPoints[i] = ImVec2(points[i].x + 1.f, points[i].y + 1.f);
+            }
 
-            const ImU32 borderColor = ColorWithAlpha(ImVec4(1.f, 1.f, 1.f, 0.35f), alpha);
-            drawList->AddRect(topLeft, bottomRight, borderColor, 6.f * scale);
+            const float thickness = std::max(1.2f, 1.6f * k);
+            drawList->AddPolyline(shadowPoints, kCrownPoints, shadowColor, ImDrawFlags_Closed, thickness);
+            drawList->AddPolyline(points, kCrownPoints, ColorWithAlpha(ImVec4(0.95f, 0.95f, 0.95f, 1.f), alpha), ImDrawFlags_Closed, thickness);
         }
 
-        // Without a backplate a soft shadow keeps the text readable.
-        auto drawText = [&](float aSize, ImVec2 aPos, const ImVec4& aColor, const std::string& acText, bool aItalic) {
-            const int firstVertex = drawList->VtxBuffer.Size;
+        const ImVec2 namePos(contentPos.x + crownWidth + crownGap, contentPos.y);
+        const ImVec4 nameColor = isNameRevealed ? ImVec4(0.95f, 0.95f, 0.95f, 1.f) : ImVec4(0.78f, 0.78f, 0.78f, 1.f);
 
-            if (!showBackplate)
-            {
-                const ImU32 shadowColor = ColorWithAlpha(ImVec4(0.f, 0.f, 0.f, 0.8f), alpha);
-                drawList->AddText(font, aSize, ImVec2(aPos.x + 1.f, aPos.y + 1.f), shadowColor, acText.c_str(), acText.c_str() + acText.size());
-            }
-            drawList->AddText(font, aSize, aPos, ColorWithAlpha(aColor, alpha), acText.c_str(), acText.c_str() + acText.size());
+        const int firstVertex = drawList->VtxBuffer.Size;
+        drawList->AddText(font, fontSize, ImVec2(namePos.x + 1.f, namePos.y + 1.f), shadowColor, displayName.c_str(), displayName.c_str() + displayName.size());
+        drawList->AddText(font, fontSize, namePos, ColorWithAlpha(nameColor, alpha), displayName.c_str(), displayName.c_str() + displayName.size());
 
-            // ImGui has no italic style: shear the glyph quads around the baseline.
-            if (aItalic)
-            {
-                const float baseline = aPos.y + aSize;
-                for (int i = firstVertex; i < drawList->VtxBuffer.Size; ++i)
-                    drawList->VtxBuffer[i].pos.x += (baseline - drawList->VtxBuffer[i].pos.y) * kItalicShear;
-            }
-        };
-
-        const ImVec2 namePos(screenPos.x - nameTextSize.x * 0.5f, topLeft.y + paddingY);
-        const ImVec4 nameColor = isNameRevealed ? ImVec4(0.95f, 0.95f, 0.95f, 1.f) : ImVec4(0.75f, 0.75f, 0.75f, 1.f);
-        drawText(nameFontSize, namePos, nameColor, displayName, !isNameRevealed);
-
-        if (showLevel)
+        // ImGui has no italic style: shear the glyph quads around the baseline.
+        if (!isNameRevealed)
         {
-            const ImVec2 levelPos(screenPos.x - levelTextSize.x * 0.5f, namePos.y + nameTextSize.y + lineSpacing);
-            drawText(levelFontSize, levelPos, ImVec4(0.85f, 0.92f, 1.f, 0.95f), levelText, false);
+            const float baseline = namePos.y + fontSize;
+            for (int i = firstVertex; i < drawList->VtxBuffer.Size; ++i)
+                drawList->VtxBuffer[i].pos.x += (baseline - drawList->VtxBuffer[i].pos.y) * kItalicShear;
         }
     }
 }
@@ -321,16 +322,27 @@ bool NameTagService::ProjectWorldPoint(const NiPoint3& aWorldPoint, ImVec2& aScr
     return true;
 }
 
-NiPoint3 NameTagService::BuildAnchorPoint(Actor* apActor) const noexcept
+NiPoint3 NameTagService::BuildHeadTopPoint(Actor* apActor) const noexcept
 {
-    NiPoint3 anchor = apActor->position;
-    anchor.z += apActor->GetHeight() + kVerticalOffset;
+    NiPoint3 point = apActor->position;
+    const float height = apActor->GetHeight();
 
-    const float yaw = apActor->rotation.z;
-    anchor.x += std::sin(yaw) * kForwardOffset;
-    anchor.y += std::cos(yaw) * kForwardOffset;
+    // The neck bone follows crouching, sitting and lying down, and stays on the body when a
+    // dismemberment mod detaches the head. Never freed: the engine's string cache outlives us.
+    static BSFixedString* s_pNeckNodeName = new BSFixedString("NPC Neck [Neck]");
+    if (NiNode* pRoot = apActor->GetNiNode())
+    {
+        if (NiAVObject* pNeck = pRoot->GetByName(*s_pNeckNodeName))
+        {
+            point = pNeck->worldTranslate;
+            point.z += kHeadTopAboveNeck * std::clamp(height / 128.f, 0.5f, 2.f);
+            return point;
+        }
+    }
 
-    return anchor;
+    // No 3D yet: the top of the bounding box.
+    point.z += height;
+    return point;
 }
 
 bool NameTagService::IsEnabledFor(Filter aFilter, bool aIsPartyMember) noexcept

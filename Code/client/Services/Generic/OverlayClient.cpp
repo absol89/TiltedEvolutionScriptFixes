@@ -194,8 +194,7 @@ void OverlayClient::ProcessSetNameTagSettings(CefRefPtr<CefListValue> aEventArgs
 
     NameTagService::Settings settings{};
     settings.NameTags = getFilter("nameTags");
-    settings.Level = getFilter("level");
-    settings.Backplate = getFilter("backplate");
+    settings.Backdrop = getFilter("backdrop");
     settings.FontSize = getNumber("fontSize", settings.FontSize);
     settings.NameFadeStart = getNumber("nameFadeStart", settings.NameFadeStart);
     settings.NameInvisible = getNumber("nameInvisible", settings.NameInvisible);

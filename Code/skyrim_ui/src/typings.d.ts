@@ -461,8 +461,7 @@ interface SkyrimTogether {
  */
 interface NameTagSettings {
   nameTags: number;
-  level: number;
-  backplate: number;
+  backdrop: number;
   /** Font size in pixels. */
   fontSize: number;
   nameFadeStart: number;
