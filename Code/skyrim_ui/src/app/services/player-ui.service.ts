@@ -112,6 +112,26 @@ export class PlayerUiService implements OnDestroy, TradeInvitePolicy {
       : this.translocoService.translate('COMPONENT.PARTY_LIST.STRANGER');
   }
 
+  /**
+   * Chat sender name after the known chat names setting; the eye in the
+   * player list overrides it per name. Call it when the message arrives, so a
+   * sender who leaves later stays hidden.
+   */
+  public chatSenderName(name: string): string {
+    const players = this.playerListService.playerList.getValue()?.players;
+    const sender = players?.find(player => player.name === name);
+    // The local player isn't in their own player list, so that's who an
+    // unknown sender is. Known risk: a player whose list entry hasn't arrived
+    // yet (just joined) is shown by name too.
+    if (!sender) {
+      return name;
+    }
+
+    return this.isChatNameKnown(name, this.isPartyMember(sender.id))
+      ? name
+      : this.translocoService.translate('COMPONENT.PARTY_LIST.STRANGER');
+  }
+
   public acceptsTradeInvite(inviterId: number): boolean {
     return this.matchesFilter(
       this.settings.tradeInvites.getValue(),
@@ -141,6 +161,17 @@ export class PlayerUiService implements OnDestroy, TradeInvitePolicy {
     );
   }
 
+  private isChatNameKnown(
+    name: string,
+    isPartyMember: boolean,
+    knownChatNames = this.settings.knownChatNames.getValue(),
+  ): boolean {
+    return (
+      this.settingService.nameOverrides.getValue()[name] ??
+      this.matchesFilter(knownChatNames, isPartyMember)
+    );
+  }
+
   private isPartyMember(playerId: number): boolean {
     return !!this.groupService.group.getValue()?.members.includes(playerId);
   }
@@ -160,6 +191,8 @@ export class PlayerUiService implements OnDestroy, TradeInvitePolicy {
       this.players$,
       this.settings.nameTags,
       this.settings.nameBackdrop,
+      this.settings.floatingChat,
+      this.settings.knownChatNames,
       this.settings.nameTagSize,
       this.settings.nameFadeStart,
       this.settings.nameInvisible,
@@ -173,6 +206,8 @@ export class PlayerUiService implements OnDestroy, TradeInvitePolicy {
           players,
           nameTags,
           backdrop,
+          floatingChat,
+          knownChatNames,
           size,
           nameFadeStart,
           nameInvisible,
@@ -183,6 +218,7 @@ export class PlayerUiService implements OnDestroy, TradeInvitePolicy {
           this.clientService.setNameTagSettings({
             nameTags: filterIndex(nameTags),
             backdrop: filterIndex(backdrop),
+            floatingChat: filterIndex(floatingChat),
             fontSize: fontSizeToPixels[size],
             nameFadeStart: Number(nameFadeStart),
             nameInvisible: Number(nameInvisible),
@@ -191,6 +227,15 @@ export class PlayerUiService implements OnDestroy, TradeInvitePolicy {
             strangerLabel,
             revealedPlayerIds: players
               .filter(player => player.isNameRevealed)
+              .map(player => player.id),
+            revealedChatPlayerIds: players
+              .filter(player =>
+                this.isChatNameKnown(
+                  player.name,
+                  player.isMember,
+                  knownChatNames,
+                ),
+              )
               .map(player => player.id),
           });
         },

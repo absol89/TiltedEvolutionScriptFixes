@@ -30,6 +30,9 @@ export class NotificationsComponent {
       .subscribe(message => {
         this.notifications.push({
           ...message,
+          senderName:
+            message.senderName &&
+            this.playerUiService.chatSenderName(message.senderName),
           timer: setTimeout(() => {
             this.notifications.shift();
           }, 5000),
