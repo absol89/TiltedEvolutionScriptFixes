@@ -47,6 +47,8 @@ export class SettingsComponent {
     },
   ];
   readonly availableAutoHideTimes = autoHideTimerLengths;
+  // Trade invitations only matter in builds that include player trading.
+  readonly hasTrading = 'sendTradeInvite' in skyrimtogether;
   readonly availablePlayerUiFilters: { id: PlayerUiFilter; label: string }[] =
     [
       {

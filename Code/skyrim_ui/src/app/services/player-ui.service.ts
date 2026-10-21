@@ -14,6 +14,7 @@ import { ChatMessage, MessageTypes } from './chat.service';
 import { ClientService } from './client.service';
 import { GroupService } from './group.service';
 import { PlayerListService } from './player-list.service';
+import { TradeInvitePolicy } from './trade-invite-policy';
 import {
   fontSizeToPixels,
   PlayerUiFilter,
@@ -34,7 +35,7 @@ export interface PlayerUiEntry extends Player {
 @Injectable({
   providedIn: 'root',
 })
-export class PlayerUiService implements OnDestroy {
+export class PlayerUiService implements OnDestroy, TradeInvitePolicy {
   public readonly players$: Observable<PlayerUiEntry[]>;
   /** Players whose name is hidden behind the "Stranger" label. */
   public readonly hiddenPlayerIds$: Observable<Set<number>>;
@@ -101,6 +102,13 @@ export class PlayerUiService implements OnDestroy {
 
   public acceptsPartyInvites(): boolean {
     return this.settings.partyInvites.getValue();
+  }
+
+  /** Name for trade popups and the trade window, same rule as the player list. */
+  public displayName(playerId: number, name: string): string {
+    return this.settingService.isNameRevealed(name, this.isPartyMember(playerId))
+      ? name
+      : this.translocoService.translate('COMPONENT.PARTY_LIST.STRANGER');
   }
 
   public acceptsTradeInvite(inviterId: number): boolean {
