@@ -52,13 +52,13 @@ export class RootComponent implements OnInit {
 
   public constructor(
     private readonly destroy$: DestroyService,
+    // Created here so name tag settings reach the game as soon as the UI loads.
+    private readonly playerUiService: PlayerUiService,
     private readonly client: ClientService,
     private readonly sound: SoundService,
     private readonly uiRepository: UiRepository,
     private readonly translocoService: TranslocoService,
     private readonly settingService: SettingService,
-    // Created here so name tag settings reach the game as soon as the UI loads.
-    private readonly playerUiService: PlayerUiService,
     public readonly overlay: Overlay, // used for mockup
   ) {
     this.translocoService.setActiveLang(

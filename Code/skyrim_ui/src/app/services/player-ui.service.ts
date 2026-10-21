@@ -96,8 +96,9 @@ export class PlayerUiService implements OnDestroy, TradeInvitePolicy {
     this.nameTagSubscription.unsubscribe();
   }
 
-  public toggleName(player: PlayerUiEntry) {
-    this.settingService.setNameOverride(player.name, !player.isNameRevealed);
+  /** Set by the eye in the player list; stored per username. */
+  public setNameRevealed(name: string, revealed: boolean) {
+    this.settingService.setNameOverride(name, revealed);
   }
 
   public acceptsPartyInvites(): boolean {

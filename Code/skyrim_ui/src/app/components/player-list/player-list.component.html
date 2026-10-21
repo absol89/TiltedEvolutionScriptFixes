@@ -18,30 +18,30 @@
           <th></th>
         </tr>
       </thead>
-      <tbody class="listBody">
+      <tbody class="listBody" *ngIf="hiddenPlayerIds$ | async as hiddenIds">
         <tr *ngFor="let player of playerList$ | async">
           <td>{{ player.level }}</td>
           <td class="eye-col">
             <button
               type="button"
               class="eye-button"
-              [class.hidden-name]="!player.isNameRevealed"
-              [attr.aria-pressed]="player.isNameRevealed"
+              [class.hidden-name]="hiddenIds.has(player.id)"
+              [attr.aria-pressed]="!hiddenIds.has(player.id)"
               [attr.aria-label]="
-                (player.isNameRevealed
-                  ? 'COMPONENT.PARTY_LIST.HIDE_NAME'
-                  : 'COMPONENT.PARTY_LIST.SHOW_NAME'
+                (hiddenIds.has(player.id)
+                  ? 'COMPONENT.PARTY_LIST.SHOW_NAME'
+                  : 'COMPONENT.PARTY_LIST.HIDE_NAME'
                 ) | transloco
               "
-              (click)="toggleName(player)"
+              (click)="toggleName(player.name, hiddenIds.has(player.id))"
             >
               <fa-icon
-                [icon]="player.isNameRevealed ? faEye : faEyeSlash"
+                [icon]="hiddenIds.has(player.id) ? faEyeSlash : faEye"
               ></fa-icon>
             </button>
           </td>
           <td>
-            <span *ngIf="player.isNameRevealed; else stranger">{{
+            <span *ngIf="!hiddenIds.has(player.id); else stranger">{{
               player.name
             }}</span>
             <ng-template #stranger>

@@ -49,6 +49,8 @@ bool OverlayClient::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefR
             ProcessDisconnectMessage();
         else if (eventName == "revealPlayers")
             ProcessRevealPlayersMessage();
+        else if (eventName == "setNameTagSettings")
+            ProcessSetNameTagSettings(eventArgs);
         else if (eventName == "sendMessage")
             ProcessChatMessage(eventArgs);
         else if (eventName == "setTime")
@@ -84,8 +86,6 @@ bool OverlayClient::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefR
             ProcessToggleDebugUI();
         else if (eventName == "openPlayGuide")
             ProcessOpenPlayGuide();
-        else if (eventName == "setNameTagSettings")
-            ProcessSetNameTagSettings(eventArgs);
 
         return true;
     }
