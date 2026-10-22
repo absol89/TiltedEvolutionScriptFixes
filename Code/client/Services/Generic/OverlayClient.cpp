@@ -196,6 +196,7 @@ void OverlayClient::ProcessSetNameTagSettings(CefRefPtr<CefListValue> aEventArgs
     NameTagService::Settings settings{};
     settings.NameTags = getFilter("nameTags", settings.NameTags);
     settings.Backdrop = getFilter("backdrop", settings.Backdrop);
+    settings.FloatingChat = getFilter("floatingChat", settings.FloatingChat);
     settings.FontSize = getNumber("fontSize", settings.FontSize);
     settings.NameFadeStart = getNumber("nameFadeStart", settings.NameFadeStart);
     settings.NameInvisible = getNumber("nameInvisible", settings.NameInvisible);
@@ -221,6 +222,7 @@ void OverlayClient::ProcessSetNameTagSettings(CefRefPtr<CefListValue> aEventArgs
         }
     };
     readIds("revealedPlayerIds", settings.RevealedPlayerIds);
+    readIds("revealedChatPlayerIds", settings.RevealedChatPlayerIds);
 
     World::Get().GetRunner().Queue([settings = std::move(settings)]() mutable { World::Get().ctx().at<NameTagService>().SetSettings(std::move(settings)); });
 }

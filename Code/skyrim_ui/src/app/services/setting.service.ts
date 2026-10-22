@@ -176,6 +176,21 @@ export class SettingService {
         ? KnownNames.NONE
         : KnownNames.ALL,
     ),
+    // Chat sender names; the eye in the player list overrides this per name.
+    knownChatNames: new SelectSetting(
+      this.storeService,
+      'playerUi_knownChatNames',
+      this.playerUiFilterValues,
+      PlayerUiFilter.ON,
+    ),
+    // Party: party members' chat and dialogue choices float above them.
+    // On: strangers' chat too.
+    floatingChat: new SelectSetting(
+      this.storeService,
+      'playerUi_floatingChat',
+      this.playerUiFilterValues,
+      PlayerUiFilter.PARTY,
+    ),
     partyInvites: new ToggleSetting(
       this.storeService,
       'playerUi_partyInvites',

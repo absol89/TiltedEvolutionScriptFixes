@@ -95,6 +95,25 @@
         </app-dropdown>
       </div>
       <div class="setting">
+        <label for="knownChatNames"
+          >{{ 'COMPONENT.SETTINGS.PLAYER_UI.KNOWN_CHAT_NAMES' | transloco }}
+          <small class="hint">{{
+            'COMPONENT.SETTINGS.PLAYER_UI.KNOWN_CHAT_NAMES_HINT' | transloco
+          }}</small>
+        </label>
+        <app-dropdown
+          id="knownChatNames"
+          [ngModel]="settings.knownChatNames | async"
+          (ngModelChange)="settings.knownChatNames.next($event)"
+        >
+          <app-dropdown-option
+            *ngFor="let option of availablePlayerUiFilters"
+            [text]="option.label"
+            [value]="option.id"
+          ></app-dropdown-option>
+        </app-dropdown>
+      </div>
+      <div class="setting">
         <label for="partyInvites"
           >{{ 'COMPONENT.SETTINGS.PLAYER_UI.PARTY_INVITES' | transloco }}
           <small class="hint">{{
@@ -119,6 +138,25 @@
           id="miniChat"
           [ngModel]="settings.miniChat | async"
           (ngModelChange)="settings.miniChat.next($event)"
+        >
+          <app-dropdown-option
+            *ngFor="let option of availablePlayerUiFilters"
+            [text]="option.label"
+            [value]="option.id"
+          ></app-dropdown-option>
+        </app-dropdown>
+      </div>
+      <div class="setting">
+        <label for="floatingChat"
+          >{{ 'COMPONENT.SETTINGS.PLAYER_UI.FLOATING_CHAT' | transloco }}
+          <small class="hint">{{
+            'COMPONENT.SETTINGS.PLAYER_UI.FLOATING_CHAT_HINT' | transloco
+          }}</small>
+        </label>
+        <app-dropdown
+          id="floatingChat"
+          [ngModel]="settings.floatingChat | async"
+          (ngModelChange)="settings.floatingChat.next($event)"
         >
           <app-dropdown-option
             *ngFor="let option of availablePlayerUiFilters"
