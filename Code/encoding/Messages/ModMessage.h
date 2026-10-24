@@ -7,6 +7,10 @@
 // Helpers shared by the two Plugin API messages and the services that handle them.
 namespace ModMessage
 {
+// SendModMessageRequest::TargetPlayerId for every player on the server (Plugin API V2 SendToAll). A server without
+// V2 finds no such player and drops the message.
+constexpr uint32_t kAllPlayers = 0xFFFFFFFF;
+
 // 1 to kMaxChannelNameSize bytes of [A-Za-z0-9._-]
 inline bool IsValidChannelName(const TiltedPhoques::String& acName) noexcept
 {

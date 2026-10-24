@@ -27,11 +27,14 @@
 #include <Services/PluginService.h>
 
 #include <Messages/NotifyModMessage.h>
+#include <Messages/NotifyAddonCapabilities.h>
+#include <Messages/NotifyAddonNear.h>
 #include <Messages/NotifyPartyInfo.h>
 #include <Messages/NotifyPartyJoined.h>
 #include <Messages/NotifyPartyLeft.h>
 
 #include <Events/PreUpdateEvent.h>
+#include <Events/ConnectedEvent.h>
 #include <Events/DisconnectedEvent.h>
 #include <Events/UpdateEvent.h>
 
@@ -70,6 +73,11 @@ World::World()
 
     // The Plugin API outlives the World, so there is nothing to disconnect
     m_dispatcher.sink<NotifyModMessage>().connect<&PluginService::OnNotifyModMessage>(PluginService::Get());
+    m_dispatcher.sink<NotifyAddonNear>().connect<&PluginService::OnNotifyAddonNear>(PluginService::Get());
+    m_dispatcher.sink<NotifyAddonCapabilities>().connect<&PluginService::OnNotifyAddonCapabilities>(PluginService::Get());
+    m_dispatcher.sink<ConnectedEvent>().connect<&PluginService::OnConnected>(PluginService::Get());
+    m_dispatcher.sink<DisconnectedEvent>().connect<&PluginService::OnDisconnected>(PluginService::Get());
+    m_dispatcher.sink<UpdateEvent>().connect<&PluginService::OnUpdate>(PluginService::Get());
     // These come after PartyService's own handlers, so its member list is up to date by then
     m_dispatcher.sink<NotifyPartyInfo>().connect<&PluginService::OnPartyEvent<NotifyPartyInfo>>(PluginService::Get());
     m_dispatcher.sink<NotifyPartyJoined>().connect<&PluginService::OnPartyEvent<NotifyPartyJoined>>(PluginService::Get());
