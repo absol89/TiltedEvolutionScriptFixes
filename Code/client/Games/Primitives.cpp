@@ -66,3 +66,31 @@ void BSRecursiveLock::Unlock()
         }
     }
 }
+
+void BSReadWriteLock::LockForRead()
+{
+    TP_THIS_FUNCTION(TLockForRead, void, BSReadWriteLock);
+    POINTER_SKYRIMSE(TLockForRead, lockForRead, 68233);
+    TiltedPhoques::ThisCall(lockForRead, this);
+}
+
+void BSReadWriteLock::UnlockForRead()
+{
+    TP_THIS_FUNCTION(TUnlockForRead, void, BSReadWriteLock);
+    POINTER_SKYRIMSE(TUnlockForRead, unlockForRead, 68239);
+    TiltedPhoques::ThisCall(unlockForRead, this);
+}
+
+void BSReadWriteLock::LockForWrite()
+{
+    TP_THIS_FUNCTION(TLockForWrite, void, BSReadWriteLock);
+    POINTER_SKYRIMSE(TLockForWrite, lockForWrite, 68234);
+    TiltedPhoques::ThisCall(lockForWrite, this);
+}
+
+void BSReadWriteLock::UnlockForWrite()
+{
+    TP_THIS_FUNCTION(TUnlockForWrite, void, BSReadWriteLock);
+    POINTER_SKYRIMSE(TUnlockForWrite, unlockForWrite, 68240);
+    TiltedPhoques::ThisCall(unlockForWrite, this);
+}
