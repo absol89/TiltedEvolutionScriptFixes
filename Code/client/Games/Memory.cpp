@@ -130,10 +130,10 @@ void* Hook_aligned_malloc(size_t aSize, size_t aAlignment)
     return mi_malloc_aligned(aSize, aAlignment);
 }
 
-// Diagnostic build (test/mimalloc-secure), not for release. mimalloc's secure mode reports a double free (EAGAIN) or a
-// corrupted free list (EFAULT) where it is detected; the handler then crashes on the spot, so CrashLogger records the
-// stack of the code that freed the block instead of a hang somewhere later. Messages go to
-// logs\mimalloc_errors.log through the Windows file API, as the mimalloc heap cannot be trusted at that point.
+// Diagnostic build (test/mimalloc-secure), not for release. mimalloc's secure mode reports a double free (EAGAIN), a
+// corrupted free list (EFAULT) or an invalid pointer (EINVAL) where it is detected; the handler then crashes on the
+// spot, so CrashLogger records the stack of the code that freed the block instead of a hang somewhere later. Messages
+// go to logs\mimalloc_errors.log through the Windows file API, as the mimalloc heap cannot be trusted at that point.
 static constexpr DWORD kMimallocErrorException = 0xE04D494D; // "MIM"
 
 static void WriteMimallocLog(const char* acpText) noexcept
@@ -160,8 +160,9 @@ static void OnMimallocError(int aError, void*) noexcept
     sprintf_s(line, "mimalloc error %d on thread %lu\r\n", aError, GetCurrentThreadId());
     WriteMimallocLog(line);
 
-    // An invalid pointer (EINVAL) can be memory the game took from its own heap before free was hooked: logged only.
-    if (aError == EAGAIN || aError == EFAULT)
+    // An invalid pointer (EINVAL) is a free of memory mimalloc never handed out, such as PluginService's guarded pages:
+    // no session logged one before, so it crashes too.
+    if (aError == EAGAIN || aError == EFAULT || aError == EINVAL)
         RaiseException(kMimallocErrorException, EXCEPTION_NONCONTINUABLE, 0, nullptr);
 }
 

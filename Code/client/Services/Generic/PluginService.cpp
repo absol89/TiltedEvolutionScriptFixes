@@ -17,15 +17,121 @@
 
 using namespace SkyrimTogetherAPI;
 
+namespace
+{
+// Diagnostic build (test/mimalloc-secure), not for release. Every allocation gets its own pages, outside mimalloc,
+// placed at the end of the committed range with a reserved page behind it. Between edits the pages are read-only, so
+// a stray write faults in the writer, a write past the end faults in the guard page, and a free by anyone but the
+// maps hands mimalloc a pointer it does not own, which now crashes in mi_free. Callers hold m_idLock, except the
+// constructor, which runs before the service is shared.
+struct GuardedPageAllocator final : TiltedPhoques::Allocator
+{
+    struct Region
+    {
+        uint8_t* pBase;
+        size_t Committed;
+        void* pData;
+        size_t Size;
+    };
+
+    static constexpr size_t kMaxRegions = 64;
+    static constexpr size_t kPageSize = 0x1000;
+
+    void* Allocate(size_t aSize) noexcept override
+    {
+        if (m_count == kMaxRegions)
+            __fastfail(FAST_FAIL_INVALID_ARG);
+
+        const size_t cCommitted = (std::max<size_t>(aSize, 1) + kPageSize - 1) & ~(kPageSize - 1);
+        auto* pBase = static_cast<uint8_t*>(VirtualAlloc(nullptr, cCommitted + kPageSize, MEM_RESERVE, PAGE_NOACCESS));
+        if (!pBase || !VirtualAlloc(pBase, cCommitted, MEM_COMMIT, PAGE_READWRITE))
+            __fastfail(FAST_FAIL_INVALID_ARG);
+
+        // As close to the guard page as 16-byte alignment allows
+        void* pData = pBase + ((cCommitted - aSize) & ~size_t(15));
+        m_regions[m_count++] = {pBase, cCommitted, pData, aSize};
+        return pData;
+    }
+
+    void Free(void* apData) noexcept override
+    {
+        if (!apData)
+            return;
+
+        for (size_t i = 0; i < m_count; ++i)
+        {
+            if (m_regions[i].pData == apData)
+            {
+                VirtualFree(m_regions[i].pBase, 0, MEM_RELEASE);
+                m_regions[i] = m_regions[--m_count];
+                return;
+            }
+        }
+
+        // Not one of ours: the maps freed something they never allocated
+        __fastfail(FAST_FAIL_INVALID_ARG);
+    }
+
+    size_t Size(void* apData) noexcept override
+    {
+        for (size_t i = 0; i < m_count; ++i)
+        {
+            if (m_regions[i].pData == apData)
+                return m_regions[i].Size;
+        }
+        return 0;
+    }
+
+    void SetWritable(bool aWritable) noexcept
+    {
+        for (size_t i = 0; i < m_count; ++i)
+        {
+            DWORD oldProtection = 0;
+            if (!VirtualProtect(m_regions[i].pBase, m_regions[i].Committed, aWritable ? PAGE_READWRITE : PAGE_READONLY, &oldProtection))
+                __fastfail(FAST_FAIL_INVALID_ARG);
+        }
+    }
+
+    Region m_regions[kMaxRegions]{};
+    size_t m_count{0};
+};
+
+GuardedPageAllocator s_idAllocator;
+
+// While alive, the maps' pages are writable
+struct IdMapsWritable
+{
+    IdMapsWritable() noexcept { s_idAllocator.SetWritable(true); }
+    ~IdMapsWritable() noexcept { s_idAllocator.SetWritable(false); }
+};
+} // namespace
+
+TiltedPhoques::Allocator* PluginService::GetIdAllocator() noexcept
+{
+    return &s_idAllocator;
+}
+
+void PluginService::SetIdMapsWritable(bool aWritable) noexcept
+{
+    s_idAllocator.SetWritable(aWritable);
+}
+
 PluginService& PluginService::Get() noexcept
 {
     // Never destroyed: a game job thread can still run the World update, and with it OnUpdate, while the process
     // exits, and plugins keep the interface pointer. Built with the default allocator, so its containers never take
     // memory from whichever allocator happens to be scoped on the thread that first asks (see StringCache::Get).
+    // Diagnostic build: the service itself sits in its own pages too, so a stray free of it crashes in mi_free.
     static PluginService* s_pInstance = []
     {
         TiltedPhoques::ScopedAllocator _{TiltedPhoques::Allocator::GetDefault()};
-        return new PluginService();
+        void* pMemory = VirtualAlloc(nullptr, sizeof(PluginService), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+        if (!pMemory)
+            __fastfail(FAST_FAIL_INVALID_ARG);
+
+        auto* pService = new (pMemory) PluginService();
+        SetIdMapsWritable(false);
+        return pService;
     }();
     return *s_pInstance;
 }
@@ -322,6 +428,7 @@ void PluginService::OnDisconnected(const DisconnectedEvent&) noexcept
     m_nearSupported = false;
 
     std::lock_guard cLock(m_idLock);
+    IdMapsWritable _;
     m_actorsByServerId.clear();
     m_serverIdsByFormId.clear();
 }
@@ -338,6 +445,7 @@ void PluginService::OnUpdate(const UpdateEvent&) noexcept
     // Refilled in place: clearing keeps the buckets, so a frame normally allocates nothing, and the maps never take
     // over memory from containers built with another allocator.
     std::lock_guard cLock(m_idLock);
+    IdMapsWritable _;
     m_actorsByServerId.clear();
     m_serverIdsByFormId.clear();
 

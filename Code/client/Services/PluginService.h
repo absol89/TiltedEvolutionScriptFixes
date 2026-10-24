@@ -101,8 +101,20 @@ private:
     std::atomic<bool> m_anyNearChannel{false};
     std::atomic<bool> m_nearSupported{false};
 
+    // Diagnostic build (test/mimalloc-secure): the maps below live in their own pages, read-only outside OnUpdate and
+    // OnDisconnected, so whatever writes into or frees their memory crashes on the spot (see PluginService.cpp).
+    static TiltedPhoques::Allocator* GetIdAllocator() noexcept;
+    template <class T> static TiltedPhoques::StlAllocator<T> MakeIdAllocator() noexcept
+    {
+        TiltedPhoques::StlAllocator<T> allocator;
+        allocator.m_pAllocator = GetIdAllocator();
+        return allocator;
+    }
+    // Makes the maps' pages writable for an edit under m_idLock, or read-only again
+    static void SetIdMapsWritable(bool aWritable) noexcept;
+
     mutable std::mutex m_idLock;
     // The synced actors as of the last frame, both ways
-    Map<uint32_t, ActorIds> m_actorsByServerId;
-    Map<uint32_t, uint32_t> m_serverIdsByFormId;
+    Map<uint32_t, ActorIds> m_actorsByServerId{MakeIdAllocator<std::pair<uint32_t, ActorIds>>()};
+    Map<uint32_t, uint32_t> m_serverIdsByFormId{MakeIdAllocator<std::pair<uint32_t, uint32_t>>()};
 };
