@@ -19,8 +19,15 @@ using namespace SkyrimTogetherAPI;
 
 PluginService& PluginService::Get() noexcept
 {
-    static PluginService s_instance;
-    return s_instance;
+    // Never destroyed: a game job thread can still run the World update, and with it OnUpdate, while the process
+    // exits, and plugins keep the interface pointer. Built with the default allocator, so its containers never take
+    // memory from whichever allocator happens to be scoped on the thread that first asks (see StringCache::Get).
+    static PluginService* s_pInstance = []
+    {
+        TiltedPhoques::ScopedAllocator _{TiltedPhoques::Allocator::GetDefault()};
+        return new PluginService();
+    }();
+    return *s_pInstance;
 }
 
 ChannelHandle PluginService::RegisterChannel(const char* apName, MessageCallback aOnMessage, PartyChangedCallback aOnPartyChanged) noexcept
@@ -324,29 +331,29 @@ void PluginService::OnUpdate(const UpdateEvent&) noexcept
     if (!m_anyNearChannel || !World::Get().GetTransport().IsOnline())
         return;
 
-    Map<uint32_t, ActorIds> actorsByServerId;
-    Map<uint32_t, uint32_t> serverIdsByFormId;
-
     auto& world = World::Get();
     const auto localView = world.view<LocalComponent, FormIdComponent>();
+    const auto remoteView = world.view<RemoteComponent, FormIdComponent>();
+
+    // Refilled in place: clearing keeps the buckets, so a frame normally allocates nothing, and the maps never take
+    // over memory from containers built with another allocator.
+    std::lock_guard cLock(m_idLock);
+    m_actorsByServerId.clear();
+    m_serverIdsByFormId.clear();
+
     for (const auto cEntity : localView)
     {
         const uint32_t cServerId = localView.get<LocalComponent>(cEntity).Id;
         const uint32_t cFormId = localView.get<FormIdComponent>(cEntity).Id;
-        actorsByServerId[cServerId] = {cFormId, true};
-        serverIdsByFormId[cFormId] = cServerId;
+        m_actorsByServerId[cServerId] = {cFormId, true};
+        m_serverIdsByFormId[cFormId] = cServerId;
     }
 
-    const auto remoteView = world.view<RemoteComponent, FormIdComponent>();
     for (const auto cEntity : remoteView)
     {
         const uint32_t cServerId = remoteView.get<RemoteComponent>(cEntity).Id;
         const uint32_t cFormId = remoteView.get<FormIdComponent>(cEntity).Id;
-        actorsByServerId[cServerId] = {cFormId, false};
-        serverIdsByFormId[cFormId] = cServerId;
+        m_actorsByServerId[cServerId] = {cFormId, false};
+        m_serverIdsByFormId[cFormId] = cServerId;
     }
-
-    std::lock_guard cLock(m_idLock);
-    m_actorsByServerId = std::move(actorsByServerId);
-    m_serverIdsByFormId = std::move(serverIdsByFormId);
 }
