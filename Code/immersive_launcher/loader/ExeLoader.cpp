@@ -300,7 +300,7 @@ bool ExeLoader::Load(const uint8_t* apProgramBuffer)
     auto sourceChecksum = sourceNtHeader->OptionalHeader.CheckSum;
     auto sourceTimestamp = sourceNtHeader->FileHeader.TimeDateStamp;
     auto sourceDebugDir = sourceNtHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG];
-    // SkyrimSE.exe has no exports, but SKSE plugins need to find RequestPluginAPI in the main module.
+    // SkyrimSE.exe has no exports, but SKSE plugins need to find SkyrimTogetherRequestPluginAPI in the main module.
     auto sourceExportDir = sourceNtHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
 
     LoadSections(ntHeader);

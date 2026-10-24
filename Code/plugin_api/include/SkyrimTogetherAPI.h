@@ -10,7 +10,7 @@
 //
 // Usage:
 //   auto pRequest = reinterpret_cast<SkyrimTogetherAPI::RequestPluginAPI_t>(
-//       GetProcAddress(GetModuleHandleW(nullptr), "RequestPluginAPI"));
+//       GetProcAddress(GetModuleHandleW(nullptr), SkyrimTogetherAPI::kRequestPluginAPIName));
 //   // nullptr: not running under Skyrim Together, stay inactive.
 //   auto* pApi = static_cast<SkyrimTogetherAPI::IVSkyrimTogether1*>(pRequest(SkyrimTogetherAPI::InterfaceVersion::V1));
 //   // nullptr from V2: this Skyrim Together build predates version 2.
@@ -114,6 +114,11 @@ public:
     virtual bool IsOwnedLocally(uint32_t aServerId) const noexcept = 0;
 };
 
-// Exported by SkyrimTogether.exe. Returns nullptr for a version it does not know.
+// Exported by SkyrimTogether.exe under kRequestPluginAPIName. Returns nullptr for a version it does not know.
 using RequestPluginAPI_t = void* (*)(InterfaceVersion aVersion);
+
+// Not "RequestPluginAPI": many plugins look that name up in other mods (TrueHUD, True Directional Movement, NPCs Names
+// Distributor) with GetProcAddress(GetModuleHandle("Mod.dll"), ...), and when the mod is missing the null handle
+// means the main module. Under that name they got this interface instead and called its functions as their own.
+constexpr const char* kRequestPluginAPIName = "SkyrimTogetherRequestPluginAPI";
 } // namespace SkyrimTogetherAPI
