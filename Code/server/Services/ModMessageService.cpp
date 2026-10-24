@@ -34,14 +34,25 @@ void ModMessageService::OnSendModMessage(const PacketEvent<SendModMessageRequest
     if (!ModMessage::IsValidChannelName(cRequest.Channel) || cRequest.Data.size() > SkyrimTogetherAPI::kMaxMessageSize)
         return;
 
-    const auto& cParty = acMessage.pPlayer->GetParty();
-    if (!cParty.JoinedPartyId.has_value())
-        return;
-
     NotifyModMessage notify{};
     notify.Channel = cRequest.Channel;
     notify.SenderPlayerId = acMessage.pPlayer->GetId();
     notify.Data = cRequest.Data;
+
+    // Plugin API V2 SendToAll: party or not
+    if (cRequest.TargetPlayerId == ModMessage::kAllPlayers)
+    {
+        for (Player* pPlayer : m_world.GetPlayerManager())
+        {
+            if (pPlayer != acMessage.pPlayer)
+                pPlayer->Send(notify);
+        }
+        return;
+    }
+
+    const auto& cParty = acMessage.pPlayer->GetParty();
+    if (!cParty.JoinedPartyId.has_value())
+        return;
 
     if (cRequest.TargetPlayerId == 0)
     {
