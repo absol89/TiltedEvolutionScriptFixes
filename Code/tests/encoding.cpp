@@ -841,3 +841,99 @@ TEST_CASE("StringCache", "[encoding.string_cache]")
         REQUIRE(update == recvUpdate);
     }
 }
+
+TEST_CASE("Addon near messages", "[encoding.addon_near]")
+{
+    String maxPayload(SkyrimTogetherAPI::kMaxNearMessageSize, 'p');
+    maxPayload[10] = '\0'; // payloads are opaque bytes, not text
+
+    const auto [channel, payload] = GENERATE_COPY(std::make_pair(String("a"), String()), std::make_pair(String("ragdoll"), maxPayload));
+    const bool cUnreliable = GENERATE(false, true);
+
+    SECTION("SendAddonNearRequest")
+    {
+        SendAddonNearRequest sendMessage;
+        sendMessage.Channel = channel;
+        sendMessage.ServerId = 0x1234;
+        sendMessage.Unreliable = cUnreliable;
+        sendMessage.Data = payload;
+
+        Buffer buff(2000);
+        Buffer::Writer writer(&buff);
+        sendMessage.Serialize(writer);
+
+        Buffer::Reader reader(&buff);
+        auto pMessage = ClientMessageFactory{}.Extract(reader);
+
+        REQUIRE(pMessage);
+        REQUIRE(*CastUnique<SendAddonNearRequest>(std::move(pMessage)) == sendMessage);
+    }
+
+    SECTION("NotifyAddonNear")
+    {
+        NotifyAddonNear sendMessage;
+        sendMessage.Channel = channel;
+        sendMessage.SenderPlayerId = 3;
+        sendMessage.ServerId = 0x1234;
+        sendMessage.Data = payload;
+
+        Buffer buff(2000);
+        Buffer::Writer writer(&buff);
+        sendMessage.Serialize(writer);
+
+        Buffer::Reader reader(&buff);
+        auto pMessage = ServerMessageFactory{}.Extract(reader);
+
+        REQUIRE(pMessage);
+        REQUIRE(*CastUnique<NotifyAddonNear>(std::move(pMessage)) == sendMessage);
+    }
+}
+
+TEST_CASE("Addon hello and capabilities", "[encoding.addon_near]")
+{
+    {
+        AddonHelloRequest sendMessage;
+        sendMessage.ApiVersion = 2;
+
+        Buffer buff(100);
+        Buffer::Writer writer(&buff);
+        sendMessage.Serialize(writer);
+
+        Buffer::Reader reader(&buff);
+        auto pMessage = ClientMessageFactory{}.Extract(reader);
+
+        REQUIRE(pMessage);
+        REQUIRE(*CastUnique<AddonHelloRequest>(std::move(pMessage)) == sendMessage);
+    }
+
+    {
+        NotifyAddonCapabilities sendMessage;
+        sendMessage.ApiVersion = 2;
+        sendMessage.MaxNearMessageSize = SkyrimTogetherAPI::kMaxNearMessageSize;
+
+        Buffer buff(100);
+        Buffer::Writer writer(&buff);
+        sendMessage.Serialize(writer);
+
+        Buffer::Reader reader(&buff);
+        auto pMessage = ServerMessageFactory{}.Extract(reader);
+
+        REQUIRE(pMessage);
+        REQUIRE(*CastUnique<NotifyAddonCapabilities>(std::move(pMessage)) == sendMessage);
+    }
+}
+
+TEST_CASE("Addon near message with a bogus length", "[encoding.addon_near]")
+{
+    // A length prefix far larger than the packet must not be allocated, the message just comes out empty
+    Buffer buff(1000);
+    Buffer::Writer writer(&buff);
+    Serialization::WriteVarInt(writer, 0xFFFFFFFFFFull);
+
+    Buffer::Reader reader(&buff);
+    SendAddonNearRequest request;
+    request.DeserializeRaw(reader);
+
+    REQUIRE(request.Channel.empty());
+    REQUIRE(request.Data.empty());
+}

@@ -18,6 +18,7 @@
 #include <Services/MapService.h>
 #include <Services/DroppedItemService.h>
 #include <Services/ModMessageService.h>
+#include <Services/AddonNearService.h>
 
 #include <es_loader/ESLoader.h>
 
@@ -43,6 +44,7 @@ World::World()
     ctx().emplace<MapService>(*this, m_dispatcher);
     ctx().emplace<DroppedItemService>(*this, m_dispatcher);
     ctx().emplace<ModMessageService>(*this, m_dispatcher);
+    ctx().emplace<AddonNearService>(*this, m_dispatcher);
 
     ESLoader::ESLoader loader;
     // emplace loaded mods into modscomponent.
