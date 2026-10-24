@@ -19,6 +19,10 @@ on:
         required: false
         type: boolean
         default: false
+      alltogether:
+        required: false
+        type: boolean
+        default: false
 
 env:
   BUILD_MODE: ${{ inputs.build-mode || 'releasedbg' }}
@@ -59,9 +63,33 @@ jobs:
         run: |
           version="$(git describe --tags --always)"
           echo "ARTIFACT_VERSION=${version#v}" >> "$GITHUB_ENV"
+          suffix=""
           if [ "$SKYRIM_VERSION" != "latest" ]; then
-            echo "ASSET_SUFFIX=-sse${SKYRIM_VERSION}" >> "$GITHUB_ENV"
+            suffix="-sse${SKYRIM_VERSION}"
           fi
+          if [ "${{ inputs.alltogether }}" = "true" ]; then
+            suffix="${suffix}-alltogether"
+          fi
+          echo "ASSET_SUFFIX=${suffix}" >> "$GITHUB_ENV"
+
+      # mailamea's Plugin API V2 host patch and add-ons, at the commits pinned in Tools/AllTogether/alltogether.lock.
+      # They only add sources and register them, so the version string stays the one of the checked out commit.
+      - name: Apply the AllTogether add-ons
+        if: ${{ inputs.alltogether }}
+        run: |
+          # Without carriage returns: a Windows checkout has CRLF line endings.
+          lock="$(tr -d '\r' < Tools/AllTogether/alltogether.lock)"
+          repository="$(awk '$1 == "repository" { print $2 }' <<< "$lock")"
+          protocol="$(awk '$1 == "protocol" { print $2 }' <<< "$lock")"
+          sources="$RUNNER_TEMP/alltogether"
+          git init -q "$sources/repo"
+          grep -E '^[0-9a-f]{40} ' <<< "$lock" | while read -r commit folder script; do
+            git -C "$sources/repo" fetch -q --depth=1 --no-tags "$repository" "$commit"
+            mkdir -p "$sources/$commit"
+            git -C "$sources/repo" archive "$commit" "$folder" | tar -x -C "$sources/$commit"
+            python "$sources/$commit/$folder/$script" . --protocol "$protocol"
+          done
+          git status --short
 
       - name: Cache xmake dependencies
         uses: actions/cache@v6

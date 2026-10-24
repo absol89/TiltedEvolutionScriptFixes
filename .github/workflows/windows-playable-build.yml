@@ -2,6 +2,12 @@ name: Playable Skyrim Together Build
 
 on:
   workflow_dispatch:
+    inputs:
+      alltogether:
+        description: "Build with mailamea's AllTogether add-ons (Tools/AllTogether/alltogether.lock)"
+        required: false
+        type: boolean
+        default: false
   schedule:
     # Every Friday at 1:00 p.m. UTC
     - cron: '0 13 * * 5'
@@ -9,6 +15,11 @@ on:
     branches:
       - master
   workflow_call:
+    inputs:
+      alltogether:
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   build-windows:
@@ -22,3 +33,4 @@ jobs:
       build-mode: release
       skyrim-version: ${{ matrix.skyrim-version }}
       upload-build-for-next-job: true
+      alltogether: ${{ inputs.alltogether || false }}
