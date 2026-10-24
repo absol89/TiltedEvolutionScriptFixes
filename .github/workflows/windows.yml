@@ -81,12 +81,13 @@ jobs:
           lock="$(tr -d '\r' < Tools/AllTogether/alltogether.lock)"
           repository="$(awk '$1 == "repository" { print $2 }' <<< "$lock")"
           protocol="$(awk '$1 == "protocol" { print $2 }' <<< "$lock")"
-          sources="$RUNNER_TEMP/alltogether"
+          # As a POSIX path: tar takes the "D:" of "D:\a\_temp" for a remote host.
+          sources="$(cygpath -u "$RUNNER_TEMP")/alltogether"
           git init -q "$sources/repo"
           grep -E '^[0-9a-f]{40} ' <<< "$lock" | while read -r commit folder script; do
             git -C "$sources/repo" fetch -q --depth=1 --no-tags "$repository" "$commit"
             mkdir -p "$sources/$commit"
-            git -C "$sources/repo" archive "$commit" "$folder" | tar -x -C "$sources/$commit"
+            git -C "$sources/repo" archive "$commit" "$folder" | tar --force-local -x -C "$sources/$commit"
             python "$sources/$commit/$folder/$script" . --protocol "$protocol"
           done
           git status --short
