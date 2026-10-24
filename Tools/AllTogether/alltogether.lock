@@ -1,12 +1,12 @@
 # mailamea's AllTogether sources that the playable build's "alltogether" option applies, pinned by commit (the
 # commits of the AllTogether SKSE bundle 2, from Tools/AllTogether/addons.lock on mailamea's
-# release/alltogether-skse-bundle branch). The host patch comes first: the add-ons talk through its Plugin API V2.
+# release/alltogether-skse-bundle branch). The add-ons talk through Plugin API V2, which this tree already has
+# (PR 18), so mailamea's host patch (Mods/TogetherLauncher/Host/apply_host.py) is not applied.
 #   repository <url>
-#   protocol <apply_host.py / apply_addon.py --protocol>
+#   protocol <apply_addon.py --protocol>
 #   <commit> <folder at that commit> <script inside the folder>
 repository https://github.com/mailamea10/TiltedEvolution-dwmapi.dll.git
 protocol 1.8.7
-e1ff571237c92eac092ea610627fbca23ea2549c Mods/TogetherLauncher Host/apply_host.py
 7916e3c63bd9e8131d70015298fa74322fdf28e0 Mods/RagdollTogether StrAddon/apply_addon.py
 ab240ce2779e376ec8996e56570a00994e0ab5e7 Mods/SkyParkourTogether StrAddon/apply_addon.py
 e6c96207461147aa4e8d0cf129fe7929b52a4e67 Mods/RaceMenuTogether StrAddon/apply_addon.py

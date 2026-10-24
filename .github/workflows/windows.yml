@@ -72,7 +72,7 @@ jobs:
           fi
           echo "ASSET_SUFFIX=${suffix}" >> "$GITHUB_ENV"
 
-      # mailamea's Plugin API V2 host patch and add-ons, at the commits pinned in Tools/AllTogether/alltogether.lock.
+      # mailamea's Together add-ons, at the commits pinned in Tools/AllTogether/alltogether.lock.
       # They only add sources and register them, so the version string stays the one of the checked out commit.
       - name: Apply the AllTogether add-ons
         if: ${{ inputs.alltogether }}
