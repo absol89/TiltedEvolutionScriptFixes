@@ -1,8 +1,10 @@
 #include <Services/PluginService.h>
 
-// Looked up by SKSE plugins with GetProcAddress(GetModuleHandleW(nullptr), "RequestPluginAPI").
-// ExeLoader::Load restores the export directory so the main module still exposes it.
-extern "C" __declspec(dllexport) void* RequestPluginAPI(SkyrimTogetherAPI::InterfaceVersion aVersion)
+// Looked up by SKSE plugins with GetProcAddress(GetModuleHandleW(nullptr), SkyrimTogetherAPI::kRequestPluginAPIName).
+// ExeLoader::Load restores the export directory so the main module still exposes it. Not exported as
+// "RequestPluginAPI" any more (see kRequestPluginAPIName): Floating Subtitles, finding no NPCs Names Distributor, took
+// this interface for that mod's and called its destructor, freeing the service while the World update still used it.
+extern "C" __declspec(dllexport) void* SkyrimTogetherRequestPluginAPI(SkyrimTogetherAPI::InterfaceVersion aVersion)
 {
     switch (aVersion)
     {
