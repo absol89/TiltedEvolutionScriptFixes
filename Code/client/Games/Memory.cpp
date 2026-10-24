@@ -130,9 +130,49 @@ void* Hook_aligned_malloc(size_t aSize, size_t aAlignment)
     return mi_malloc_aligned(aSize, aAlignment);
 }
 
+// Playtest builds, not meant for upstream. mimalloc's secure mode reports a double free (EAGAIN), a corrupted free list
+// (EFAULT) or an invalid pointer (EINVAL) where it is detected; the handler then crashes on the spot, so CrashLogger
+// records the stack of the code that freed the block instead of a hang somewhere later. Messages go to
+// logs\mimalloc_errors.log through the Windows file API, as the mimalloc heap cannot be trusted at that point.
+static constexpr DWORD kMimallocErrorException = 0xE04D494D; // "MIM"
+
+static void WriteMimallocLog(const char* acpText) noexcept
+{
+    const HANDLE cFile = CreateFileA("Data\\SkyrimTogetherReborn\\logs\\mimalloc_errors.log", FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                     nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (cFile == INVALID_HANDLE_VALUE)
+        return;
+
+    DWORD written = 0;
+    WriteFile(cFile, acpText, static_cast<DWORD>(strlen(acpText)), &written, nullptr);
+    CloseHandle(cFile);
+}
+
+static void OnMimallocOutput(const char* acpMessage, void*) noexcept
+{
+    OutputDebugStringA(acpMessage);
+    WriteMimallocLog(acpMessage);
+}
+
+static void OnMimallocError(int aError, void*) noexcept
+{
+    char line[96];
+    sprintf_s(line, "mimalloc error %d on thread %lu\r\n", aError, GetCurrentThreadId());
+    WriteMimallocLog(line);
+
+    // An invalid pointer is a free of memory mimalloc never handed out. No playtest session logged one by mistake, so it
+    // crashes too.
+    if (aError == EAGAIN || aError == EFAULT || aError == EINVAL)
+        RaiseException(kMimallocErrorException, EXCEPTION_NONCONTINUABLE, 0, nullptr);
+}
+
 static TiltedPhoques::Initializer s_memoryHooks(
     []()
     {
+        mi_register_output(&OnMimallocOutput, nullptr);
+        mi_register_error(&OnMimallocError, nullptr);
+        mi_option_enable(mi_option_show_errors);
+
         POINTER_SKYRIMSE(TFormAllocate, s_formAllocate, 68115);
 
         POINTER_SKYRIMSE(TFormFree, s_formFree, 68117);

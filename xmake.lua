@@ -63,7 +63,10 @@ if is_plat("windows") then
 end
 
 -- dependencies' dependencies version pinning
-add_requireconfs("*.mimalloc", { version = "2.2.4", override = true })
+-- Playtest builds: secure mode encodes and checks the free lists, so heap corruption crashes with a log instead of
+-- hanging the allocator, and a double free is reported where it happens (see the error handler in
+-- Code/client/Games/Memory.cpp). Costs some allocation speed; not meant for upstream.
+add_requireconfs("*.mimalloc", { version = "2.2.4", configs = { secure = true }, override = true })
 add_requireconfs("*.cmake", { version = "3.30.2", override = true })
 add_requireconfs("*.openssl", { version = "1.1.1-w", override = true })
 add_requireconfs("*.zlib", { version = "v1.3.1", override = true })
