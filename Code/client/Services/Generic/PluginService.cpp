@@ -17,6 +17,7 @@
 #include <Events/DisconnectedEvent.h>
 #include <Events/UpdateEvent.h>
 
+#include <chrono>
 #include <cmath>
 
 using namespace SkyrimTogetherAPI;
@@ -465,15 +466,23 @@ void PluginService::OnDisconnected(const DisconnectedEvent&) noexcept
 {
     m_nearSupported = false;
     ClearQueuedNear();
+    m_networkTick = 0;
 
     std::lock_guard cLock(m_idLock);
     m_actorsByServerId.clear();
     m_serverIdsByFormId.clear();
+    m_playbackOffsets.clear();
+    m_players.clear();
 }
 
 void PluginService::OnUpdate(const UpdateEvent& acEvent) noexcept
 {
-    if (!m_anyNearChannel || !World::Get().GetTransport().IsOnline())
+    if (!World::Get().GetTransport().IsOnline())
+        return;
+
+    UpdateSession();
+
+    if (!m_anyNearChannel)
         return;
 
     if (m_nearSupported)
@@ -504,4 +513,118 @@ void PluginService::OnUpdate(const UpdateEvent& acEvent) noexcept
         m_actorsByServerId[cServerId] = {cFormId, false};
         m_serverIdsByFormId[cFormId] = cServerId;
     }
+}
+
+void PluginService::UpdateSession() noexcept
+{
+    auto& world = World::Get();
+    const uint64_t cTick = world.GetTransport().GetClock().GetCurrentTick();
+    m_networkTickAt = std::chrono::steady_clock::now().time_since_epoch().count();
+    m_networkTick = cTick;
+
+    const auto interpolationView = world.view<RemoteComponent, InterpolationComponent>();
+    const auto playerView = world.view<PlayerComponent, RemoteComponent, FormIdComponent>();
+
+    std::lock_guard cLock(m_idLock);
+
+    m_playbackOffsets.clear();
+    for (const auto cEntity : interpolationView)
+    {
+        const auto& cClock = interpolationView.get<InterpolationComponent>(cEntity).Clock;
+        if (cTick != 0 && cClock.IsRunning())
+            m_playbackOffsets[interpolationView.get<RemoteComponent>(cEntity).Id] = cClock.GetRenderTick() - static_cast<double>(cTick);
+    }
+
+    m_players.clear();
+    for (const auto cEntity : playerView)
+    {
+        m_players.push_back(
+            {playerView.get<PlayerComponent>(cEntity).Id, playerView.get<RemoteComponent>(cEntity).Id, playerView.get<FormIdComponent>(cEntity).Id});
+    }
+}
+
+uint64_t PluginService::GetNetworkTick() const noexcept
+{
+    const uint64_t cTick = m_networkTick;
+    if (cTick == 0)
+        return 0;
+
+    // Advanced with the local clock since the last frame, up to a second (a frame that long is a stall, not time
+    // the server has moved on without us noticing)
+    const auto cElapsed = std::chrono::steady_clock::now().time_since_epoch() - std::chrono::steady_clock::duration(m_networkTickAt.load());
+    const auto cMilliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(cElapsed).count();
+    return cTick + static_cast<uint64_t>(std::clamp<int64_t>(cMilliseconds, 0, 1000));
+}
+
+bool PluginService::GetPlaybackTick(uint32_t aServerId, double* apTick) const noexcept
+{
+    if (!apTick)
+        return false;
+
+    double offset = 0.0;
+    {
+        std::lock_guard cLock(m_idLock);
+
+        const auto cItor = m_playbackOffsets.find(aServerId);
+        if (cItor == m_playbackOffsets.end())
+            return false;
+        offset = cItor->second;
+    }
+
+    const uint64_t cTick = GetNetworkTick();
+    if (cTick == 0)
+        return false;
+
+    *apTick = static_cast<double>(cTick) + offset;
+    return true;
+}
+
+size_t PluginService::GetPlayers(PlayerInfo* apPlayers, size_t aMax) const noexcept
+{
+    std::lock_guard cLock(m_idLock);
+
+    if (apPlayers)
+    {
+        for (size_t i = 0; i < aMax && i < m_players.size(); ++i)
+            apPlayers[i] = m_players[i];
+    }
+    return m_players.size();
+}
+
+void PluginService::SetServerEndpoint(const std::string& acEndpoint) noexcept
+{
+    // "host:port", "[v6 address]:port" or just a host. With the default allocator, and copied rather than moved into
+    // the member: allocators compare equal, so a move could hand the member a buffer from another one.
+    TiltedPhoques::ScopedAllocator _{TiltedPhoques::Allocator::GetDefault()};
+    String host(acEndpoint.c_str());
+    uint16_t port = 0;
+    const auto cColon = host.rfind(':');
+    const auto cBracket = host.rfind(']');
+    if (cColon != String::npos && (cBracket == String::npos || cColon > cBracket))
+    {
+        port = static_cast<uint16_t>(std::strtoul(host.c_str() + cColon + 1, nullptr, 10));
+        host.resize(cColon);
+    }
+    if (host.size() >= 2 && host.front() == '[' && host.back() == ']')
+        host = host.substr(1, host.size() - 2);
+
+    std::lock_guard cLock(m_lock);
+    m_serverHost = host;
+    m_serverPort = port;
+}
+
+bool PluginService::GetServerAddress(char* apHost, size_t aSize, uint16_t* apPort) const noexcept
+{
+    if (!entt::locator<World>::has_value() || !World::Get().GetTransport().IsOnline())
+        return false;
+
+    std::lock_guard cLock(m_lock);
+
+    if (m_serverHost.empty() || !apHost || aSize <= m_serverHost.size())
+        return false;
+
+    std::memcpy(apHost, m_serverHost.c_str(), m_serverHost.size() + 1);
+    if (apPort)
+        *apPort = m_serverPort;
+    return true;
 }

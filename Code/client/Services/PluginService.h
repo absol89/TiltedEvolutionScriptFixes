@@ -42,6 +42,15 @@ struct PluginService final : SkyrimTogetherAPI::IVSkyrimTogether3
 
     bool SetFaceTints(uint32_t aServerId, const SkyrimTogetherAPI::FaceTint* apTints, size_t aCount) noexcept override;
     size_t GetNearQueued(SkyrimTogetherAPI::ChannelHandle aChannel) const noexcept override;
+    uint64_t GetNetworkTick() const noexcept override;
+    bool GetPlaybackTick(uint32_t aServerId, double* apTick) const noexcept override;
+    size_t GetPlayers(SkyrimTogetherAPI::PlayerInfo* apPlayers, size_t aMax) const noexcept override;
+    bool GetServerAddress(char* apHost, size_t aSize, uint16_t* apPort) const noexcept override;
+
+    /**
+     * @brief The "host:port" this client is about to connect to, for GetServerAddress.
+     */
+    void SetServerEndpoint(const std::string& acEndpoint) noexcept;
 
     /**
      * @brief Hands a relayed Mod Message to the plugin on its channel, if any. Runs during the World update.
@@ -129,10 +138,25 @@ private:
     void SendQueuedNear(double aDelta) noexcept;
     void ClearQueuedNear() noexcept;
 
+    // Refreshes what any thread can read about the session as of this frame (network tick, playback ticks, players)
+    void UpdateSession() noexcept;
+
     mutable std::mutex m_idLock;
     // The synced actors as of the last frame, both ways
     Map<uint32_t, ActorIds> m_actorsByServerId;
     Map<uint32_t, uint32_t> m_serverIdsByFormId;
+    // Per copy with movement playing: its playback tick minus the network tick, as of the last frame
+    Map<uint32_t, double> m_playbackOffsets;
+    // The other players with their characters loaded, as of the last frame
+    Vector<SkyrimTogetherAPI::PlayerInfo> m_players;
+
+    // The network tick at the last frame, and when that was (steady clock), so it can be advanced between frames
+    std::atomic<uint64_t> m_networkTick{0};
+    std::atomic<int64_t> m_networkTickAt{0};
+
+    // The server last connected to, under m_lock
+    String m_serverHost;
+    uint16_t m_serverPort{0};
 
     mutable std::mutex m_nearLock;
     // By channel handle minus one, grown on first use

@@ -1,4 +1,5 @@
 #include <BranchInfo.h>
+#include <Services/PluginService.h>
 
 #include <Havok/hkbStateMachine.h>
 #include <Structs/AnimationGraphDescriptorManager.h>
@@ -179,7 +180,10 @@ void DebugService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
 
             static char s_address[256] = "127.0.0.1:10578";
             if (!m_transport.IsOnline())
+            {
+                PluginService::Get().SetServerEndpoint(s_address);
                 m_transport.Connect(s_address);
+            }
             else
                 m_transport.Close();
         }
@@ -254,6 +258,7 @@ void DebugService::DrawServerView() noexcept
         if (ImGui::Button("Connect"))
         {
             m_transport.SetServerPassword(s_password);
+            PluginService::Get().SetServerEndpoint(s_address);
             m_transport.Connect(s_address);
         }
     }

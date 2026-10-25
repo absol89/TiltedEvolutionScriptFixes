@@ -7,8 +7,9 @@
 // clients receives them. Version 1 sends to the sender's party. Version 2 adds messages about one actor, relayed to
 // the players who have that actor in range, optionally unreliable, paced under the server's limit. Nothing is stored
 // on the server. Version 3 lets a plugin hand Skyrim Together what it needs to redo its own work on a copy, such as
-// face tints after a plugin rebuilt the copy's head, and see how many of its messages about actors are waiting. This
-// header is self-contained, copy it into your plugin.
+// face tints after a plugin rebuilt the copy's head, see how many of its messages about actors are waiting, and read
+// what Skyrim Together knows about the session: the network time and each copy's playback time, the other players
+// in range, and the server's address. This header is self-contained, copy it into your plugin.
 //
 // Usage:
 //   auto pRequest = reinterpret_cast<SkyrimTogetherAPI::RequestPluginAPI_t>(
@@ -142,6 +143,14 @@ struct FaceTint
 constexpr size_t kMaxFaceTints = 256;
 constexpr size_t kMaxFaceTintTextureSize = 512;
 
+// V3: another player whose character is loaded on this client.
+struct PlayerInfo
+{
+    uint32_t PlayerId; // Skyrim Together's player ID, the same on every client
+    uint32_t ServerId; // the server ID of that player's character
+    uint32_t FormId;   // that character's form ID on this client
+};
+
 class IVSkyrimTogether3 : public IVSkyrimTogether2
 {
 public:
@@ -156,6 +165,26 @@ public:
     // unreliable one waiting). For a plugin that streams: hold back while it grows. 0 for a bad handle. Callable from
     // any thread.
     virtual size_t GetNearQueued(ChannelHandle aChannel) const noexcept = 0;
+
+    // Skyrim Together's network time in milliseconds, kept in step with the server, so the same moment has the same
+    // tick on every client. 0 while not connected. Advances with the local clock between frames. Callable from any thread.
+    virtual uint64_t GetNetworkTick() const noexcept = 0;
+
+    // The network tick this client is showing the copy of actor aServerId at: copies play the owner's movement a little
+    // behind, to smooth over the network. Stamp what you send about an actor with GetNetworkTick, and play it back on
+    // the copy at this tick to stay in step with the copy's movement. False if aServerId is not a copy whose movement
+    // plays here. As of the last frame, advanced with the local clock. Callable from any thread.
+    virtual bool GetPlaybackTick(uint32_t aServerId, double* apTick) const noexcept = 0;
+
+    // The other players whose characters are loaded on this client, as of the last frame (the local player is not
+    // one of them). Writes up to aMax of them to apPlayers and returns how many there are: call with aMax 0 to count.
+    // Callable from any thread.
+    virtual size_t GetPlayers(PlayerInfo* apPlayers, size_t aMax) const noexcept = 0;
+
+    // The server this client is connected to: its host name or address, without the port, into apHost (up to aSize
+    // bytes with the terminating zero), and its port. False while not connected, or if apHost is too small. Callable
+    // from any thread.
+    virtual bool GetServerAddress(char* apHost, size_t aSize, uint16_t* apPort) const noexcept = 0;
 };
 
 // Exported by SkyrimTogether.exe under kRequestPluginAPIName. Returns nullptr for a version it does not know.

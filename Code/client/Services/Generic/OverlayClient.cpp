@@ -1,4 +1,5 @@
 #include <TiltedOnlinePCH.h>
+#include <Services/PluginService.h>
 
 #include <OverlayRenderHandler.hpp>
 #include <DInputHook.hpp>
@@ -171,6 +172,7 @@ void OverlayClient::ProcessConnectMessage(CefRefPtr<CefListValue> aEventArgs)
 
     std::string endpoint = baseIp + ":" + std::to_string(port);
 
+    PluginService::Get().SetServerEndpoint(endpoint);
     World::Get().GetRunner().Queue([endpoint] { World::Get().GetTransport().Connect(endpoint); });
 }
 
