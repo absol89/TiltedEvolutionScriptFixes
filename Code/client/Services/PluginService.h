@@ -2,6 +2,9 @@
 
 #include <SkyrimTogetherAPI.h>
 
+#include <deque>
+#include <unordered_map>
+
 struct NotifyModMessage;
 struct NotifyAddonCapabilities;
 struct NotifyAddonNear;
@@ -38,6 +41,7 @@ struct PluginService final : SkyrimTogetherAPI::IVSkyrimTogether3
     bool IsOwnedLocally(uint32_t aServerId) const noexcept override;
 
     bool SetFaceTints(uint32_t aServerId, const SkyrimTogetherAPI::FaceTint* apTints, size_t aCount) noexcept override;
+    size_t GetNearQueued(SkyrimTogetherAPI::ChannelHandle aChannel) const noexcept override;
 
     /**
      * @brief Hands a relayed Mod Message to the plugin on its channel, if any. Runs during the World update.
@@ -61,7 +65,8 @@ struct PluginService final : SkyrimTogetherAPI::IVSkyrimTogether3
     void OnDisconnected(const DisconnectedEvent& acEvent) noexcept;
 
     /**
-     * @brief Refreshes the actor IDs that any thread can look up, while a plugin uses messages about actors.
+     * @brief Sends the messages about actors that the channels' budgets allow, and refreshes the actor IDs that any
+     * thread can look up, while a plugin uses messages about actors.
      */
     void OnUpdate(const UpdateEvent& acEvent) noexcept;
 
@@ -103,8 +108,33 @@ private:
     std::atomic<bool> m_anyNearChannel{false};
     std::atomic<bool> m_nearSupported{false};
 
+    // Messages about actors waiting for their channel's budget. The server relays a limited number per player and
+    // channel and drops the rest without telling anyone, so they leave at a pace it accepts.
+    struct NearQueue
+    {
+        struct Message
+        {
+            uint32_t ServerId;
+            String Data;
+        };
+        // In order, none dropped
+        std::deque<Message> Reliable;
+        // Only the newest per actor: an unreliable message replaces the one before it. Actors take turns.
+        std::unordered_map<uint32_t, String> Unreliable;
+        std::deque<uint32_t> UnreliableOrder;
+        double Tokens;
+    };
+
+    // Sends what the budgets allow; World update only
+    void SendQueuedNear(double aDelta) noexcept;
+    void ClearQueuedNear() noexcept;
+
     mutable std::mutex m_idLock;
     // The synced actors as of the last frame, both ways
     Map<uint32_t, ActorIds> m_actorsByServerId;
     Map<uint32_t, uint32_t> m_serverIdsByFormId;
+
+    mutable std::mutex m_nearLock;
+    // By channel handle minus one, grown on first use
+    std::vector<NearQueue> m_nearQueues;
 };

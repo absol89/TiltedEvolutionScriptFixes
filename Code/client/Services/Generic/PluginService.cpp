@@ -208,14 +208,11 @@ bool PluginService::SetNearMessageCallback(ChannelHandle aChannel, NearMessageCa
 
 SendResult PluginService::SendNear(ChannelHandle aChannel, uint32_t aServerId, Delivery aDelivery, const char* apBytes, size_t aLength) noexcept
 {
-    String channelName;
     {
         std::lock_guard cLock(m_lock);
 
         if (aChannel == 0 || aChannel > m_channels.size())
             return SendResult::BadChannel;
-
-        channelName = m_channels[aChannel - 1].Name;
     }
 
     if (aLength > kMaxNearMessageSize)
@@ -231,23 +228,105 @@ SendResult PluginService::SendNear(ChannelHandle aChannel, uint32_t aServerId, D
     if (!IsOwnedLocally(aServerId))
         return SendResult::NotOwner;
 
-    // The state may have changed by the time the World update gets to it, in which case the server drops the message
-    World::Get().GetRunner().Queue(
-        [channelName = std::move(channelName), aServerId, cUnreliable = aDelivery == Delivery::Unreliable, data = String(apBytes ? apBytes : "", apBytes ? aLength : 0)]()
+    // Waits in the channel's queue until its budget allows it (SendQueuedNear, during the World update). The copy is
+    // made with the default allocator: the caller may be on a thread with a scoped one that does not outlive the frame.
+    TiltedPhoques::ScopedAllocator _{TiltedPhoques::Allocator::GetDefault()};
+    String data(apBytes ? apBytes : "", apBytes ? aLength : 0);
+
+    std::lock_guard cLock(m_nearLock);
+    if (m_nearQueues.size() < aChannel)
+        m_nearQueues.resize(aChannel, NearQueue{{}, {}, {}, kNearBurst});
+    NearQueue& queue = m_nearQueues[aChannel - 1];
+
+    if (aDelivery == Delivery::Unreliable)
+    {
+        // Replaces the actor's waiting message, keeping its turn
+        auto [itor, cInserted] = queue.Unreliable.try_emplace(aServerId);
+        itor->second = std::move(data);
+        if (cInserted)
+            queue.UnreliableOrder.push_back(aServerId);
+    }
+    else
+    {
+        if (queue.Reliable.size() >= kMaxQueuedNearMessages)
+            return SendResult::QueueFull;
+        queue.Reliable.push_back({aServerId, std::move(data)});
+    }
+
+    return SendResult::Ok;
+}
+
+size_t PluginService::GetNearQueued(ChannelHandle aChannel) const noexcept
+{
+    std::lock_guard cLock(m_nearLock);
+
+    if (aChannel == 0 || aChannel > m_nearQueues.size())
+        return 0;
+
+    const NearQueue& cQueue = m_nearQueues[aChannel - 1];
+    return cQueue.Reliable.size() + cQueue.Unreliable.size();
+}
+
+void PluginService::SendQueuedNear(double aDelta) noexcept
+{
+    auto& transport = World::Get().GetTransport();
+
+    std::lock_guard cLock(m_nearLock);
+    for (size_t i = 0; i < m_nearQueues.size(); ++i)
+    {
+        NearQueue& queue = m_nearQueues[i];
+        queue.Tokens = std::min(kNearBurst, queue.Tokens + aDelta * kNearMessagesPerSecond);
+        if (queue.Reliable.empty() && queue.UnreliableOrder.empty())
+            continue;
+
+        String channelName;
         {
-            auto& world = World::Get();
-            if (!world.GetTransport().IsOnline())
-                return;
+            std::lock_guard cChannelLock(m_lock);
+            channelName = m_channels[i].Name;
+        }
+
+        // Reliable first: an unreliable message lost to the budget is replaced by the next one anyway. The data is
+        // copied into the request, not moved: the request's string may use another allocator, and allocators compare
+        // equal, so a move would hand it a buffer it then frees with the wrong one.
+        while (queue.Tokens >= 1.0 && !queue.Reliable.empty())
+        {
+            SendAddonNearRequest request{};
+            request.Channel = channelName;
+            request.ServerId = queue.Reliable.front().ServerId;
+            request.Unreliable = false;
+            request.Data = queue.Reliable.front().Data;
+            queue.Reliable.pop_front();
+            transport.Send(request, TiltedPhoques::kReliable);
+            queue.Tokens -= 1.0;
+        }
+
+        while (queue.Tokens >= 1.0 && !queue.UnreliableOrder.empty())
+        {
+            const uint32_t cServerId = queue.UnreliableOrder.front();
+            queue.UnreliableOrder.pop_front();
+            const auto cItor = queue.Unreliable.find(cServerId);
+            if (cItor == queue.Unreliable.end())
+                continue;
 
             SendAddonNearRequest request{};
             request.Channel = channelName;
-            request.ServerId = aServerId;
-            request.Unreliable = cUnreliable;
-            request.Data = data;
-            world.GetTransport().Send(request, cUnreliable ? TiltedPhoques::kUnreliableNoNagle : TiltedPhoques::kReliable);
-        });
+            request.ServerId = cServerId;
+            request.Unreliable = true;
+            request.Data = cItor->second;
+            queue.Unreliable.erase(cItor);
+            transport.Send(request, TiltedPhoques::kUnreliableNoNagle);
+            queue.Tokens -= 1.0;
+        }
+    }
+}
 
-    return SendResult::Ok;
+void PluginService::ClearQueuedNear() noexcept
+{
+    std::lock_guard cLock(m_nearLock);
+
+    // A new connection starts with the server's bucket full, so ours starts full too
+    for (NearQueue& queue : m_nearQueues)
+        queue = NearQueue{{}, {}, {}, kNearBurst};
 }
 
 SendResult PluginService::SendToAll(ChannelHandle aChannel, const char* apBytes, size_t aLength) noexcept
@@ -263,7 +342,9 @@ bool PluginService::SetFaceTints(uint32_t aServerId, const FaceTint* apTints, si
     if (!entt::locator<World>::has_value() || !World::Get().GetTransport().IsOnline())
         return false;
 
-    // Copied on the calling thread: the plugin's array is only valid for the call
+    // Copied on the calling thread: the plugin's array is only valid for the call. With the default allocator, as the
+    // copy is freed during a later World update.
+    TiltedPhoques::ScopedAllocator _{TiltedPhoques::Allocator::GetDefault()};
     struct Copied
     {
         String Texture;
@@ -372,6 +453,7 @@ void PluginService::OnNotifyAddonCapabilities(const NotifyAddonCapabilities& acM
 void PluginService::OnConnected(const ConnectedEvent&) noexcept
 {
     m_nearSupported = false;
+    ClearQueuedNear();
 
     // A server without Plugin API V2 cannot parse this and drops it, so SendNear stays off there
     AddonHelloRequest request{};
@@ -382,16 +464,20 @@ void PluginService::OnConnected(const ConnectedEvent&) noexcept
 void PluginService::OnDisconnected(const DisconnectedEvent&) noexcept
 {
     m_nearSupported = false;
+    ClearQueuedNear();
 
     std::lock_guard cLock(m_idLock);
     m_actorsByServerId.clear();
     m_serverIdsByFormId.clear();
 }
 
-void PluginService::OnUpdate(const UpdateEvent&) noexcept
+void PluginService::OnUpdate(const UpdateEvent& acEvent) noexcept
 {
     if (!m_anyNearChannel || !World::Get().GetTransport().IsOnline())
         return;
+
+    if (m_nearSupported)
+        SendQueuedNear(acEvent.Delta);
 
     auto& world = World::Get();
     const auto localView = world.view<LocalComponent, FormIdComponent>();

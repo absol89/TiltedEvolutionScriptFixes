@@ -5,9 +5,10 @@
 // Lets an SKSE plugin sync its own state through Skyrim Together: the plugin registers a Channel and sends small
 // Mod Messages on it, Skyrim Together relays them without interpreting them, and the same plugin on the other
 // clients receives them. Version 1 sends to the sender's party. Version 2 adds messages about one actor, relayed to
-// the players who have that actor in range, optionally unreliable. Nothing is stored on the server. Version 3 lets a
-// plugin hand Skyrim Together what it needs to redo its own work on a copy, such as face tints after a plugin rebuilt
-// the copy's head. This header is self-contained, copy it into your plugin.
+// the players who have that actor in range, optionally unreliable, paced under the server's limit. Nothing is stored
+// on the server. Version 3 lets a plugin hand Skyrim Together what it needs to redo its own work on a copy, such as
+// face tints after a plugin rebuilt the copy's head, and see how many of its messages about actors are waiting. This
+// header is self-contained, copy it into your plugin.
 //
 // Usage:
 //   auto pRequest = reinterpret_cast<SkyrimTogetherAPI::RequestPluginAPI_t>(
@@ -39,7 +40,8 @@ enum class SendResult : uint8_t
     TooLarge,     // Payload is longer than kMaxMessageSize (kMaxNearMessageSize for SendNear)
     BadChannel,   // Not a handle returned by RegisterChannel
     NotSupported, // V2: the server does not relay messages about actors (see IsNearSupported)
-    NotOwner      // V2: this client neither controls that actor nor is that player
+    NotOwner,     // V2: this client neither controls that actor nor is that player
+    QueueFull     // SendNear: kMaxQueuedNearMessages reliable messages already wait on this channel; try again later
 };
 
 // How a message about an actor travels. Unreliable messages may be lost or arrive out of order, which suits a
@@ -54,6 +56,12 @@ enum class Delivery : uint8_t
 constexpr size_t kMaxMessageSize = 256;
 // V2: the payload of SendNear fits one network packet; split larger data yourself.
 constexpr size_t kMaxNearMessageSize = 1200;
+// SendNear: messages about actors leave at most this many per second per channel, after an initial burst of up to
+// kNearBurst; the rest wait their turn on this client (the server relays 60 per second, burst 120, and drops the
+// rest). At most kMaxQueuedNearMessages reliable messages wait per channel.
+constexpr double kNearMessagesPerSecond = 50.0;
+constexpr double kNearBurst = 100.0;
+constexpr size_t kMaxQueuedNearMessages = 2048;
 // Channel names are 1 to kMaxChannelNameSize bytes of [A-Za-z0-9._-].
 constexpr size_t kMaxChannelNameSize = 64;
 
@@ -98,7 +106,8 @@ public:
 
     // Sends a message about the actor aServerId to every other player who has it in range, party or not. Only the
     // player controlling that actor (or the player that actor is) may send about it; the server enforces this.
-    // Callable from any thread.
+    // Messages leave within the channel's budget (kNearMessagesPerSecond); beyond it they wait: reliable ones in order,
+    // and of the unreliable ones only the newest per actor, actors taking turns. Callable from any thread.
     virtual SendResult SendNear(ChannelHandle aChannel, uint32_t aServerId, Delivery aDelivery, const char* apBytes, size_t aLength) noexcept = 0;
 
     // Sends to every other player on the server, party or not, reliably. Up to kMaxMessageSize, and rate limited
@@ -142,6 +151,11 @@ public:
     // RaceMenu preset does). Applied during the next update; dropped if aServerId is not a copy here by then. False for
     // bad arguments or while not connected. Callable from any thread.
     virtual bool SetFaceTints(uint32_t aServerId, const FaceTint* apTints, size_t aCount) noexcept = 0;
+
+    // How many messages about actors wait for this channel's budget (reliable messages, plus one per actor with an
+    // unreliable one waiting). For a plugin that streams: hold back while it grows. 0 for a bad handle. Callable from
+    // any thread.
+    virtual size_t GetNearQueued(ChannelHandle aChannel) const noexcept = 0;
 };
 
 // Exported by SkyrimTogether.exe under kRequestPluginAPIName. Returns nullptr for a version it does not know.
