@@ -1,12 +1,13 @@
 #pragma once
 
-// Skyrim Together Plugin API, versions 1 and 2.
+// Skyrim Together Plugin API, versions 1 to 3.
 //
 // Lets an SKSE plugin sync its own state through Skyrim Together: the plugin registers a Channel and sends small
 // Mod Messages on it, Skyrim Together relays them without interpreting them, and the same plugin on the other
 // clients receives them. Version 1 sends to the sender's party. Version 2 adds messages about one actor, relayed to
-// the players who have that actor in range, optionally unreliable. Nothing is stored on the server. This header is
-// self-contained, copy it into your plugin.
+// the players who have that actor in range, optionally unreliable. Nothing is stored on the server. Version 3 lets a
+// plugin hand Skyrim Together what it needs to redo its own work on a copy, such as face tints after a plugin rebuilt
+// the copy's head. This header is self-contained, copy it into your plugin.
 //
 // Usage:
 //   auto pRequest = reinterpret_cast<SkyrimTogetherAPI::RequestPluginAPI_t>(
@@ -15,6 +16,8 @@
 //   auto* pApi = static_cast<SkyrimTogetherAPI::IVSkyrimTogether1*>(pRequest(SkyrimTogetherAPI::InterfaceVersion::V1));
 //   // nullptr from V2: this Skyrim Together build predates version 2.
 //   auto* pApi2 = static_cast<SkyrimTogetherAPI::IVSkyrimTogether2*>(pRequest(SkyrimTogetherAPI::InterfaceVersion::V2));
+//   // nullptr from V3: this Skyrim Together build predates version 3. Do without what it adds; V2 still works.
+//   auto* pApi3 = static_cast<SkyrimTogetherAPI::IVSkyrimTogether3*>(pRequest(SkyrimTogetherAPI::InterfaceVersion::V3));
 
 #include <cstddef>
 #include <cstdint>
@@ -24,7 +27,8 @@ namespace SkyrimTogetherAPI
 enum class InterfaceVersion : uint8_t
 {
     V1 = 1,
-    V2 = 2
+    V2 = 2,
+    V3 = 3
 };
 
 enum class SendResult : uint8_t
@@ -112,6 +116,32 @@ public:
     virtual uint32_t GetFormId(uint32_t aServerId) const noexcept = 0;
     // Whether this client controls the actor with that server ID, so SendNear about it will be relayed.
     virtual bool IsOwnedLocally(uint32_t aServerId) const noexcept = 0;
+};
+
+// V3: one layer of a character's face tint (skin tone, warpaint, dirt, ...), as the game's TintMask holds it.
+struct FaceTint
+{
+    float Alpha;
+    // The TintMask's color as stored: red, green, blue and alpha bytes, in that order in memory.
+    uint32_t Color;
+    // The TintMask's type (skin tone, warpaint, ...).
+    uint32_t Type;
+    // The tint mask texture's path, as the game names it. Not kept: copied before the call returns.
+    const char* Texture;
+};
+// V3: at most this many tints per face, and this long a texture path.
+constexpr size_t kMaxFaceTints = 256;
+constexpr size_t kMaxFaceTintTextureSize = 512;
+
+class IVSkyrimTogether3 : public IVSkyrimTogether2
+{
+public:
+    // Paints these tints on the face of this client's copy of the actor with server ID aServerId (another player's
+    // character, or an actor another player controls), the way Skyrim Together paints copies itself, and keeps them
+    // for that copy from then on. For plugins that rebuild a copy's head, which drops the painted tints (loading a
+    // RaceMenu preset does). Applied during the next update; dropped if aServerId is not a copy here by then. False for
+    // bad arguments or while not connected. Callable from any thread.
+    virtual bool SetFaceTints(uint32_t aServerId, const FaceTint* apTints, size_t aCount) noexcept = 0;
 };
 
 // Exported by SkyrimTogether.exe under kRequestPluginAPIName. Returns nullptr for a version it does not know.

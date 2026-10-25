@@ -15,7 +15,7 @@ struct UpdateEvent;
  * Not a World service, as plugins may ask for the interface before the World exists. The World forwards
  * NotifyModMessage, NotifyAddonNear and the connection events to it.
  */
-struct PluginService final : SkyrimTogetherAPI::IVSkyrimTogether2
+struct PluginService final : SkyrimTogetherAPI::IVSkyrimTogether3
 {
     [[nodiscard]] static PluginService& Get() noexcept;
 
@@ -36,6 +36,8 @@ struct PluginService final : SkyrimTogetherAPI::IVSkyrimTogether2
     uint32_t GetServerId(uint32_t aFormId) const noexcept override;
     uint32_t GetFormId(uint32_t aServerId) const noexcept override;
     bool IsOwnedLocally(uint32_t aServerId) const noexcept override;
+
+    bool SetFaceTints(uint32_t aServerId, const SkyrimTogetherAPI::FaceTint* apTints, size_t aCount) noexcept override;
 
     /**
      * @brief Hands a relayed Mod Message to the plugin on its channel, if any. Runs during the World update.

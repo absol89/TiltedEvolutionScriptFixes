@@ -10,6 +10,7 @@ extern "C" __declspec(dllexport) void* SkyrimTogetherRequestPluginAPI(SkyrimToge
     {
     case SkyrimTogetherAPI::InterfaceVersion::V1: return static_cast<SkyrimTogetherAPI::IVSkyrimTogether1*>(&PluginService::Get());
     case SkyrimTogetherAPI::InterfaceVersion::V2: return static_cast<SkyrimTogetherAPI::IVSkyrimTogether2*>(&PluginService::Get());
+    case SkyrimTogetherAPI::InterfaceVersion::V3: return static_cast<SkyrimTogetherAPI::IVSkyrimTogether3*>(&PluginService::Get());
     }
 
     return nullptr;

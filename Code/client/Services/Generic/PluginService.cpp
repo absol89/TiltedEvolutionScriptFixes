@@ -2,6 +2,8 @@
 
 #include <World.h>
 #include <Components.h>
+#include <Structs/Tints.h>
+#include <Systems/FaceGenSystem.h>
 
 #include <Messages/ModMessage.h>
 #include <Messages/NotifyModMessage.h>
@@ -14,6 +16,8 @@
 #include <Events/ConnectedEvent.h>
 #include <Events/DisconnectedEvent.h>
 #include <Events/UpdateEvent.h>
+
+#include <cmath>
 
 using namespace SkyrimTogetherAPI;
 
@@ -249,6 +253,64 @@ SendResult PluginService::SendNear(ChannelHandle aChannel, uint32_t aServerId, D
 SendResult PluginService::SendToAll(ChannelHandle aChannel, const char* apBytes, size_t aLength) noexcept
 {
     return Queue(aChannel, ModMessage::kAllPlayers, apBytes, aLength);
+}
+
+bool PluginService::SetFaceTints(uint32_t aServerId, const FaceTint* apTints, size_t aCount) noexcept
+{
+    if (aServerId == 0 || !apTints || aCount == 0 || aCount > kMaxFaceTints)
+        return false;
+
+    if (!entt::locator<World>::has_value() || !World::Get().GetTransport().IsOnline())
+        return false;
+
+    // Copied on the calling thread: the plugin's array is only valid for the call
+    struct Copied
+    {
+        String Texture;
+        float Alpha;
+        uint32_t Color;
+        uint32_t Type;
+    };
+    Vector<Copied> tints;
+    tints.reserve(aCount);
+    for (size_t i = 0; i < aCount; ++i)
+    {
+        const FaceTint& cTint = apTints[i];
+        if (!std::isfinite(cTint.Alpha))
+            return false;
+
+        // Reading up to one byte past the limit is enough to tell the path is too long
+        const size_t cLength = cTint.Texture ? strnlen(cTint.Texture, kMaxFaceTintTextureSize + 1) : 0;
+        if (cLength > kMaxFaceTintTextureSize)
+            return false;
+
+        tints.push_back({String(cTint.Texture ? cTint.Texture : "", cLength), cTint.Alpha, cTint.Color, cTint.Type});
+    }
+
+    // FaceGenSystem paints a copy whose FaceGenComponent is not generated yet, on the next update with its head loaded
+    World::Get().GetRunner().Queue(
+        [aServerId, tints = std::move(tints)]()
+        {
+            auto& world = World::Get();
+            const auto cEntity = Utils::FindEntityByServerId(aServerId);
+            if (!cEntity || !world.try_get<RemoteComponent>(*cEntity) || !world.try_get<FormIdComponent>(*cEntity))
+                return;
+
+            Tints faceTints;
+            faceTints.Entries.reserve(tints.size());
+            for (const Copied& cTint : tints)
+            {
+                Tints::Entry entry{};
+                entry.Name = cTint.Texture;
+                entry.Alpha = cTint.Alpha;
+                entry.Color = cTint.Color;
+                entry.Type = cTint.Type;
+                faceTints.Entries.push_back(std::move(entry));
+            }
+            FaceGenSystem::Setup(world, *cEntity, faceTints);
+        });
+
+    return true;
 }
 
 bool PluginService::IsNearSupported() const noexcept
