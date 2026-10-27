@@ -7,7 +7,7 @@ and it adds two things official releases don't have:
 - **Builds for Skyrim 1.6.1170** (the GOG and older Steam version), next to the usual 1.7.104.
 - **A Plugin API**, so SKSE plugins can sync their own features between players without patching Skyrim Together.
   Ready-made plugins and the guides to write your own are in
-  [absol89/AllTogetherSync-API](https://github.com/absol89/AllTogetherSync-API).
+  [absol89/AllTogetherSync](https://github.com/absol89/AllTogetherSync).
 
 This is not an official Skyrim Together release. Please report problems with these builds here, not to the Skyrim
 Together team.
@@ -28,7 +28,7 @@ Install it with your mod manager in place of the official Skyrim Together. The r
 from a different build.
 
 To sync more mods (RaceMenu looks, SkyParkour, ragdolls, LipSync), add the plugins from
-[AllTogetherSync-API](https://github.com/absol89/AllTogetherSync-API). They're ordinary SKSE plugins and replace
+[AllTogetherSync](https://github.com/absol89/AllTogetherSync). They're ordinary SKSE plugins and replace
 none of Skyrim Together's files.
 
 ### Reporting a bug
@@ -54,7 +54,7 @@ Tags like `v1.8.7-7` mark the commit each playtest release was built from.
 ## Contributing
 
 **Your plugin needs something from Skyrim Together.** Read
-[Changing Skyrim Together](https://github.com/absol89/AllTogetherSync-API/blob/main/docs/changing-skyrim-together.md):
+[Changing Skyrim Together](https://github.com/absol89/AllTogetherSync/blob/main/docs/changing-skyrim-together.md):
 open an issue describing what your plugin needs, then a pull request against `1.8-playtest` that adds it as a new
 Plugin API version. The API is in [`Code/plugin_api/include/SkyrimTogetherAPI.h`](Code/plugin_api/include/SkyrimTogetherAPI.h).
 
