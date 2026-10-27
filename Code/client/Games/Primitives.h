@@ -407,44 +407,8 @@ template <class T, class THandle = BSUntypedPointerHandle<>> struct BSPointerHan
     THandle handle{};
 };
 
-// The game's reader/writer lock. Readers count themselves in uiLock, a writer sets its top bit, so it must only be
-// locked through the game's own functions: BSRecursiveLock's protocol on the same memory lets the game's readers in
-// and can leave a reader counted that nobody holds.
 struct BSReadWriteLock
 {
-    void LockForRead();
-    void UnlockForRead();
-    void LockForWrite();
-    void UnlockForWrite();
-
     uint32_t uiWriterThread;
     volatile uint32_t uiLock;
-};
-
-static_assert(sizeof(BSReadWriteLock) == 8);
-
-struct BSReadLockGuard
-{
-    BSReadLockGuard(BSReadWriteLock& aLock)
-        : m_lock(aLock)
-    {
-        m_lock.LockForRead();
-    }
-    ~BSReadLockGuard() { m_lock.UnlockForRead(); }
-
-private:
-    BSReadWriteLock& m_lock;
-};
-
-struct BSWriteLockGuard
-{
-    BSWriteLockGuard(BSReadWriteLock& aLock)
-        : m_lock(aLock)
-    {
-        m_lock.LockForWrite();
-    }
-    ~BSWriteLockGuard() { m_lock.UnlockForWrite(); }
-
-private:
-    BSReadWriteLock& m_lock;
 };
