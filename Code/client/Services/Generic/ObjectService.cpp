@@ -249,15 +249,25 @@ entt::entity ObjectService::CreateObjectEntity(const uint32_t acFormId, const ui
 
 void ObjectService::OnActivate(const ActivateEvent& acEvent) noexcept
 {
+    // The event was queued when the game activated the object, and the game may have deleted the object since (an item
+    // an NPC picked up) or the activator. Use them only if their form IDs still name the same objects.
+    TESObjectREFR* pObject = Cast<TESObjectREFR>(TESForm::GetById(acEvent.ObjectId));
+    Actor* pActivator = Cast<Actor>(TESForm::GetById(acEvent.ActivatorId));
+    if (!pObject || pObject != acEvent.pObject || !pActivator || pActivator != acEvent.pActivator)
+    {
+        spdlog::debug("Activation of {:X} by {:X} skipped: one of them no longer exists", acEvent.ObjectId, acEvent.ActivatorId);
+        return;
+    }
+
     if (acEvent.ActivateFlag)
     {
-        acEvent.pObject->Activate(acEvent.pActivator, acEvent.Unk1, acEvent.pObjectToGet, acEvent.Count, acEvent.DefaultProcessing);
+        pObject->Activate(pActivator, acEvent.Unk1, acEvent.pObjectToGet, acEvent.Count, acEvent.DefaultProcessing);
     }
 
     if (!m_transport.IsConnected())
         return;
 
-    if (Lock* pLock = acEvent.pObject->GetLock())
+    if (Lock* pLock = pObject->GetLock())
     {
         if (pLock->flags & 0xFF)
             return;
@@ -265,16 +275,16 @@ void ObjectService::OnActivate(const ActivateEvent& acEvent) noexcept
 
     ActivateRequest request;
 
-    if (!m_world.GetModSystem().GetServerModId(acEvent.pObject->formID, request.Id))
+    if (!m_world.GetModSystem().GetServerModId(pObject->formID, request.Id))
     {
-        spdlog::error("Server form id not found for object form id {:X}", acEvent.pObject->formID);
+        spdlog::error("Server form id not found for object form id {:X}", pObject->formID);
         return;
     }
 
-    TESObjectCELL* pCell = acEvent.pObject->GetParentCellEx();
+    TESObjectCELL* pCell = pObject->GetParentCellEx();
     if (!pCell)
     {
-        spdlog::error("Activated object has no parent cell: {:X}", acEvent.pObject->formID);
+        spdlog::error("Activated object has no parent cell: {:X}", pObject->formID);
         return;
     }
 
@@ -285,11 +295,11 @@ void ObjectService::OnActivate(const ActivateEvent& acEvent) noexcept
     }
 
     auto view = m_world.view<FormIdComponent>();
-    const auto pEntity = std::find_if(std::begin(view), std::end(view), [id = acEvent.pActivator->formID, view](entt::entity entity) { return view.get<FormIdComponent>(entity).Id == id; });
+    const auto pEntity = std::find_if(std::begin(view), std::end(view), [id = pActivator->formID, view](entt::entity entity) { return view.get<FormIdComponent>(entity).Id == id; });
 
     if (pEntity == std::end(view))
     {
-        // spdlog::error("Activator entity not found for form id {:X}", acEvent.pActivator->formID);
+        // spdlog::error("Activator entity not found for form id {:X}", pActivator->formID);
         return;
     }
 
