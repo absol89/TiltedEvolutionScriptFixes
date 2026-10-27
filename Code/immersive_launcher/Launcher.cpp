@@ -20,6 +20,8 @@
 
 #include <BranchInfo.h>
 
+#include <string_view>
+
 // These symbols are defined within the client code skyrimtogetherclient
 extern void InstallStartHook();
 extern void RunTiltedApp();
@@ -69,6 +71,22 @@ void SetMaxstdio()
     setmaxstdioFunc(8192);
 }
 
+#if (!IS_MASTER)
+// Skyrim Together Tweaks (an SKSE plugin) switches the debug log console with bEnableConsole in its ini; builds that
+// open the console themselves follow that switch too. Without the ini, or without the setting, the console opens.
+bool IsConsoleWanted(const std::filesystem::path& acGamePath)
+{
+    const auto cIniPath = acGamePath / L"Data" / L"SKSE" / L"Plugins" / L"SkyrimTogetherTweaks.ini";
+    wchar_t value[32]{};
+    GetPrivateProfileStringW(L"General", L"bEnableConsole", L"", value, static_cast<DWORD>(std::size(value)), cIniPath.c_str());
+
+    // The first word only, in case a comment follows the value.
+    std::wstring_view word(value);
+    word = word.substr(0, word.find_first_of(L" \t;#"));
+    return !(word.size() == 5 && _wcsnicmp(word.data(), L"false", 5) == 0) && word != L"0";
+}
+#endif
+
 int StartUp(int argc, char** argv)
 {
     PreloadSystemDlls();
@@ -78,10 +96,6 @@ int StartUp(int argc, char** argv)
 
     // TODO(Force): Make some InitSharedResources func.
     g_SharedWindowIcon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(102));
-
-#if (!IS_MASTER)
-    TiltedPhoques::Debug::CreateConsole();
-#endif
 
     SetMaxstdio();
 
@@ -106,6 +120,12 @@ int StartUp(int argc, char** argv)
 
     if (!oobe::SelectInstall(askSelect))
         DIE_NOW(L"Failed to select game install.");
+
+#if (!IS_MASTER)
+    // Opened once the game folder, and with it the Tweaks ini, is known; nothing is printed before this.
+    if (IsConsoleWanted(LC->gamePath))
+        TiltedPhoques::Debug::CreateConsole();
+#endif
 
     // Bind path environment.
     loader::InstallPathRouting(LC->gamePath);

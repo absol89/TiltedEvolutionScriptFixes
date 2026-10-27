@@ -55,8 +55,13 @@ jobs:
       - name: Prepare tagged release checkout
         if: github.ref_type == 'tag'
         run: |
-          # Build the tagged commit; the local branch name enables release packaging.
-          git checkout -B master HEAD
+          # Build the tagged commit. On master the local branch name makes it a release build (IS_MASTER: no
+          # debug keys or console). A tag on any other branch builds like that branch, keeping F6/F7 and the console.
+          if git merge-base --is-ancestor HEAD origin/master 2>/dev/null; then
+            git checkout -B master HEAD
+          else
+            git checkout -B "tag/${GITHUB_REF_NAME}" HEAD
+          fi
 
       - name: Resolve artifact version
         if: ${{ inputs.upload-build-for-next-job }}
