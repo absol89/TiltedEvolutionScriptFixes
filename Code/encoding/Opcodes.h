@@ -145,5 +145,6 @@ enum ServerOpcode : unsigned char
     kNotifyModMessage,
     kNotifyPlayerPerks,
     kNotifyPlayerHit,
+    kNotifyTimeSkip,
     kServerOpcodeMax
 };
