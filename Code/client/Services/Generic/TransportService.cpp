@@ -1,5 +1,6 @@
 
 #include <Services/TransportService.h>
+#include <Services/SendBuffer.h>
 
 #include <Events/ConnectedEvent.h>
 #include <Events/ConnectionErrorEvent.h>
@@ -75,23 +76,30 @@ bool TransportService::Send(const ClientMessage& acMessage, const TiltedPhoques:
         ~ScopedReset() { s_allocator.Reset(); }
     } allocatorGuard;
 
-    if (IsConnected())
+    if (!IsConnected())
+        return false;
+
     {
-        ScopedAllocator _{s_allocator};
-
-        Buffer buffer(1 << 16);
-        Buffer::Writer writer(&buffer);
-        writer.WriteBits(0, 8); // Write first byte as packet needs it
-
-        acMessage.Serialize(writer);
-        TiltedPhoques::PacketView packet(reinterpret_cast<char*>(buffer.GetWriteData()), writer.Size());
-
-        Client::Send(&packet, aPacketFlags);
-
-        return true;
+        SendBuffer::PacketBuffer buffer(acMessage, s_allocator, 1 << 16);
+        if (buffer.IsComplete())
+        {
+            TiltedPhoques::PacketView packet(reinterpret_cast<char*>(buffer.GetData()), static_cast<uint32_t>(buffer.Size()));
+            Client::Send(&packet, aPacketFlags);
+            return true;
+        }
     }
 
-    return false;
+    SendBuffer::PacketBuffer buffer(acMessage, *Allocator::GetDefault(), k_cbMaxSteamNetworkingSocketsMessageSizeSend);
+    if (!buffer.IsComplete())
+    {
+        spdlog::error("Message with opcode {} could not be serialized within the {} byte send limit", static_cast<uint32_t>(acMessage.GetOpcode()),
+                      k_cbMaxSteamNetworkingSocketsMessageSizeSend);
+        return false;
+    }
+
+    TiltedPhoques::PacketView packet(reinterpret_cast<char*>(buffer.GetData()), static_cast<uint32_t>(buffer.Size()));
+    Client::Send(&packet, aPacketFlags);
+    return true;
 }
 
 void TransportService::OnConsume(const void* apData, uint32_t aSize)
