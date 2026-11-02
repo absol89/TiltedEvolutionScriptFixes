@@ -12,6 +12,38 @@
 
 TiltedEvolution is a framework created to enable multiplayer in Bethesda games, currently supporting **Skyrim Special Edition**.
 
+## v1.8.7-8 playtest
+This branch (`API-Together-1.8.7-8`, tag `v1.8.7-8`) is a community playtest build of this fork. It is not an official Skyrim Together release. Please report anything below that misbehaves, ideally with two or more players and the client and server logs.
+
+### New features
+- **Proximity voice chat**: built in and relayed through the game server, so it needs no separate program or port. Uses Opus. Servers turn it on with `Voice:bVoip`. Players pick an input device and *Connect to voip* in Settings, and can set per-player volumes and a noise gate from the player list.
+- **Player-to-player trading**: invites, offers, ready-up countdown, crafted potions and enchanted items, and a trade invitation setting.
+- **Name tags and privacy**: name tags above players with on/party/off filters, "Known names" (players outside your party show as *Stranger*), floating chat lines above heads, and Swedish strings.
+- **Item drops** (upstream #913, draft): dropped items are synced as server-tracked references. Other players' crafted potions spawn from their recipe.
+- **Mod animation sync and `/wave`** (upstream #879, DJLegends).
+
+### New server settings
+- `Gameplay:bAllowConsoleCommands` (default `true`). When `false`, commands typed into the console are refused, but the console still opens for reading reference ids, and mods can still run commands. `ToggleConsoleCommands` switches it while the server runs.
+- `Voice:bVoip` (default `false`): proximity voice chat.
+- `Gameplay:fGoldLossFactor`: values above 1.0 are now a flat amount of gold lost on death.
+- Server settings can be overridden with environment variables (upstream #936).
+
+### Sync and stability fixes to test
+- NPC ownership and inventories (upstream #932, miredirex): no stale updates after a missed transfer, no duplicate owners, outfits kept through assignment. Inventories wait until the NPC's body and process are loaded. A snapshot without worn items no longer strips a living NPC.
+- Dead NPCs stay down when another player loads the cell.
+- Exterior door and container locks sync across nearby cells.
+- Large messages (big inventories, long mod lists) are no longer sent cut off.
+- Sleeping or waiting advances the shared time (upstream #897).
+- Weapon draw and sheathe state is restored when refused (upstream #898). Stale object replication bindings are cleaned up (upstream #891).
+- Crash fixes: an activated object deleted before activation, a missing launched projectile, teleporting a remote actor into an unloaded exterior cell, and Papyrus natives that weren't ready at startup.
+- Summons no longer get death items. Unresolved spells and shouts aren't equipped. Remote actors don't look crouched with different behavior mods. Torso-less remote players get an invisible body. Beast form leave and the Riften North Gate guard scene are fixed.
+- Floating Subtitles can hook subtitles alongside Skyrim Together.
+- Server list announces over IPv4 only.
+
+### Playtest-only diagnostics
+- mimalloc secure mode: heap corruption crashes with a log in `logs\mimalloc_errors.log` instead of freezing.
+- Tag builds that aren't on master keep F6/F7 and the console. The console follows Skyrim Together Tweaks' `bEnableConsole`.
+
 ## Getting started
 To play Skyrim Together, go to the [nexus page](https://www.nexusmods.com/skyrimspecialedition/mods/69993).
 
