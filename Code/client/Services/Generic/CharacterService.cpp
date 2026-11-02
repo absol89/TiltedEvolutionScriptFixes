@@ -67,6 +67,15 @@
 
 #include <World.h>
 #include <Games/TES.h>
+#include <AI/AIProcess.h>
+
+namespace
+{
+bool CanApplyInventory(Actor* apActor) noexcept
+{
+    return apActor && apActor->currentProcess && apActor->currentProcess->middleProcess && apActor->GetNiNode();
+}
+}
 
 CharacterService::CharacterService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
     : m_world(aWorld)
@@ -115,7 +124,7 @@ CharacterService::CharacterService(World& aWorld, entt::dispatcher& aDispatcher,
 
 void CharacterService::DeleteRemoteEntityComponents(entt::entity aEntity) const noexcept
 {
-    m_world.remove<FaceGenComponent, InterpolationComponent, RemoteAnimationComponent, RemoteComponent, CacheComponent, WaitingFor3D, PlayerComponent>(aEntity);
+    m_world.remove<FaceGenComponent, InterpolationComponent, RemoteAnimationComponent, RemoteComponent, CacheComponent, WaitingFor3D, PendingInventoryComponent, PlayerComponent>(aEntity);
 }
 
 void CharacterService::DeclineOwnership(const uint32_t aServerId, const uint32_t aOwnershipEpoch) const noexcept
@@ -139,12 +148,17 @@ void CharacterService::ReconcileActorData(
         pWaitingFor3D->SpawnRequest.OwnershipEpoch = aOwnershipEpoch;
     }
 
+    // A new canonical snapshot supersedes deferred data from the previous owner.
+    m_world.remove<PendingInventoryComponent>(aEntity);
+    if (aApplyInventory && !CanApplyInventory(apActor))
+        m_world.emplace<PendingInventoryComponent>(aEntity, acActorData.InitialInventory, aOwnershipEpoch);
+
     if (!apActor)
         return;
 
     apActor->SetActorValues(acActorData.InitialActorValues);
 
-    if (aApplyInventory)
+    if (aApplyInventory && CanApplyInventory(apActor))
     {
         const Inventory currentInventory = apActor->GetActorInventory();
         if (currentInventory.Entries != acActorData.InitialInventory.Entries || currentInventory.CurrentMagicEquipment != acActorData.InitialInventory.CurrentMagicEquipment)
@@ -284,7 +298,7 @@ void CharacterService::OnActorRemoved(const ActorRemovedEvent& acEvent) noexcept
     auto& formIdComponent = view.get<FormIdComponent>(cId);
     CancelServerAssignment(*entityIt, formIdComponent.Id);
 
-    m_world.remove<EarlyAnimationBufferComponent>(cId);
+    m_world.remove<EarlyAnimationBufferComponent, PendingInventoryComponent>(cId);
 
     if (m_world.all_of<FormIdComponent>(cId))
         m_world.remove<FormIdComponent>(cId);
@@ -301,6 +315,7 @@ void CharacterService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
     RunLocalUpdates();
     RunFactionsUpdates();
     RunRemoteUpdates();
+    ApplyPendingInventories();
     RunExperienceUpdates();
     ApplyCachedWeaponDraws(acUpdateEvent);
     ProcessLeveledConforms();
@@ -346,7 +361,7 @@ void CharacterService::OnDisconnected(const DisconnectedEvent& acDisconnectedEve
             pActor->GetExtension()->SetRemote(false);
     }
 
-    m_world.clear<WaitingForAssignmentComponent, LocalComponent, RemoteComponent>();
+    m_world.clear<WaitingForAssignmentComponent, LocalComponent, RemoteComponent, WaitingFor3D, PendingInventoryComponent>();
 
     for (const auto& [formId, pickFormId] : m_pendingLeveledConforms)
     {
@@ -638,6 +653,7 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
     AnimationSystem::Setup(m_world, *entity);
 
     m_world.emplace_or_replace<WaitingFor3D>(*entity, acMessage);
+    m_world.emplace_or_replace<PendingInventoryComponent>(*entity, acMessage.InventoryContent, acMessage.OwnershipEpoch);
 
     auto& remoteAnimationComponent = m_world.get<RemoteAnimationComponent>(*entity);
 
@@ -794,7 +810,7 @@ void CharacterService::OnOwnershipTransfer(const NotifyOwnershipTransfer& acMess
 
     if (isLocalOwner)
     {
-        if (!pFormIdComponent || !pActor || !pActor->GetNiNode())
+        if (!pFormIdComponent || !CanApplyInventory(pActor))
         {
             uint32_t cachedRefId = pFormIdComponent ? pFormIdComponent->Id : 0;
             if (const auto* pRemoteComponent = m_world.try_get<RemoteComponent>(cEntity))
@@ -858,7 +874,7 @@ void CharacterService::OnOwnershipTransfer(const NotifyOwnershipTransfer& acMess
         pRemoteComponent->OwnershipEpoch = acMessage.OwnershipEpoch;
     }
 
-    ReconcileActorData(cEntity, pActor, acMessage.OwnershipEpoch, acMessage.CurrentActorData, pActor && pActor->GetNiNode(), false);
+    ReconcileActorData(cEntity, pActor, acMessage.OwnershipEpoch, acMessage.CurrentActorData, true, false);
     if (pActor)
         ApplyLeveledNpcPick(pActor, acMessage.LeveledNpcPickId);
 
@@ -1939,7 +1955,7 @@ void CharacterService::RunRemoteUpdates() noexcept
         auto& waitingFor3D = waitingView.get<WaitingFor3D>(entity);
 
         Actor* pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
-        if (!pActor || !pActor->GetNiNode())
+        if (!CanApplyInventory(pActor))
             continue;
 
         // By now, the actor has materialized in the world and is ready for further setup
@@ -2077,6 +2093,34 @@ void CharacterService::RunExperienceUpdates() noexcept
     m_transport.Send(message);
 
     spdlog::debug("Sending over experience {}", message.Experience);
+}
+
+void CharacterService::ApplyPendingInventories() noexcept
+{
+    auto view = m_world.view<FormIdComponent, RemoteComponent, PendingInventoryComponent>(entt::exclude<LocalComponent, WaitingFor3D>);
+    for (auto entity : view)
+    {
+        const auto& remote = view.get<RemoteComponent>(entity);
+        auto& pending = view.get<PendingInventoryComponent>(entity);
+        if (remote.OwnershipEpoch != pending.OwnershipEpoch)
+        {
+            m_world.remove<PendingInventoryComponent>(entity);
+            continue;
+        }
+
+        Actor* pActor = Cast<Actor>(TESForm::GetById(view.get<FormIdComponent>(entity).Id));
+        if (!CanApplyInventory(pActor))
+            continue;
+
+        const Inventory current = pActor->GetActorInventory();
+        if (current.Entries != pending.Content.Entries || current.CurrentMagicEquipment != pending.Content.CurrentMagicEquipment)
+            pActor->SetActorInventory(pending.Content);
+
+        auto updates = std::move(pending.Updates);
+        m_world.remove<PendingInventoryComponent>(entity);
+        for (const auto& update : updates)
+            std::visit([this](const auto& acMessage) { m_dispatcher.trigger(acMessage); }, update);
+    }
 }
 
 void CharacterService::ApplyCachedWeaponDraws(const UpdateEvent& acUpdateEvent) noexcept

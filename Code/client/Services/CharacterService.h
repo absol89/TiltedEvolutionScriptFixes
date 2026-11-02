@@ -109,6 +109,7 @@ private:
     void RunSpawnUpdates() const noexcept;
     void RunExperienceUpdates() noexcept;
     void ApplyCachedWeaponDraws(const UpdateEvent& acUpdateEvent) noexcept;
+    void ApplyPendingInventories() noexcept;
 
     World& m_world;
     entt::dispatcher& m_dispatcher;
