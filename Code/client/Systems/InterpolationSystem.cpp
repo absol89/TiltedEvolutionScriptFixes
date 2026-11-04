@@ -7,8 +7,6 @@
 #include <Misc/MiddleProcess.h>
 
 #include <Games/References.h>
-#include <Games/TES.h>
-#include <Structs/GridCellCoords.h>
 #include <World.h>
 
 namespace
@@ -22,24 +20,6 @@ constexpr float cMaxPositionCorrection = 256.f;
 // Time constant of the correction fading out, ~95% of it is gone after three times this
 constexpr double cPositionCorrectionTime = 50.0;
 constexpr size_t cMaxTimePoints = 64;
-
-// The owner streams positions from its own loaded area, which can lie past the edge of ours. Moving an actor
-// there makes the game move it into a cell we don't have loaded, and then into cells as they unload, which
-// leaves it pointing at a freed cell. Its next cell change then crashes (SkyrimSE 13641 under task 0x54).
-bool IsInLoadedArea(const Actor* apActor, const glm::vec3& acPosition) noexcept
-{
-    // Interiors are loaded as a whole, and the loaded grid only describes the player's own worldspace
-    const auto* pWorldSpace = apActor->GetWorldSpace();
-    if (!pWorldSpace || pWorldSpace != PlayerCharacter::Get()->GetWorldSpace())
-        return true;
-
-    const TES* pTES = TES::Get();
-    if (!pTES)
-        return true;
-
-    const auto cCoords = GridCellCoords::CalculateGridCellCoords(acPosition.x, acPosition.y);
-    return GridCellCoords::IsCellInGridCell(cCoords, GridCellCoords(pTES->centerGridX, pTES->centerGridY), false);
-}
 } // namespace
 
 void InterpolationSystem::Update(Actor* apActor, InterpolationComponent& aInterpolationComponent, const double aNow) noexcept
@@ -116,9 +96,7 @@ void InterpolationSystem::Update(Actor* apActor, InterpolationComponent& aInterp
     if (!apActor)
         return;
 
-    // Past the edge of the loaded area the actor waits at its last loaded position until it comes back or is removed
-    if (IsInLoadedArea(apActor, aInterpolationComponent.Position))
-        apActor->ForcePosition(aInterpolationComponent.Position);
+    apActor->ForcePosition(aInterpolationComponent.Position);
     apActor->LoadAnimationVariables(second.Variables);
 
     if (apActor->currentProcess && apActor->currentProcess->middleProcess)
