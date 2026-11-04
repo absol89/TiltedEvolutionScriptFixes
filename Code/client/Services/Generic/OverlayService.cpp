@@ -1,5 +1,7 @@
 #include <TiltedOnlinePCH.h>
 
+#include <cmath>
+
 #include <Services/OverlayService.h>
 
 #include <OverlayApp.hpp>
@@ -491,7 +493,10 @@ void OverlayService::RunPlayerHealthUpdates() noexcept
 
     static float s_previousPercentage = -1.f;
 
-    const float newPercentage = CalculateHealthPercentage(PlayerCharacter::Get());
+    // The party UI shows a bar, so whole percents are enough. Round up so that 0 still means dead.
+    // Without rounding, regeneration in combat changes the value on every tick and each update
+    // makes the overlay redraw.
+    const float newPercentage = std::ceil(CalculateHealthPercentage(PlayerCharacter::Get()));
     if (newPercentage == s_previousPercentage)
         return;
 

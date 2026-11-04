@@ -484,7 +484,9 @@ export class ClientService implements OnDestroy {
 
   private onSetHealth(playerId: number, health: number) {
     this.zone.run(() => {
-      this.healthChange.next(new Player({ id: playerId, health: health }));
+      this.healthChange.next(
+        new Player({ id: playerId, health: Math.ceil(health) }),
+      );
     });
   }
 
