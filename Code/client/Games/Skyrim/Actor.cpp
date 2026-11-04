@@ -234,7 +234,16 @@ GamePtr<Actor> Actor::Create(TESNPC* apBaseForm) noexcept
     if (pCell && !(pCell->cellFlags & 1))
         pCell = nullptr;
 
-    ModManager::Get()->Spawn(position, rotation, pCell, pWorldSpace, pActor);
+    // If the game doesn't place the reference, the actor has no form ID or handle and the returned GamePtr
+    // holds its only reference, so callers that keep a raw Actor* use it after it is freed. Moving it queues
+    // engine work that can then run on the freed actor (crash at SkyrimSE 13641 under MoveRefToNewSpace,
+    // with a form ID 0 actor). Don't hand out an actor that was never placed.
+    const uint32_t cRefHandle = ModManager::Get()->Spawn(position, rotation, pCell, pWorldSpace, pActor);
+    if (cRefHandle == 0 || pActor->formID == 0)
+    {
+        spdlog::error("Actor::Create: failed to place actor with base form {:X}", apBaseForm ? apBaseForm->formID : 0);
+        return {};
+    }
 
     pActor->ForcePosition(position);
 
@@ -439,11 +448,50 @@ bool TP_MAKE_THISCALL(HookRemoveSpell, Actor, MagicItem* apSpell)
     return result;
 }
 
+
+namespace
+{
+// Diagnostic for SkyrimSE+1AF607: Characters that end up with form ID 0 later crash on a stale parent cell.
+// Logs the caller chain as module+offset so the code that creates or loads them can be found.
+void LogFormIdZeroActor(const char* acpWhere, const Actor* apActor) noexcept
+{
+    void* frames[24]{};
+    const USHORT cCount = RtlCaptureStackBackTrace(1, static_cast<DWORD>(std::size(frames)), frames, nullptr);
+
+    std::string stack;
+    for (USHORT i = 0; i < cCount; ++i)
+    {
+        HMODULE hModule = nullptr;
+        char moduleName[MAX_PATH] = "?";
+        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, static_cast<LPCSTR>(frames[i]), &hModule) && hModule)
+        {
+            char path[MAX_PATH]{};
+            if (GetModuleFileNameA(hModule, path, MAX_PATH))
+            {
+                const char* cpName = std::strrchr(path, '\\');
+                strncpy_s(moduleName, cpName ? cpName + 1 : path, _TRUNCATE);
+            }
+        }
+
+        const auto cOffset = reinterpret_cast<uintptr_t>(frames[i]) - reinterpret_cast<uintptr_t>(hModule);
+        stack += fmt::format(" {}+{:X}", moduleName, cOffset);
+    }
+
+    const auto* pNpc = Cast<TESNPC>(apActor->baseForm);
+    spdlog::warn("[FormIdZeroActor] {}: actor {}, base {:X} ({}), parent cell {}, flags {:X}, thread {}, stack:{}", acpWhere, fmt::ptr(apActor),
+                 apActor->baseForm ? apActor->baseForm->formID : 0, pNpc && pNpc->fullName.value.AsAscii() ? pNpc->fullName.value.AsAscii() : "", fmt::ptr(apActor->parentCell),
+                 apActor->flags, GetCurrentThreadId(), stack);
+}
+} // namespace
+
 Actor* TP_MAKE_THISCALL(HookCharacterConstructor, Actor)
 {
     TP_EMPTY_HOOK_PLACEHOLDER;
 
     TiltedPhoques::ThisCall(RealCharacterConstructor, apThis);
+
+    if (apThis->formID == 0)
+        LogFormIdZeroActor("Character constructor", apThis);
 
     return apThis;
 }
@@ -453,6 +501,9 @@ Actor* TP_MAKE_THISCALL(HookCharacterConstructor2, Actor, uint8_t aUnk)
     TP_EMPTY_HOOK_PLACEHOLDER;
 
     TiltedPhoques::ThisCall(RealCharacterConstructor2, apThis, aUnk);
+
+    if (apThis->formID == 0)
+        LogFormIdZeroActor("Character constructor 2", apThis);
 
     return apThis;
 }
@@ -953,6 +1004,9 @@ bool TP_MAKE_THISCALL(HookSpawnActorInWorld, Actor)
     {
         spdlog::info("Spawn Actor: {:X}, and NPC {}", apThis->formID, pNpc->fullName.value);
     }
+
+    if (apThis->formID == 0)
+        LogFormIdZeroActor("UpdateReference3D", apThis);
 
     return TiltedPhoques::ThisCall(RealSpawnActorInWorld, apThis);
 }

@@ -87,6 +87,8 @@ void __declspec(noinline) DebugService::PlaceActorInWorld() noexcept
     const auto pPlayerBaseForm = static_cast<TESNPC*>(PlayerCharacter::Get()->baseForm);
 
     auto pActor = Actor::Create(pPlayerBaseForm);
+    if (!pActor)
+        return;
 
     const Inventory inventory = PlayerCharacter::Get()->GetActorInventory();
     pActor->SetActorInventory(inventory);

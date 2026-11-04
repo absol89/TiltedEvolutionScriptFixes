@@ -227,6 +227,26 @@ void CharacterService::DeleteTempActor(const uint32_t aFormId) noexcept
     }
 }
 
+namespace
+{
+// Diagnostic for actors that loop between spawn and removal (e.g. a follower both saves share): where the actor
+// is, and where the player is, at each step.
+void LogActorPlacement(const char* acpWhat, uint32_t aFormId) noexcept
+{
+    auto* pActor = Cast<Actor>(TESForm::GetById(aFormId));
+    const auto* pPlayer = PlayerCharacter::Get();
+    if (!pActor || !pPlayer)
+        return;
+
+    const auto* pCell = pActor->GetParentCellEx();
+    const auto* pPlayerCell = pPlayer->GetParentCellEx();
+    spdlog::info("[ActorPlacement] {} {:X}: cell {:X}, worldspace {:X}, position ({:.0f}, {:.0f}, {:.0f}), remote {}; player cell {:X}, worldspace {:X}, position ({:.0f}, {:.0f}, {:.0f})",
+                 acpWhat, aFormId, pCell ? pCell->formID : 0, pActor->GetWorldSpace() ? pActor->GetWorldSpace()->formID : 0, pActor->position.x, pActor->position.y,
+                 pActor->position.z, pActor->GetExtension()->IsRemote(), pPlayerCell ? pPlayerCell->formID : 0, pPlayer->GetWorldSpace() ? pPlayer->GetWorldSpace()->formID : 0,
+                 pPlayer->position.x, pPlayer->position.y, pPlayer->position.z);
+}
+} // namespace
+
 void CharacterService::OnActorAdded(const ActorAddedEvent& acEvent) noexcept
 {
     Actor* pActor = Cast<Actor>(TESForm::GetById(acEvent.FormId));
@@ -260,11 +280,15 @@ void CharacterService::OnActorAdded(const ActorAddedEvent& acEvent) noexcept
     m_world.emplace_or_replace<FormIdComponent>(entity, acEvent.FormId);
     m_world.emplace_or_replace<EarlyAnimationBufferComponent>(entity);
 
+    LogActorPlacement("Added", acEvent.FormId);
+
     ProcessNewEntity(entity);
 }
 
 void CharacterService::OnActorRemoved(const ActorRemovedEvent& acEvent) noexcept
 {
+    LogActorPlacement("Removing", acEvent.FormId);
+
     if (auto* pActor = Cast<Actor>(TESForm::GetById(acEvent.FormId)))
         pActor->GetExtension()->Reconciliation = ActorExtension::ReconciliationStage::None;
 
@@ -485,7 +509,14 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
 
         ReconcileActorData(cEntity, pActor, acMessage.OwnershipEpoch, actorData, true, false);
 
+        spdlog::info("[ActorPlacement] Moving remote {:X} to owner's worldspace {:X}:{:X}, cell {:X}:{:X}, position ({:.0f}, {:.0f}, {:.0f})", pActor->formID,
+                     acMessage.WorldSpaceId.ModId, acMessage.WorldSpaceId.BaseId, acMessage.CellId.ModId, acMessage.CellId.BaseId, acMessage.Position.x, acMessage.Position.y,
+                     acMessage.Position.z);
+        LogActorPlacement("Before move", pActor->formID);
+
         MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position);
+
+        LogActorPlacement("After move", pActor->formID);
 
         // The owner's leveled pick rides the assignment response for actors we discovered ourselves
         ApplyLeveledNpcPick(pActor, acMessage.LeveledNpcPickId);
@@ -588,6 +619,11 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
     if (!pActor)
     {
         spdlog::error("Actor object {:X} could not be created.", acMessage.ServerId);
+
+        // The custom form branch created this entity for the new actor
+        if (acMessage.FormId == GameId{} && entity)
+            m_world.destroy(*entity);
+
         return;
     }
 
