@@ -588,6 +588,11 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
     if (!pActor)
     {
         spdlog::error("Actor object {:X} could not be created.", acMessage.ServerId);
+
+        // The custom form branch created this entity for the new actor
+        if (acMessage.FormId == GameId{} && entity)
+            m_world.destroy(*entity);
+
         return;
     }
 

@@ -234,7 +234,16 @@ GamePtr<Actor> Actor::Create(TESNPC* apBaseForm) noexcept
     if (pCell && !(pCell->cellFlags & 1))
         pCell = nullptr;
 
-    ModManager::Get()->Spawn(position, rotation, pCell, pWorldSpace, pActor);
+    // If the game doesn't place the reference, the actor has no form ID or handle and the returned GamePtr
+    // holds its only reference, so callers that keep a raw Actor* use it after it is freed. Moving it queues
+    // engine work that can then run on the freed actor (crash at SkyrimSE 13641 under MoveRefToNewSpace,
+    // with a form ID 0 actor). Don't hand out an actor that was never placed.
+    const uint32_t cRefHandle = ModManager::Get()->Spawn(position, rotation, pCell, pWorldSpace, pActor);
+    if (cRefHandle == 0 || pActor->formID == 0)
+    {
+        spdlog::error("Actor::Create: failed to place actor with base form {:X}", apBaseForm ? apBaseForm->formID : 0);
+        return {};
+    }
 
     pActor->ForcePosition(position);
 
