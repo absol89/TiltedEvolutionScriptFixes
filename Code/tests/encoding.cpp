@@ -63,6 +63,47 @@ TEST_CASE("Encoding factory", "[encoding.factory]")
         auto pRequest = CastUnique<PartyAcceptInviteRequest>(std::move(pMessage));
         REQUIRE(pRequest->InviterId == request.InviterId);
     }
+
+    {
+        PlayerPerksRequest request;
+        request.Perks.push_back(PlayerPerk{GameId(1, 0x581f8), 1});
+        request.Perks.push_back(PlayerPerk{GameId(0xFE012, 0x805), 3});
+
+        Buffer::Writer writer(&buff);
+        request.Serialize(writer);
+
+        Buffer::Reader reader(&buff);
+
+        const ClientMessageFactory factory;
+        auto pMessage = factory.Extract(reader);
+
+        REQUIRE(pMessage);
+        REQUIRE(pMessage->GetOpcode() == request.GetOpcode());
+
+        auto pRequest = CastUnique<PlayerPerksRequest>(std::move(pMessage));
+        REQUIRE(pRequest->Perks == request.Perks);
+    }
+
+    {
+        NotifyPlayerPerks notify;
+        notify.PlayerId = 1234;
+        notify.Perks.push_back(PlayerPerk{GameId(1, 0x581f9), 2});
+
+        Buffer::Writer writer(&buff);
+        notify.Serialize(writer);
+
+        Buffer::Reader reader(&buff);
+
+        const ServerMessageFactory factory;
+        auto pMessage = factory.Extract(reader);
+
+        REQUIRE(pMessage);
+        REQUIRE(pMessage->GetOpcode() == notify.GetOpcode());
+
+        auto pNotify = CastUnique<NotifyPlayerPerks>(std::move(pMessage));
+        REQUIRE(pNotify->PlayerId == notify.PlayerId);
+        REQUIRE(pNotify->Perks == notify.Perks);
+    }
 }
 
 TEST_CASE("Static structures", "[encoding.static]")
