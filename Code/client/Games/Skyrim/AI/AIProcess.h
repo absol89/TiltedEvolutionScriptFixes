@@ -36,3 +36,4 @@ struct HighProcessData
 };
 
 static_assert(offsetof(AIProcess, movementType) == 0x137);
+static_assert(offsetof(AIProcess, middleProcess) == 0x8);

@@ -159,7 +159,15 @@ void InventoryService::OnNotifyInventoryChanges(const NotifyInventoryChanges& ac
         });
 
         if (remoteIt != remoteView.end())
+        {
+            if (auto* pPending = m_world.try_get<PendingInventoryComponent>(*remoteIt);
+                pPending && pPending->OwnershipEpoch == acMessage.OwnershipEpoch)
+            {
+                pPending->Updates.emplace_back(acMessage);
+                return;
+            }
             pActor = Cast<Actor>(TESForm::GetById(remoteView.get<FormIdComponent>(*remoteIt).Id));
+        }
         else
         {
             auto localView = m_world.view<LocalComponent, FormIdComponent>();
@@ -208,6 +216,13 @@ void InventoryService::OnNotifyEquipmentChanges(const NotifyEquipmentChanges& ac
     if (it == view.end())
     {
         spdlog::debug("Discarded an equipment update for actor {:X} because epoch {} is no longer current", acMessage.ServerId, acMessage.OwnershipEpoch);
+        return;
+    }
+
+    if (auto* pPending = m_world.try_get<PendingInventoryComponent>(*it);
+        pPending && pPending->OwnershipEpoch == acMessage.OwnershipEpoch)
+    {
+        pPending->Updates.emplace_back(acMessage);
         return;
     }
 

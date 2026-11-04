@@ -162,7 +162,11 @@ void ObjectService::OnLockChange(const PacketEvent<LockChangeRequest>& acMessage
         if (pPlayer == acMessage.pPlayer)
             continue;
 
-        if (pPlayer->GetCellComponent().Cell == acMessage.Packet.CellId)
+        const auto& senderCell = acMessage.pPlayer->GetCellComponent();
+        const auto& recipientCell = pPlayer->GetCellComponent();
+        // Exterior references can be loaded by players in neighboring cells.
+        const bool cNearbyExterior = !senderCell.IsInInteriorCell() && !recipientCell.IsInInteriorCell() && senderCell.IsInRange(recipientCell, false);
+        if (recipientCell.Cell == acMessage.Packet.CellId || cNearbyExterior)
             pPlayer->Send(notifyLockChange);
     }
 }
