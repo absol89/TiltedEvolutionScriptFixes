@@ -6,6 +6,7 @@ import {
   Observable,
   of,
   pluck,
+  Subject,
   Subscription,
 } from 'rxjs';
 import { filter, map } from 'rxjs/operators';
@@ -24,6 +25,9 @@ import { Sound, SoundService } from './sound.service';
 })
 export class GroupService implements OnDestroy {
   public group = new BehaviorSubject<Group | undefined>(undefined);
+
+  /** Emits the id of a party member whose health value actually changed. */
+  public memberHealthChange = new Subject<number>();
 
   private debugSubscription: Subscription;
   private connectionSubscription: Subscription;
@@ -102,9 +106,10 @@ export class GroupService implements OnDestroy {
         if (group) {
           const foundPlayer = this.playerListService.getPlayerById(player.id);
 
-          if (foundPlayer) {
+          if (foundPlayer && foundPlayer.health !== player.health) {
             foundPlayer.health = player.health;
             this.updateGroup();
+            this.memberHealthChange.next(foundPlayer.id);
           }
         }
       },
