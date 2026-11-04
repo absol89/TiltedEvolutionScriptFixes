@@ -18,4 +18,6 @@ struct RemoteComponent
     uint32_t Id;
     uint32_t CachedRefId;
     uint32_t OwnershipEpoch;
+    // Canonical death state survives loading and prevents living animation replay on corpses.
+    bool IsDead{false};
 };

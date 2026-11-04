@@ -20,6 +20,7 @@
 
 #include <Systems/InterpolationSystem.h>
 #include <Systems/AnimationSystem.h>
+#include <Systems/RemoteDeathSystem.h>
 #include <Systems/CacheSystem.h>
 #include <Systems/FaceGenSystem.h>
 #include <Systems/LeveledNpcSystem.h>
@@ -164,6 +165,9 @@ void CharacterService::ReconcileActorData(
     if (aApplyInventory && !CanApplyInventory(apActor))
         m_world.emplace<PendingInventoryComponent>(aEntity, acActorData.InitialInventory, aOwnershipEpoch);
 
+    if (!aIsLocalOwner)
+        m_world.get<RemoteComponent>(aEntity).IsDead = acActorData.IsDead;
+
     if (!apActor)
         return;
 
@@ -182,8 +186,8 @@ void CharacterService::ReconcileActorData(
     {
         if (acActorData.IsDead)
         {
-            // Remote spawns finish their death transition in the WaitingFor3D step.
-            if (aIsLocalOwner || !m_world.any_of<WaitingFor3D>(aEntity))
+            // Remote actors finish death in RunRemoteUpdates after placement and 3D setup.
+            if (aIsLocalOwner)
             {
                 spdlog::info("Killing actor {:X} to match server state, local owner: {}", apActor->formID, aIsLocalOwner);
                 apActor->Kill();
@@ -650,8 +654,8 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
     }
 
     // Let WaitingFor3D kill a new corpse once its loaded body can fall.
-    if (pActor->IsDead() != acMessage.IsDead && (!acMessage.IsDead || CanApplyInventory(pActor)))
-        acMessage.IsDead ? pActor->Kill() : pActor->Respawn();
+    if (pActor->IsDead() && !acMessage.IsDead)
+        pActor->Respawn();
 
     spdlog::info("Spawn Request Is summon {}", acMessage.IsPlayerSummon);
 
@@ -665,7 +669,7 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
     if (acMessage.FormId != GameId{})
         ApplyLeveledNpcPick(pActor, acMessage.LeveledNpcPickId);
 
-    m_world.emplace_or_replace<RemoteComponent>(*entity, acMessage.ServerId, pActor->formID, acMessage.OwnershipEpoch);
+    m_world.emplace_or_replace<RemoteComponent>(*entity, acMessage.ServerId, pActor->formID, acMessage.OwnershipEpoch).IsDead = acMessage.IsDead;
 
     auto& interpolationComponent = InterpolationSystem::Setup(m_world, *entity);
     interpolationComponent.Position = acMessage.Position;
@@ -830,7 +834,8 @@ void CharacterService::OnOwnershipTransfer(const NotifyOwnershipTransfer& acMess
 
     if (isLocalOwner)
     {
-        if (!pFormIdComponent || !CanApplyInventory(pActor))
+        if (!pFormIdComponent || !CanApplyInventory(pActor) ||
+            (acMessage.CurrentActorData.IsDead && !pActor->IsDead() && !RemoteDeathSystem::CanKill(pActor)))
         {
             uint32_t cachedRefId = pFormIdComponent ? pFormIdComponent->Id : 0;
             if (const auto* pRemoteComponent = m_world.try_get<RemoteComponent>(cEntity))
@@ -844,6 +849,9 @@ void CharacterService::OnOwnershipTransfer(const NotifyOwnershipTransfer& acMess
                 m_world.get<RemoteComponent>(cEntity).OwnershipEpoch = acMessage.OwnershipEpoch;
             else if (cachedRefId != 0)
                 m_world.emplace<RemoteComponent>(cEntity, acMessage.ServerId, cachedRefId, acMessage.OwnershipEpoch);
+
+            if (auto* pRemote = m_world.try_get<RemoteComponent>(cEntity))
+                pRemote->IsDead = acMessage.CurrentActorData.IsDead;
 
             spdlog::warn("Declined ownership of actor {:X} at epoch {} because the actor is not ready", acMessage.ServerId, acMessage.OwnershipEpoch);
             DeclineOwnership(acMessage.ServerId, acMessage.OwnershipEpoch);
@@ -1676,9 +1684,11 @@ Actor* CharacterService::CreateCharacterForEntity(entt::entity aEntity) const no
         m_world.emplace_or_replace<PlayerComponent>(aEntity, acMessage.PlayerId);
     }
 
+    remoteComponent.IsDead = acMessage.IsDead;
+
     // Recreated copies use the same WaitingFor3D death transition as new spawns.
-    if (pActor->IsDead() != acMessage.IsDead && (!acMessage.IsDead || CanApplyInventory(pActor)))
-        acMessage.IsDead ? pActor->Kill() : pActor->Respawn();
+    if (pActor->IsDead() && !acMessage.IsDead)
+        pActor->Respawn();
 
     spdlog::info("Spawned character for entity, server id: {:X}", remoteComponent.Id);
 
@@ -1933,7 +1943,12 @@ void CharacterService::RunRemoteUpdates() noexcept
             pActor = Cast<Actor>(pForm);
         }
 
-        InterpolationSystem::Update(pActor, interpolationComponent, cNow);
+        const bool cDeadNpc = pActor && !pActor->GetExtension()->IsPlayer() &&
+                              (interpolatedEntities.get<RemoteComponent>(entity).IsDead || pActor->IsDead());
+        // Keep position synchronization, but do not overwrite a corpse's animation graph.
+        InterpolationSystem::Update(pActor, interpolationComponent, cNow, !cDeadNpc);
+        if (cDeadNpc && interpolatedEntities.get<RemoteComponent>(entity).IsDead && !m_world.any_of<WaitingFor3D>(entity))
+            RemoteDeathSystem::Apply(pActor, true);
     }
 
     auto animatedView = m_world.view<RemoteComponent, RemoteAnimationComponent, InterpolationComponent, FormIdComponent>();
@@ -1947,6 +1962,16 @@ void CharacterService::RunRemoteUpdates() noexcept
         auto* pActor = Cast<Actor>(pForm);
         if (!pActor)
             continue;
+
+        if (!pActor->GetExtension()->IsPlayer() &&
+            (animatedView.get<RemoteComponent>(entity).IsDead || pActor->IsDead()))
+        {
+            // Keep LastProcessedAction for differential decoding, but discard stale living actions.
+            animationComponent.TimePoints.clear();
+            animationComponent.ReplayCount = 0;
+            animationComponent.ResetAnimationGraphForReplay = false;
+            continue;
+        }
 
         // Actions run on the clock the interpolation pass above just advanced, so the body and its animations stay in step
         const auto cTick = InterpolationSystem::GetPlaybackTick(animatedView.get<InterpolationComponent>(entity));
@@ -1980,21 +2005,26 @@ void CharacterService::RunRemoteUpdates() noexcept
         Actor* pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
         if (!CanApplyInventory(pActor))
             continue;
+        if (waitingFor3D.SpawnRequest.IsDead && !pActor->GetExtension()->IsPlayer() &&
+            !pActor->IsDead() && !RemoteDeathSystem::CanKill(pActor))
+            continue;
 
         // By now, the actor has materialized in the world and is ready for further setup
 
         pActor->SetActorInventory(waitingFor3D.SpawnRequest.InventoryContent);
         pActor->SetFactions(waitingFor3D.SpawnRequest.FactionsContent);
 
-        if (!waitingFor3D.SpawnRequest.ActionsToReplay.Actions.empty())
+        if (!waitingFor3D.SpawnRequest.IsDead && !waitingFor3D.SpawnRequest.ActionsToReplay.Actions.empty())
         {
             pActor->LoadAnimationVariables(waitingFor3D.SpawnRequest.ActionsToReplay.Actions[0].Variables);
         }
 
-        m_weaponDrawUpdates[pActor->formID] = {waitingFor3D.SpawnRequest.IsWeaponDrawn};
+        if (!waitingFor3D.SpawnRequest.IsDead)
+            m_weaponDrawUpdates[pActor->formID] = {waitingFor3D.SpawnRequest.IsWeaponDrawn};
+        else
+            m_weaponDrawUpdates.erase(pActor->formID);
 
-        if (pActor->IsDead() != waitingFor3D.SpawnRequest.IsDead)
-            waitingFor3D.SpawnRequest.IsDead ? pActor->Kill() : pActor->Respawn();
+        RemoteDeathSystem::Apply(pActor, waitingFor3D.SpawnRequest.IsDead);
 
         if (pActor->IsVampireLord())
             pActor->FixVampireLordModel();
@@ -2162,7 +2192,8 @@ void CharacterService::ApplyCachedWeaponDraws(const UpdateEvent& acUpdateEvent) 
             continue;
 
         Actor* pActor = Cast<Actor>(TESForm::GetById(cId));
-        if (!pActor || !pActor->GetExtension()->IsRemote())
+        if (!pActor || !pActor->GetExtension()->IsRemote() ||
+            (!pActor->GetExtension()->IsPlayer() && pActor->IsDead()))
         {
             toRemove.push_back(cId);
             continue;

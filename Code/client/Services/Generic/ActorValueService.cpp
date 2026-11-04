@@ -1,5 +1,7 @@
 #include <TiltedOnlinePCH.h>
 
+#include <Systems/RemoteDeathSystem.h>
+
 #include <Services/ActorValueService.h>
 #include <World.h>
 #include <Forms/ActorValueInfo.h>
@@ -295,6 +297,21 @@ void ActorValueService::OnHealthChangeBroadcast(const NotifyHealthChangeBroadcas
     }
 
     const float newHealth = pActor->GetActorValue(ActorValueInfo::kHealth) + acMessage.DeltaHealth;
+    if (!pActor->GetExtension()->IsPlayer() && pActor->GetExtension()->IsRemote() && !pActor->IsDead() && newHealth <= 0.f)
+    {
+        const auto entity = Utils::FindEntityByServerId(acMessage.Id);
+        if (entity && m_world.all_of<RemoteComponent>(*entity))
+        {
+            m_world.get<RemoteComponent>(*entity).IsDead = true;
+            if (auto* pWaiting = m_world.try_get<WaitingFor3D>(*entity))
+                pWaiting->SpawnRequest.IsDead = true;
+            // Do not let zero health commit death before the physical body is ready.
+            pActor->ForceActorValue(ActorValueOwner::ForceMode::DAMAGE, ActorValueInfo::kHealth, 1.f);
+            if (!m_world.any_of<WaitingFor3D>(*entity))
+                RemoteDeathSystem::Apply(pActor, true);
+            return;
+        }
+    }
     pActor->ForceActorValue(ActorValueOwner::ForceMode::DAMAGE, ActorValueInfo::kHealth, newHealth);
 
     const float health = pActor->GetActorValue(ActorValueInfo::kHealth);
@@ -381,7 +398,7 @@ void ActorValueService::OnActorMaxValueChanges(const NotifyActorMaxValueChanges&
 
 void ActorValueService::OnDeathStateChange(const NotifyDeathStateChange& acMessage) const noexcept
 {
-    auto view = m_world.view<FormIdComponent, RemoteComponent>();
+    auto view = m_world.view<RemoteComponent>();
 
     const auto it = std::find_if(std::begin(view), std::end(view), [&acMessage, view](entt::entity entity)
     {
@@ -398,8 +415,12 @@ void ActorValueService::OnDeathStateChange(const NotifyDeathStateChange& acMessa
         return;
     }
 
-    auto& formIdComponent = view.get<FormIdComponent>(*it);
-    Actor* pActor = Cast<Actor>(TESForm::GetById(formIdComponent.Id));
+    view.get<RemoteComponent>(*it).IsDead = acMessage.IsDead;
+    if (auto* pWaiting = m_world.try_get<WaitingFor3D>(*it))
+        pWaiting->SpawnRequest.IsDead = acMessage.IsDead;
+
+    const auto* pFormId = m_world.try_get<FormIdComponent>(*it);
+    Actor* pActor = pFormId ? Cast<Actor>(TESForm::GetById(pFormId->Id)) : nullptr;
 
     if (!pActor)
         return;
@@ -409,9 +430,6 @@ void ActorValueService::OnDeathStateChange(const NotifyDeathStateChange& acMessa
     if (pExtension->IsPlayer())
         return;
 
-    if (pActor->IsDead() != acMessage.IsDead)
-    {
-        spdlog::info("Applying death state {} to remote actor {:X}, server id: {:X}", acMessage.IsDead, pActor->formID, acMessage.Id);
-        acMessage.IsDead ? pActor->Kill() : pActor->Respawn();
-    }
+    if (!m_world.any_of<WaitingFor3D>(*it))
+        RemoteDeathSystem::Apply(pActor, acMessage.IsDead);
 }

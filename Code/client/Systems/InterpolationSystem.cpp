@@ -22,7 +22,7 @@ constexpr double cPositionCorrectionTime = 50.0;
 constexpr size_t cMaxTimePoints = 64;
 } // namespace
 
-void InterpolationSystem::Update(Actor* apActor, InterpolationComponent& aInterpolationComponent, const double aNow) noexcept
+void InterpolationSystem::Update(Actor* apActor, InterpolationComponent& aInterpolationComponent, const double aNow, const bool aApplyAnimation) noexcept
 {
     auto& clock = aInterpolationComponent.Clock;
     const double cDeltaTime = clock.Advance(aNow);
@@ -97,7 +97,8 @@ void InterpolationSystem::Update(Actor* apActor, InterpolationComponent& aInterp
         return;
 
     apActor->ForcePosition(aInterpolationComponent.Position);
-    apActor->LoadAnimationVariables(second.Variables);
+    if (aApplyAnimation)
+        apActor->LoadAnimationVariables(second.Variables);
 
     if (apActor->currentProcess && apActor->currentProcess->middleProcess)
     {
