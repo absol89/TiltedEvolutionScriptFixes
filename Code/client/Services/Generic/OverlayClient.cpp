@@ -88,6 +88,8 @@ bool OverlayClient::OnProcessMessageReceived(CefRefPtr<CefBrowser> browser, CefR
             ProcessToggleDebugUI();
         else if (eventName == "openPlayGuide")
             ProcessOpenPlayGuide();
+        else if (eventName == "pingServers")
+            ProcessPingServersMessage(eventArgs);
         else if (eventName == "sendTradeInvite")
         {
             uint32_t aPlayerId = eventArgs->GetInt(0);
@@ -240,6 +242,29 @@ void OverlayClient::ProcessToggleDebugUI()
 void OverlayClient::ProcessOpenPlayGuide()
 {
     ShellExecuteW(nullptr, L"open", LR"(https://wiki.tiltedphoques.com/tilted-online/general-information/playguide)", nullptr, nullptr, SW_SHOWNORMAL);
+}
+
+void OverlayClient::ProcessPingServersMessage(CefRefPtr<CefListValue> aEventArgs)
+{
+    if (!aEventArgs)
+        return;
+
+    auto pServers = aEventArgs->GetList(0);
+    if (!pServers)
+        return;
+
+    for (size_t i = 0; i < pServers->GetSize(); ++i)
+    {
+        auto pServer = pServers->GetList(static_cast<int>(i));
+        if (!pServer || pServer->GetSize() < 3)
+            continue;
+
+        const uint32_t cId = static_cast<uint32_t>(pServer->GetInt(0));
+        std::string ip = pServer->GetString(1).ToString();
+        const uint16_t cPort = static_cast<uint16_t>(pServer->GetInt(2));
+
+        World::Get().GetRunner().Queue([cId, ip = std::move(ip), cPort] { World::Get().GetOverlayService().PingServer(cId, ip, cPort); });
+    }
 }
 
 // Numbers come as whole numbers from the UI: percentages for the volumes and units for the fade start
