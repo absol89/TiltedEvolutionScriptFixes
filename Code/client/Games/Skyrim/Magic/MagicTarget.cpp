@@ -45,7 +45,8 @@ void MagicTarget::DispelAllSpells(bool aNow) noexcept
 
 bool MagicTarget::AddTarget(AddTargetData& arData, bool aApplyHealPerkBonus, bool aApplyStaminaPerkBonus) noexcept
 {
-    s_autoSucceedEffectCheck = true;
+    // Poisons come from the attacker's hit, so the victim's conditions still get to refuse them.
+    s_autoSucceedEffectCheck = !arData.pSpell->IsPoison();
     s_applyHealPerkBonus = aApplyHealPerkBonus;
     s_applyStaminaPerkBonus = aApplyStaminaPerkBonus;
 
@@ -118,6 +119,14 @@ bool TP_MAKE_THISCALL(HookAddTarget, MagicTarget, MagicTarget::AddTargetData& ar
         if (!arData.pCaster)
             return false;
 
+        // The charge of a poison belongs to the attacker's weapon, so this client decides that it lands and tells the
+        // victim's client. It isn't applied to the copy here, its health comes from the victim's client anyway.
+        if (arData.pSpell->IsPoison() && World::Get().GetServerSettings().PvpEnabled && arData.pCaster->GetExtension()->IsLocalPlayer())
+        {
+            World::Get().GetRunner().Trigger(addTargetEvent);
+            return false;
+        }
+
         if (!arData.pSpell->IsHealingSpell() && !arData.pSpell->IsBuffSpell())
             return false;
 
@@ -149,6 +158,10 @@ bool TP_MAKE_THISCALL(HookAddTarget, MagicTarget, MagicTarget::AddTargetData& ar
 
                 // Heal and buff spells are already synced by the caster.
                 if (arData.pSpell->IsHealingSpell() || arData.pSpell->IsBuffSpell())
+                    return false;
+
+                // Poisons are synced by the attacker. The copy's ExtraPoison and its charges can be out of date.
+                if (arData.pSpell->IsPoison())
                     return false;
             }
         }
