@@ -2,6 +2,7 @@
 #include "CrashHandler.h"
 #include <DbgHelp.h>
 #include <Windows.h>
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <iomanip>
@@ -23,16 +24,12 @@ std::string SerializeTimePoint(const time_point& time, const std::string& format
 
 LONG WINAPI VectoredExceptionHandler(PEXCEPTION_POINTERS pExceptionInfo)
 {
-    static int alreadyCrashed = 0;
+    static std::atomic_bool s_alreadyCrashed = false;
     auto retval = EXCEPTION_CONTINUE_SEARCH;
 
-    // Serialize 
-    static std::mutex singleThreaded;
-    const std::lock_guard lock{singleThreaded};
-
-    // Check for severe, not continuable and not software-originated exception
+    // Handle only the first access violation. Later or nested ones pass through instead of blocking.
     if (pExceptionInfo->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION &&
-        alreadyCrashed++ == 0)
+        !s_alreadyCrashed.exchange(true))
     {
         spdlog::critical (__FUNCTION__ ": crash occurred!"); 
         
@@ -115,13 +112,13 @@ LONG WINAPI VectoredExceptionHandler(PEXCEPTION_POINTERS pExceptionInfo)
         {
             spdlog::critical(__FUNCTION__ ": UnhandledExceptionFilter() workaround triggered.");
 
-            singleThreaded.unlock();        // Might reenter, but is safe at this point.
             if ((*pCurrentUnhandledExceptionFilter)(pExceptionInfo) == EXCEPTION_CONTINUE_EXECUTION)
                 retval = EXCEPTION_CONTINUE_EXECUTION;
-            singleThreaded.lock();
         }
 
-        spdlog::shutdown();
+        // The exception may still be handled, and logging after spdlog::shutdown() crashes
+        if (auto pLogger = spdlog::default_logger())
+            pLogger->flush();
     }
     return retval;
 }

@@ -576,6 +576,13 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
             return;
         }
 
+        // Enabling and killing it here would run its death scripts again, e.g. repeating quest stages and rewards
+        if (acMessage.IsDead && pActor->IsDisabled() && pActor->GetExtension()->Reconciliation != ActorExtension::ReconciliationStage::WaitingForDisable)
+        {
+            spdlog::info("Skipped spawn for dead actor {:X} that is disabled locally, server id: {:X}", cActorId, acMessage.ServerId);
+            return;
+        }
+
         const auto view = m_world.view<FormIdComponent>();
         const auto itor = std::find_if(std::begin(view), std::end(view), [cActorId, view](entt::entity entity) { return view.get<FormIdComponent>(entity).Id == cActorId; });
 
@@ -1286,6 +1293,15 @@ void CharacterService::MoveActor(const Actor* apActor, const GameId& acWorldSpac
     {
         const uint32_t cWorldSpaceId = m_world.GetModSystem().GetGameId(acWorldSpaceId);
         TESWorldSpace* const pWorldSpace = Cast<TESWorldSpace>(TESForm::GetById(cWorldSpaceId));
+
+        // Loading a cell outside the player's worldspace can crash the reference promote tasks and strands the actor
+        // there in our save. It's placed when it spawns instead.
+        if (pWorldSpace && pWorldSpace != PlayerCharacter::Get()->GetWorldSpace())
+        {
+            spdlog::info(__FUNCTION__ ": skipped moving actor {:X} to worldspace {:X}, the player isn't in it", apActor->formID, cWorldSpaceId);
+            return;
+        }
+
         if (pWorldSpace)
         {
             GridCellCoords coordinates = GridCellCoords::CalculateGridCellCoords(acPosition);

@@ -517,6 +517,14 @@ void QuestService::OnQuestUpdate(const NotifyQuestUpdate& aUpdate) noexcept
         return;
     }
 
+    // Like the game, never restart a run once quest that's already done here, which would hand out its rewards again
+    const bool cIsStartOrStage = aUpdate.Status == NotifyQuestUpdate::Started || aUpdate.Status == NotifyQuestUpdate::StageUpdate;
+    if (cIsStartOrStage && (pQuest->flags & TESQuest::Flags::RunOnce) && (pQuest->flags & TESQuest::Flags::Completed))
+    {
+        spdlog::info("Remote quest {:X} is a completed run once quest here, ignoring stage {}", formId, aUpdate.Stage);
+        return;
+    }
+
     if (aUpdate.Status == NotifyQuestUpdate::StageUpdate && pQuest->IsStageReached(aUpdate.Stage))
     {
         spdlog::info("Remote quest {:X} already reached stage {}, current stage: {}", formId, aUpdate.Stage, pQuest->currentStage);
