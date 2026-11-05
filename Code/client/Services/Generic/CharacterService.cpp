@@ -12,6 +12,7 @@
 
 #include <Forms/TESNPC.h>
 #include <Forms/ActorValueInfo.h>
+#include <NetImmerse/NiNode.h>
 #include <Interface/UI.h>
 #include <Forms/TESQuest.h>
 
@@ -340,6 +341,7 @@ void CharacterService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
     RunExperienceUpdates();
     ApplyCachedWeaponDraws(acUpdateEvent);
     ProcessLeveledConforms();
+    RunStandingBodyRepairs();
 }
 
 void CharacterService::OnConnected(const ConnectedEvent& acConnectedEvent) const noexcept
@@ -655,7 +657,10 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
 
     // Let WaitingFor3D kill a new corpse once its loaded body can fall.
     if (pActor->IsDead() && !acMessage.IsDead)
+    {
+        spdlog::warn("Respawning actor {:X} on spawn, it's dead in this save but alive on the server", pActor->formID);
         pActor->Respawn();
+    }
 
     spdlog::info("Spawn Request Is summon {}", acMessage.IsPlayerSummon);
 
@@ -1688,7 +1693,10 @@ Actor* CharacterService::CreateCharacterForEntity(entt::entity aEntity) const no
 
     // Recreated copies use the same WaitingFor3D death transition as new spawns.
     if (pActor->IsDead() && !acMessage.IsDead)
+    {
+        spdlog::warn("Respawning actor {:X} on spawn, it's dead in this save but alive on the server", pActor->formID);
         pActor->Respawn();
+    }
 
     spdlog::info("Spawned character for entity, server id: {:X}", remoteComponent.Id);
 
@@ -1735,6 +1743,13 @@ void CharacterService::ApplyLeveledNpcPick(Actor* apActor, const GameId& acPickI
         return;
     }
 
+    // Conforming disables and rebuilds the actor, and a corpse can come back from that standing.
+    if (apActor->IsDead() && m_pendingLeveledConforms.find(apActor->formID) == m_pendingLeveledConforms.end())
+    {
+        spdlog::info("Not rebuilding dead actor {:X} for the owner's leveled pick {:X}", apActor->formID, cPickId);
+        return;
+    }
+
     const TESNPC* pLocalPick = apActor->GetLeveledPick();
     const uint32_t localPickId = pLocalPick ? pLocalPick->formID : 0;
 
@@ -1752,6 +1767,128 @@ void CharacterService::ApplyLeveledNpcPick(Actor* apActor, const GameId& acPickI
     // Queueing to the runner from a drained task would re-lock its drain mutex.
     // Preserve the stage when a newer pick arrives during a disable or rebuild.
     m_pendingLeveledConforms[apActor->formID] = cPickId;
+}
+
+// Dead bodies can end up on their feet, and saves keep them that way. The game has no way to tell: IsDead only reads
+// the life state and IsInRagdollState is true for any dead actor, so the skeleton has to show it.
+void CharacterService::RunStandingBodyRepairs() noexcept
+{
+    constexpr auto cLookInterval = std::chrono::seconds(2);
+    constexpr float cStandingHeight = 50.f; // Pelvis over the feet: about 60 standing, up to 43 lying on a slope.
+    constexpr float cStillDistance = 3.f;
+    constexpr float cNearPlayer = 4096.f;
+    constexpr uint32_t cBodiesPerLook = 24;
+    constexpr uint32_t cMaxTries = 3;
+
+    struct StandingBody
+    {
+        NiPoint3 Pelvis{};
+        uint32_t Tries = 0;
+    };
+    static TiltedPhoques::Map<uint32_t, StandingBody> s_standingBodies;
+    static std::chrono::steady_clock::time_point s_nextLook{};
+    static uint32_t s_bodiesToSkip = 0;
+
+    if (!m_transport.IsConnected())
+    {
+        s_standingBodies.clear();
+        return;
+    }
+
+    const auto cNow = std::chrono::steady_clock::now();
+    if (cNow < s_nextLook)
+        return;
+    s_nextLook = cNow + cLookInterval;
+
+    const PlayerCharacter* pPlayer = PlayerCharacter::Get();
+    UI* pUI = UI::Get();
+    if (!pPlayer || (pUI && pUI->GetMenuOpen(BSFixedString("Loading Menu"))))
+        return;
+
+    static BSFixedString s_pelvisName("NPC Pelvis [Pelv]");
+    static BSFixedString s_leftFootName("NPC L Foot [Lft ]");
+    static BSFixedString s_rightFootName("NPC R Foot [Rft ]");
+    static BSFixedString s_ragdollEvent("RagdollInstant");
+
+    uint32_t seen = 0;
+    uint32_t looked = 0;
+    for (const auto cEntity : m_world.view<FormIdComponent>(entt::exclude<ObjectComponent>))
+    {
+        Actor* pActor = Cast<Actor>(TESForm::GetById(m_world.get<FormIdComponent>(cEntity).Id));
+        if (!pActor || pActor->GetExtension()->IsPlayer() || !pActor->IsDead() || pActor->IsDisabled())
+            continue;
+
+        const float cDeltaX = pActor->position.x - pPlayer->position.x;
+        const float cDeltaY = pActor->position.y - pPlayer->position.y;
+        const float cDeltaZ = pActor->position.z - pPlayer->position.z;
+        if (cDeltaX * cDeltaX + cDeltaY * cDeltaY + cDeltaZ * cDeltaZ > cNearPlayer * cNearPlayer || !RemoteDeathSystem::CanKill(pActor))
+            continue;
+
+        if (seen++ < s_bodiesToSkip)
+            continue;
+        if (++looked > cBodiesPerLook)
+            break;
+
+        const auto* pNpc = Cast<TESNPC>(pActor->baseForm);
+        const char* cpName = pNpc && pNpc->fullName.value.AsAscii() ? pNpc->fullName.value.AsAscii() : "?";
+
+        if (const float cHealth = pActor->GetActorValue(ActorValueInfo::kHealth); cHealth > 0.f)
+        {
+            spdlog::info("BodyStand: dead {:X} ({}) had {:.0f} health, taking it", pActor->formID, cpName, cHealth);
+            pActor->ForceActorValue(ActorValueOwner::ForceMode::DAMAGE, ActorValueInfo::kHealth, 0.f);
+        }
+
+        // Only skeletons with these bones can be told apart. Creatures without them are left as they are.
+        NiNode* pRoot = pActor->GetNiNode();
+        const NiAVObject* pPelvis = pRoot->GetByName(s_pelvisName);
+        const NiAVObject* pLeftFoot = pRoot->GetByName(s_leftFootName);
+        const NiAVObject* pRightFoot = pRoot->GetByName(s_rightFootName);
+        if (!pPelvis || !pLeftFoot || !pRightFoot)
+            continue;
+
+        const NiPoint3 cPelvis = pPelvis->worldTranslate;
+        const float cHeight = cPelvis.z - std::min(pLeftFoot->worldTranslate.z, pRightFoot->worldTranslate.z);
+
+        auto it = s_standingBodies.find(pActor->formID);
+        if (cHeight < cStandingHeight)
+        {
+            if (it != s_standingBodies.end())
+            {
+                spdlog::info("BodyStand: dead {:X} ({}) is lying down, pelvis {:.0f} over its feet", pActor->formID, cpName, cHeight);
+                s_standingBodies.erase(it);
+            }
+            continue;
+        }
+
+        // It has to stand still between two looks. A body that's moving is falling or being carried.
+        if (it == s_standingBodies.end())
+        {
+            s_standingBodies[pActor->formID].Pelvis = cPelvis;
+            continue;
+        }
+
+        const float cMovedX = cPelvis.x - it.value().Pelvis.x;
+        const float cMovedY = cPelvis.y - it.value().Pelvis.y;
+        const float cMovedZ = cPelvis.z - it.value().Pelvis.z;
+        const bool cIsStill = cMovedX * cMovedX + cMovedY * cMovedY + cMovedZ * cMovedZ < cStillDistance * cStillDistance;
+        it.value().Pelvis = cPelvis;
+        if (!cIsStill || it.value().Tries > cMaxTries)
+            continue;
+
+        if (it.value().Tries == cMaxTries)
+        {
+            ++it.value().Tries;
+            spdlog::warn("BodyStand: dead {:X} ({}) still stands after {} tries, giving up", pActor->formID, cpName, cMaxTries);
+            continue;
+        }
+
+        ++it.value().Tries;
+        const bool cWasSent = pActor->SendAnimationEvent(&s_ragdollEvent);
+        spdlog::info("BodyStand: dead {:X} ({}) stands, pelvis {:.0f} over its feet, laying it down (try {}, event accepted: {})", pActor->formID, cpName, cHeight,
+                     it.value().Tries, cWasSent);
+    }
+
+    s_bodiesToSkip = looked > cBodiesPerLook ? seen - 1 : 0;
 }
 
 void CharacterService::ProcessLeveledConforms() noexcept
