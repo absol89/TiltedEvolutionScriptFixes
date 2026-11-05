@@ -976,7 +976,8 @@ bool TP_MAKE_THISCALL(HookDamageActor, Actor, float aDamage, Actor* apHitter, bo
     {
         if (!World::Get().GetServerSettings().PvpEnabled)
         {
-            if (apHitter && apHitter->GetExtension()->IsRemotePlayer())
+            // A remote player's summon counts too, its copy swings at whatever the owner's client tells it to.
+            if (apHitter && (apHitter->GetExtension()->IsRemotePlayer() || (apHitter->GetExtension()->IsRemote() && apHitter->IsPlayerSummon())))
                 return false;
         }
 
