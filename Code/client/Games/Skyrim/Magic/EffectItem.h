@@ -14,6 +14,7 @@ struct EffectItemData
 struct EffectItem
 {
     bool IsHealingEffect() const noexcept;
+    bool IsDisarmEffect() const noexcept;
     bool IsSummonEffect() const noexcept;
     bool IsSlowEffect() const noexcept;
     bool IsInivisibilityEffect() const noexcept;

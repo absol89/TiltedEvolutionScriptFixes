@@ -206,6 +206,8 @@ struct Actor : TESObjectREFR
     [[nodiscard]] bool IsDead() const noexcept;
     [[nodiscard]] bool IsDragon() const noexcept;
     [[nodiscard]] bool IsPlayerSummon() const noexcept;
+    // True when this is the local player being disarmed by another player with PvP on.
+    [[nodiscard]] bool IsPvpDisarmedBy(Actor* apCaster) noexcept;
     [[nodiscard]] bool IsInCombat() const noexcept;
     [[nodiscard]] Actor* GetCombatTarget() const noexcept;
     [[nodiscard]] bool HasPerk(uint32_t aPerkFormId) const noexcept;

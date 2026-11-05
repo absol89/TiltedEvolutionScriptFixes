@@ -8,6 +8,11 @@ bool EffectItem::IsHealingEffect() const noexcept
     return pEffectSetting->eArchetype == EffectArchetypes::ArchetypeID::kValueModifier && data.fMagnitude > 0.0f;
 }
 
+bool EffectItem::IsDisarmEffect() const noexcept
+{
+    return pEffectSetting->eArchetype == EffectArchetypes::ArchetypeID::kDisarm;
+}
+
 bool EffectItem::IsSummonEffect() const noexcept
 {
     return pEffectSetting->eArchetype == EffectArchetypes::ArchetypeID::kSummonCreature;
