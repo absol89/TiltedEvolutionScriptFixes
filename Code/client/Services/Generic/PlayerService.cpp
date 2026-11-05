@@ -20,8 +20,14 @@
 #include <Messages/EnterInteriorCellRequest.h>
 #include <Messages/PlayerDialogueRequest.h>
 #include <Messages/PlayerLevelRequest.h>
+#include <Messages/PlayerPerksRequest.h>
+#include <Messages/NotifyPlayerPerks.h>
+#include <Messages/NotifyPlayerJoined.h>
+#include <Messages/NotifyPlayerLeft.h>
 
 #include <Structs/ServerSettings.h>
+
+#include <Components.h>
 
 #include <PlayerCharacter.h>
 #include <Forms/TESObjectCELL.h>
@@ -48,6 +54,9 @@ PlayerService::PlayerService(World& aWorld, entt::dispatcher& aDispatcher, Trans
     m_playerLevelConnection = m_dispatcher.sink<PlayerLevelEvent>().connect<&PlayerService::OnPlayerLevelEvent>(this);
     m_partyJoinedConnection = aDispatcher.sink<PartyJoinedEvent>().connect<&PlayerService::OnPartyJoinedEvent>(this);
     m_partyLeftConnection = aDispatcher.sink<PartyLeftEvent>().connect<&PlayerService::OnPartyLeftEvent>(this);
+    m_notifyPlayerPerksConnection = aDispatcher.sink<NotifyPlayerPerks>().connect<&PlayerService::OnNotifyPlayerPerks>(this);
+    m_playerJoinedConnection = aDispatcher.sink<NotifyPlayerJoined>().connect<&PlayerService::OnNotifyPlayerJoined>(this);
+    m_playerLeftConnection = aDispatcher.sink<NotifyPlayerLeft>().connect<&PlayerService::OnNotifyPlayerLeft>(this);
 }
 
 void PlayerService::OnUpdate(const UpdateEvent&) noexcept
@@ -57,6 +66,7 @@ void PlayerService::OnUpdate(const UpdateEvent&) noexcept
     RunDifficultyUpdates();
     RunLevelUpdates();
     RunBeastFormDetection();
+    RunPerkUpdates();
 }
 
 void PlayerService::OnConnected(const ConnectedEvent& acEvent) noexcept
@@ -85,6 +95,10 @@ void PlayerService::OnDisconnected(const DisconnectedEvent& acEvent) noexcept
 
     TESGlobal* pWorldEncountersEnabled = Cast<TESGlobal>(TESForm::GetById(0xB8EC1));
     pWorldEncountersEnabled->f = 1.f;
+
+    m_arePerksSent = false;
+    m_remotePerks.clear();
+    RemotePerks::SetPerks({});
 }
 
 void PlayerService::OnServerSettingsReceived(const ServerSettings& acSettings) noexcept
@@ -171,6 +185,22 @@ void PlayerService::OnPlayerLevelEvent(const PlayerLevelEvent& acEvent) const no
     request.NewLevel = PlayerCharacter::Get()->GetLevel();
 
     m_transport.Send(request);
+}
+
+void PlayerService::OnNotifyPlayerPerks(const NotifyPlayerPerks& acMessage) noexcept
+{
+    m_remotePerks[acMessage.PlayerId] = RemotePerks::BuildPerkData(acMessage.Perks);
+}
+
+void PlayerService::OnNotifyPlayerJoined(const NotifyPlayerJoined& acMessage) noexcept
+{
+    // The server doesn't keep perk lists around, so the new player gets them from the other players.
+    m_arePerksSent = false;
+}
+
+void PlayerService::OnNotifyPlayerLeft(const NotifyPlayerLeft& acMessage) noexcept
+{
+    m_remotePerks.erase(acMessage.PlayerId);
 }
 
 void PlayerService::OnPartyJoinedEvent(const PartyJoinedEvent& acEvent) noexcept
@@ -316,6 +346,55 @@ void PlayerService::RunLevelUpdates() const noexcept
 
         oldLevel = newLevel;
     }
+}
+
+void PlayerService::RunPerkUpdates() noexcept
+{
+    static std::chrono::steady_clock::time_point lastUpdateTimePoint;
+    constexpr auto cDelayBetweenUpdates = 1000ms;
+
+    const auto now = std::chrono::steady_clock::now();
+    if (now - lastUpdateTimePoint < cDelayBetweenUpdates)
+        return;
+
+    lastUpdateTimePoint = now;
+
+    if (!m_transport.IsConnected())
+        return;
+
+    if (!m_world.GetServerSettings().PvpEnabled)
+    {
+        // Perks are sent again if PvP gets enabled later on
+        m_arePerksSent = false;
+        m_remotePerks.clear();
+        RemotePerks::SetPerks({});
+        return;
+    }
+
+    PlayerPerksRequest request{};
+    RemotePerks::CollectLocalPlayerPerks(request.Perks);
+
+    std::vector<std::pair<GameId, uint8_t>> perks;
+    perks.reserve(request.Perks.size());
+    for (const PlayerPerk& cPerk : request.Perks)
+        perks.emplace_back(cPerk.Id, cPerk.Rank);
+
+    if ((!m_arePerksSent || perks != m_sentPerks) && m_transport.Send(request))
+    {
+        m_sentPerks = std::move(perks);
+        m_arePerksSent = true;
+    }
+
+    // Copies get a new form id when they respawn, so look them up every time
+    RemotePerks::PerkMap formPerks;
+    auto view = m_world.view<PlayerComponent, FormIdComponent>();
+    for (const auto entity : view)
+    {
+        const auto it = m_remotePerks.find(view.get<PlayerComponent>(entity).Id);
+        if (it != m_remotePerks.end())
+            formPerks[view.get<FormIdComponent>(entity).Id] = it->second;
+    }
+    RemotePerks::SetPerks(std::move(formPerks));
 }
 
 void PlayerService::RunBeastFormDetection() const noexcept
