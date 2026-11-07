@@ -19,7 +19,10 @@ inline void Apply(Actor* apActor, bool aIsDead) noexcept
         return;
 
     if (!aIsDead)
+    {
+        spdlog::info("Respawning remote NPC {:X} because its owner has it alive", apActor->formID);
         apActor->Respawn();
+    }
     else if (CanKill(apActor))
     {
         spdlog::info("Applying loaded remote NPC death {:X}", apActor->formID);

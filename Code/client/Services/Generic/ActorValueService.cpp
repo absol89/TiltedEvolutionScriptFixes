@@ -296,6 +296,10 @@ void ActorValueService::OnHealthChangeBroadcast(const NotifyHealthChangeBroadcas
         return;
     }
 
+    // A dead body with health can end up back on its feet, and there's nothing to take that health away again.
+    if (!pActor->GetExtension()->IsPlayer() && pActor->GetExtension()->IsRemote() && pActor->IsDead())
+        return;
+
     const float newHealth = pActor->GetActorValue(ActorValueInfo::kHealth) + acMessage.DeltaHealth;
     if (!pActor->GetExtension()->IsPlayer() && pActor->GetExtension()->IsRemote() && !pActor->IsDead() && newHealth <= 0.f)
     {
