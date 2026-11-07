@@ -2080,12 +2080,38 @@ void CharacterService::RunRemoteUpdates() noexcept
             pActor = Cast<Actor>(pForm);
         }
 
-        const bool cDeadNpc = pActor && !pActor->GetExtension()->IsPlayer() &&
-                              (interpolatedEntities.get<RemoteComponent>(entity).IsDead || pActor->IsDead());
+        auto& remoteComponent = interpolatedEntities.get<RemoteComponent>(entity);
+        const bool cDeadNpc = pActor && !pActor->GetExtension()->IsPlayer() && (remoteComponent.IsDead || pActor->IsDead());
         // Keep position synchronization, but do not overwrite a corpse's animation graph.
         InterpolationSystem::Update(pActor, interpolationComponent, cNow, !cDeadNpc);
-        if (cDeadNpc && interpolatedEntities.get<RemoteComponent>(entity).IsDead && !m_world.any_of<WaitingFor3D>(entity))
-            RemoteDeathSystem::Apply(pActor, true);
+
+        if (!cDeadNpc || !remoteComponent.IsDead)
+            continue;
+
+        // A body that is (re)loading or already dead gets a fresh set of tries the next time it is needed.
+        if (m_world.any_of<WaitingFor3D>(entity) || pActor->IsDead())
+        {
+            remoteComponent.KillAttempts = 0;
+            continue;
+        }
+
+        // The owner has this NPC dead but it is alive here. Kill() can be refused (essential actors, a kill
+        // already queued), and retrying on every tick floods the log and the game, so retry once a second
+        // and give up after a few tries.
+        constexpr uint8_t cMaxKillAttempts = 5;
+        constexpr double cKillRetryMs = 1000.0;
+        if (remoteComponent.KillAttempts >= cMaxKillAttempts || cNow < remoteComponent.NextKillAttempt ||
+            !RemoteDeathSystem::CanKill(pActor))
+            continue;
+
+        ++remoteComponent.KillAttempts;
+        remoteComponent.NextKillAttempt = cNow + cKillRetryMs;
+        if (remoteComponent.KillAttempts == 1)
+            spdlog::info("Applying loaded remote NPC death {:X}", pActor->formID);
+        else if (remoteComponent.KillAttempts == cMaxKillAttempts)
+            spdlog::warn("Remote NPC {:X} is still alive after {} kills while its owner has it dead, giving up until its body reloads",
+                         pActor->formID, cMaxKillAttempts);
+        pActor->Kill();
     }
 
     auto animatedView = m_world.view<RemoteComponent, RemoteAnimationComponent, InterpolationComponent, FormIdComponent>();
