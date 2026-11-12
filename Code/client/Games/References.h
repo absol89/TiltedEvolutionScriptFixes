@@ -6,6 +6,7 @@
 namespace GameplayFormulas
 {
 float CalculateRealDamage(Actor* apHittee, float aDamage, bool aKillMove) noexcept;
+float GetPartyDamageMultiplier(Actor* apHitter) noexcept;
 }
 
 namespace Settings

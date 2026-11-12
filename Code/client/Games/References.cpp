@@ -69,6 +69,32 @@ float CalculateRealDamage(Actor* apHittee, float aDamage, bool aKillMove) noexce
     return realDamage;
 }
 
+float GetPartyDamageMultiplier(Actor* apHitter) noexcept
+{
+    const float cScale = World::Get().GetServerSettings().PartyDamageScale;
+    if (cScale <= 0.f || !apHitter)
+        return 1.f;
+
+    const auto& partyService = World::Get().GetPartyService();
+    if (!partyService.IsInParty())
+        return 1.f;
+
+    const size_t cMembers = partyService.GetPartyMembers().size();
+    if (cMembers < 2)
+        return 1.f;
+
+    Actor* pSource = apHitter;
+    if (!pSource->GetExtension()->IsPlayer())
+    {
+        if (Actor* pCommander = pSource->GetCommandingActor())
+            pSource = pCommander;
+    }
+    if (!pSource->GetExtension()->IsPlayer())
+        return 1.f;
+
+    return 1.f / (1.f + cScale * static_cast<float>(cMembers - 1));
+}
+
 } // namespace GameplayFormulas
 
 void FadeOutGame(bool aFadingOut, bool aBlackFade, float aFadeDuration, bool aRemainVisible, float aSecondsToFade) noexcept

@@ -19,6 +19,7 @@ struct ServerSettings
     bool AutoPartyJoin{};
     bool ItemDropsEnabled{};
     bool ConsoleCommandsAllowed{true};
+    float PartyDamageScale{};
     // Built-in proximity voice chat, players also need Connect to voip on
     bool VoipEnabled{};
 };

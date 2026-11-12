@@ -42,6 +42,7 @@ Console::Setting uTimeScale{"Gameplay:uTimeScale", "How many seconds pass ingame
 Console::Setting bSyncPlayerCalendar{"Gameplay:bSyncPlayerCalendar", "Syncs up all player calendars to be the same day, month, and year. This uses the date of the player with the furthest ahead date at connection.", false};
 Console::Setting bAutoPartyJoin{"Gameplay:bAutoPartyJoin", "Join parties automatically, as long as there is only one party in the server", true};
 Console::Setting bEnableItemDrops{"Gameplay:bEnableItemDrops", "Syncs items dropped by players", true};
+Console::Setting fPartyDamageScale{"Gameplay:fPartyDamageScale", "Longer fights in a party: damage from players, their spells and their summons is divided by 1 + this x (party members - 1). 1 = like enemies having x party members health, 0 = off. NPCs and followers keep full damage", 0.0f};
 Console::Setting bAllowConsoleCommands{"Gameplay:bAllowConsoleCommands", "Lets players run console commands they type while connected. Turn it off to stop console trolling such as spawning enemies or killing NPCs. The console still opens for reading ids, and mods can still run commands", true};
 // ModPolicy Stuff
 Console::Setting bEnableModCheck{"ModPolicy:bEnableModCheck", "Refuse clients whose mods do not match Data/loadorder.txt", false, Console::SettingsFlags::kLocked};
@@ -74,6 +75,23 @@ Console::Command<> ToggleConsoleCommands(
     {
         bAllowConsoleCommands = !bAllowConsoleCommands;
         spdlog::get("ConOut")->info("Typed console commands have been {}.", bAllowConsoleCommands == true ? "allowed" : "turned off");
+        GameServer::Get()->UpdateSettings();
+    });
+
+Console::Command<std::string> SetPartyDamageScale(
+    "SetPartyDamageScale", "Set Gameplay:fPartyDamageScale (0 turns it off, 1 is like enemies having party size x health)",
+    [](Console::ArgStack& aStack)
+    {
+        const auto& cValue = aStack.Pop<TiltedPhoques::String>();
+        char* pEnd = nullptr;
+        const float cScale = std::strtof(cValue.c_str(), &pEnd);
+        if (pEnd == cValue.c_str() || cScale < 0.0f || cScale > 10.0f)
+        {
+            spdlog::get("ConOut")->error("Party damage scale must be a number from 0 to 10, e.g. 1 or 0.75");
+            return;
+        }
+        fPartyDamageScale = cScale;
+        spdlog::get("ConOut")->info("Party damage scale has been set to {}.", cScale);
         GameServer::Get()->UpdateSettings();
     });
 
@@ -156,6 +174,7 @@ ServerSettings GetSettings()
     settings.AutoPartyJoin = bAutoPartyJoin;
     settings.ItemDropsEnabled = bEnableItemDrops;
     settings.ConsoleCommandsAllowed = bAllowConsoleCommands;
+    settings.PartyDamageScale = std::clamp(fPartyDamageScale.value_as<float>(), 0.0f, 10.0f);
     settings.VoipEnabled = bVoip;
     return settings;
 }

@@ -1073,6 +1073,8 @@ bool TP_MAKE_THISCALL(HookDamageActor, Actor, float aDamage, Actor* apHitter, bo
     if (apHitter)
         World::Get().GetRunner().Trigger(HitEvent(apHitter->formID, apThis->formID));
 
+    aDamage *= GameplayFormulas::GetPartyDamageMultiplier(apHitter);
+
     float realDamage = GameplayFormulas::CalculateRealDamage(apThis, aDamage, aKillMove);
 
     float currentHealth = apThis->GetActorValue(ActorValueInfo::kHealth);
