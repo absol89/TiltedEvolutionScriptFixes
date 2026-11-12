@@ -12,6 +12,7 @@
 #include <Games/Misc/SubtitleManager.h>
 
 #include <Forms/TESNPC.h>
+#include <Forms/TESRace.h>
 #include <Forms/ActorValueInfo.h>
 #include <NetImmerse/NiNode.h>
 #include <Interface/UI.h>
