@@ -12,6 +12,7 @@
 #include <Games/References.h>
 #include <Misc/BSFixedString.h>
 #include <Events/ScriptAnimationEvent.h>
+#include <BSAnimationGraphManager.h>
 
 TP_THIS_FUNCTION(TRegisterPapyrusFunction, void, BSScript::IVirtualMachine, NativeFunction*);
 TP_THIS_FUNCTION(TBindEverythingToScript, void, BSScript::IVirtualMachine*);
@@ -52,20 +53,29 @@ static void HookPlaySubGraphAnimation(BSScript::IVirtualMachine* apVm, uint32_t 
     // Remote copies replay what their owner sends, so only the owner's call is sent.
     if (pActor && pActor->GetExtension()->IsLocal() && pcEventName && pcEventName[0] != '\0')
     {
-        spdlog::debug("PlaySubGraphAnimation captured: ref {:X}, event {}", apRef->formID, pcEventName);
+        spdlog::info("Sending subgraph event {} of {:X} to the other players", pcEventName, apRef->formID);
         World::Get().GetRunner().Trigger(ScriptAnimationEvent(apRef->formID, String{}, pcEventName, true));
     }
 
     RealPlaySubGraphAnimation(apVm, aStackId, apRef, apEventName);
 }
 
-void PlaySubGraphAnimationUnsynced(TESObjectREFR* apRef, const char* acpEventName) noexcept
+bool SendSubGraphEventUnsynced(TESObjectREFR* apRef, const char* acpEventName) noexcept
 {
-    if (!RealPlaySubGraphAnimation || !apRef || !acpEventName)
-        return;
+    if (!apRef || !acpEventName)
+        return false;
 
-    BSFixedString eventName(acpEventName);
-    RealPlaySubGraphAnimation(GameVM::Get()->virtualMachine, 0, apRef, &eventName);
+    const auto spManager = apRef->animationGraphHolder.GetAnimationGraphManagerPtr();
+    if (!spManager)
+        return false;
+
+    // 63372 is what the PlaySubGraphAnimation native calls with the actor's graph manager. It sends the event to the
+    // graphs of what the actor wears and returns whether one of them handled it. It takes the manager's lock itself.
+    using TSendEventToSubGraphs = bool(BSAnimationGraphManager*, const BSFixedString*);
+    POINTER_SKYRIMSE(TSendEventToSubGraphs, s_sendEventToSubGraphs, 63372);
+
+    const BSFixedString cEventName(acpEventName);
+    return s_sendEventToSubGraphs.Get()(spManager.get(), &cEventName);
 }
 
 void TP_MAKE_THISCALL(HookRegisterPapyrusFunction, BSScript::IVirtualMachine, NativeFunction* apFunction)

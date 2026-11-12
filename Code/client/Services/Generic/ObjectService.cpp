@@ -455,6 +455,8 @@ void ObjectService::OnScriptAnimationEvent(const ScriptAnimationEvent& acEvent) 
     request.EventName = acEvent.EventName;
     request.IsSubGraph = acEvent.IsSubGraph;
 
+    spdlog::info("Sending script animation {}/{} of {:X} (server id {:X}), subgraph: {}", acEvent.Animation.c_str(), acEvent.EventName.c_str(),
+                 acEvent.FormID, request.FormID, acEvent.IsSubGraph);
     m_transport.Send(request);
 }
 
@@ -495,14 +497,14 @@ void ObjectService::OnNotifyScriptAnimation(const NotifyScriptAnimation& acMessa
     // FormID carries a server id; resolve it to whatever local form mirrors that entity
     TESObjectREFR* pObject = Utils::GetByServerId<TESObjectREFR>(acMessage.FormID);
 
+    spdlog::info("Received script animation {}/{} for server id {:X} ({:X}), subgraph: {}", acMessage.Animation.c_str(), acMessage.EventName.c_str(),
+                 acMessage.FormID, pObject ? pObject->formID : 0, acMessage.IsSubGraph);
+
     // Kept even when the copy isn't loaded yet, so it still gets the event once it is.
     if (acMessage.IsSubGraph)
     {
         m_subGraphReplays[acMessage.FormID].EventName = acMessage.EventName.c_str();
-        ScheduleSubGraphReplay(acMessage.FormID, 1.0);
-
-        if (pObject)
-            PlaySubGraphAnimationUnsynced(pObject, acMessage.EventName.c_str());
+        RetrySubGraphEvent(acMessage.FormID, "received");
         return;
     }
 
@@ -521,26 +523,39 @@ void ObjectService::OnNotifyScriptAnimation(const NotifyScriptAnimation& acMessa
     }
 }
 
-void ObjectService::ScheduleSubGraphReplay(uint32_t aServerId, double aDelay) noexcept
+// Tries the event from the next update on, until a worn item's graph takes it or it times out.
+void ObjectService::RetrySubGraphEvent(uint32_t aServerId, const char* acpReason) noexcept
 {
+    constexpr double cGiveUpAfter = 10.0;
+
     auto it = m_subGraphReplays.find(aServerId);
-    if (it != m_subGraphReplays.end())
-        it.value().Delay = aDelay;
+    if (it == m_subGraphReplays.end())
+        return;
+
+    spdlog::info("Subgraph event {} for server id {:X} is pending ({})", it.value().EventName.c_str(), aServerId, acpReason);
+    it.value().Delay = 0.0;
+    it.value().TimeLeft = cGiveUpAfter;
 }
 
+// The skin armor can be equipped on the copy after the event arrived. A pending event gets more time, one that was
+// already taken is left alone.
 void ObjectService::OnNotifyEquipmentChanges(const NotifyEquipmentChanges& acMessage) noexcept
 {
-    ScheduleSubGraphReplay(acMessage.ServerId, 1.0);
+    auto it = m_subGraphReplays.find(acMessage.ServerId);
+    if (it != m_subGraphReplays.end() && it.value().Delay >= 0.0)
+        RetrySubGraphEvent(acMessage.ServerId, "gear changed");
 }
 
-// A beast form respawns the copy, which then loads a new body that has missed the event.
+// A beast form respawns the copy, which loads a new body that has missed the event.
 void ObjectService::OnCharacterSpawnRequest(const CharacterSpawnRequest& acMessage) noexcept
 {
-    ScheduleSubGraphReplay(acMessage.ServerId, 3.0);
+    RetrySubGraphEvent(acMessage.ServerId, "copy respawned");
 }
 
 void ObjectService::OnUpdate(const UpdateEvent& acEvent) noexcept
 {
+    constexpr double cRetryInterval = 0.25;
+
     for (auto it = m_subGraphReplays.begin(); it != m_subGraphReplays.end(); ++it)
     {
         auto& replay = it.value();
@@ -548,20 +563,26 @@ void ObjectService::OnUpdate(const UpdateEvent& acEvent) noexcept
             continue;
 
         replay.Delay -= acEvent.Delta;
+        replay.TimeLeft -= acEvent.Delta;
         if (replay.Delay > 0.0)
             continue;
 
         TESObjectREFR* pObject = Utils::GetByServerId<TESObjectREFR>(it->first);
-        if (!pObject || !pObject->GetNiNode())
+        if (pObject && pObject->GetNiNode() && SendSubGraphEventUnsynced(pObject, replay.EventName.c_str()))
         {
-            // Not loaded yet, try again shortly.
-            replay.Delay = 1.0;
+            replay.Delay = -1.0;
+            spdlog::info("Subgraph event {} taken by {:X} (server id {:X})", replay.EventName.c_str(), pObject->formID, it->first);
             continue;
         }
 
-        replay.Delay = -1.0;
-        spdlog::debug("Replaying subgraph event {} on {:X}", replay.EventName.c_str(), pObject->formID);
-        PlaySubGraphAnimationUnsynced(pObject, replay.EventName.c_str());
+        if (replay.TimeLeft <= 0.0)
+        {
+            replay.Delay = -1.0;
+            spdlog::info("Subgraph event {} for server id {:X} not taken, giving up", replay.EventName.c_str(), it->first);
+            continue;
+        }
+
+        replay.Delay = cRetryInterval;
     }
 }
 

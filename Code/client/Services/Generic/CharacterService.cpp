@@ -1069,6 +1069,7 @@ void CharacterService::OnNotifyRespawn(const NotifyRespawn& acMessage) const noe
     RequestRespawn request;
     request.ActorId = acMessage.ActorId;
 
+    spdlog::info("Respawning remote server id {:X}, its owner changed form", acMessage.ActorId);
     m_transport.Send(request);
 }
 
@@ -1107,6 +1108,7 @@ void CharacterService::OnBeastFormChange(const BeastFormChangeEvent& acEvent) co
     pNpc->Serialize(&request.AppearanceBuffer);
     request.ChangeFlags = pNpc->GetChangeFlags();
 
+    spdlog::info("Changed form (race {:X}), asking the other players to respawn our copy (server id {:X})", pActor->race ? pActor->race->formID : 0, serverId);
     m_transport.Send(request);
 }
 

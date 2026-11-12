@@ -44,7 +44,7 @@ private:
     void OnUpdate(const UpdateEvent&) noexcept;
     void OnNotifyEquipmentChanges(const NotifyEquipmentChanges&) noexcept;
     void OnCharacterSpawnRequest(const CharacterSpawnRequest&) noexcept;
-    void ScheduleSubGraphReplay(uint32_t aServerId, double aDelay) noexcept;
+    void RetrySubGraphEvent(uint32_t aServerId, const char* acpReason) noexcept;
 
     BSTEventResult OnEvent(const TESActivateEvent*, const EventDispatcher<TESActivateEvent>*) override;
 
@@ -69,11 +69,13 @@ private:
     entt::scoped_connection m_characterSpawnConnection;
 
     // The last subgraph event of each remote actor, by server id. A skin armor that isn't equipped or loaded yet
-    // when it arrives misses it, so it's played again a moment after the actor's gear or body changes.
+    // when it arrives can't take it, so it's tried again until the armor takes it. It's sent once per body: sending it
+    // again would restart what it plays, such as a skin fading in.
     struct SubGraphReplay
     {
         String EventName;
-        double Delay = -1.0;
+        double Delay = -1.0;   // Until the next try, negative when the event was taken or given up on.
+        double TimeLeft = 0.0; // Before giving up.
     };
     Map<uint32_t, SubGraphReplay> m_subGraphReplays;
 };
