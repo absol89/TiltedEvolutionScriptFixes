@@ -68,6 +68,12 @@ bool PluginService::IsInParty() const noexcept
     return m_inParty;
 }
 
+uint32_t PluginService::GetPartyLeaderId() const noexcept
+{
+    std::lock_guard cLock(m_lock);
+    return m_partyLeaderId;
+}
+
 SendResult PluginService::Queue(ChannelHandle aChannel, uint32_t aTargetPlayerId, const char* apBytes, size_t aLength) noexcept
 {
     if (aLength > kMaxMessageSize || (aLength != 0 && !apBytes))
@@ -138,6 +144,7 @@ void PluginService::Update() noexcept
     const uint32_t cLocalId = cOnline ? world.GetTransport().GetLocalPlayerId() : 0;
     const auto& party = world.GetPartyService();
     const bool cInParty = cOnline && party.IsInParty();
+    const uint32_t cLeaderId = cInParty ? party.GetLeaderPlayerId() : 0;
     Vector<uint32_t> members, nearby;
     if (cInParty)
         for (uint32_t id : party.GetPartyMembers())
@@ -162,6 +169,7 @@ void PluginService::Update() noexcept
         std::lock_guard cLock(m_lock);
         m_localPlayerId = cLocalId;
         m_inParty = cInParty;
+        m_partyLeaderId = cLeaderId;
         m_members = members;
         m_nearby = nearby;
         for (Channel& channel : m_channels)

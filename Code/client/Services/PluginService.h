@@ -26,6 +26,8 @@ struct PluginService final : SkyrimTogetherAPI::IVSkyrimTogether1
     SkyrimTogetherAPI::SendResult SendTo(SkyrimTogetherAPI::ChannelHandle aChannel, uint32_t aPlayerId, const char* apBytes, size_t aLength) noexcept override;
     uint32_t GetLocalPlayerId() const noexcept override;
     bool IsInParty() const noexcept override;
+    // Not part of the V1 vtable, exported as SkyrimTogetherGetPartyLeaderId. 0 while not in a party.
+    [[nodiscard]] uint32_t GetPartyLeaderId() const noexcept;
 
     /**
      * @brief Hands a relayed Mod Message to the plugin on its channel, if any. Runs during the World update.
@@ -55,4 +57,5 @@ private:
     Vector<uint32_t> m_nearby;
     uint32_t m_localPlayerId{0};
     bool m_inParty{false};
+    uint32_t m_partyLeaderId{0};
 };
