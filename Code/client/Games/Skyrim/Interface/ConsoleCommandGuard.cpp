@@ -21,6 +21,7 @@ constexpr std::string_view kAllowedCommands[]{
     "tfc", "ToggleFreeCamera",
     "tm",  "ToggleMenus",
     "coc", "CenterOnCell",
+    "fov", "SetCameraFOV", // Only changes the local camera (fDefaultFOV, fDefault1stPersonFOV, fDefaultWorldFOV).
 };
 
 bool EqualsIgnoreCase(std::string_view aLhs, std::string_view aRhs) noexcept
