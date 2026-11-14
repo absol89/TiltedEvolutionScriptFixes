@@ -38,6 +38,14 @@ option("skyrim_version")
     end)
 option_end()
 
+-- Stamps a fixed version into BuildInfo.h instead of `git describe`, so a local diagnostic build
+-- from a branch can still join a server running that release (the protocol has to match).
+option("build_version")
+    set_default("")
+    set_showmenu(true)
+    set_description("Version string to report instead of git describe, e.g. v1.8.7-10")
+option_end()
+
 if has_config("unitybuild") then
     add_rules("c.unity_build")
     add_rules("c++.unity_build", {batchsize = 12})
