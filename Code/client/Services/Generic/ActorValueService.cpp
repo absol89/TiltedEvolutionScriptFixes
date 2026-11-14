@@ -391,8 +391,9 @@ void ActorValueService::OnActorValueChanges(const NotifyActorValueChanges& acMes
 
     for (const auto& [key, value] : acMessage.Values)
     {
-        // Regen and heals aren't sent as deltas, so a remote player's health has to follow their own client's value.
-        if (key == ActorValueInfo::kHealth && pActor->GetExtension()->IsRemotePlayer())
+        // Regen and heals aren't sent as deltas, so a copy's health has to follow its owner's value. That also undoes
+        // any drift from hits that the owner never applied. A dead copy keeps its health, or it gets back up.
+        if (key == ActorValueInfo::kHealth && pActor->GetExtension()->IsRemote() && (pActor->GetExtension()->IsPlayer() || !pActor->IsDead()))
         {
             pActor->ForceActorValue(ActorValueOwner::ForceMode::DAMAGE, key, value);
             continue;
