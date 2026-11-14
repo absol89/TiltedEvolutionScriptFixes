@@ -20,6 +20,7 @@
 #include <Games/Misc/MenuTopicManager.h>
 #include <Events/HitEvent.h>
 #include <Events/PlayerHitEvent.h>
+#include <Systems/DamageDiagnostics.h>
 #include <Forms/TESObjectWEAP.h>
 #include <Events/RemoveSpellEvent.h>
 
@@ -1027,11 +1028,14 @@ bool TP_MAKE_THISCALL(HookDamageActor, Actor, float aDamage, Actor* apHitter, bo
     float currentHealth = apThis->GetActorValue(ActorValueInfo::kHealth);
     bool wouldKill = (currentHealth - realDamage) <= 0.f;
 
-    // Applies the hit here and sends the health change to the others.
-    const auto applyHere = [&]() -> bool
+    // Applies the hit here and sends the health change to the others, logged for the damage diagnostics.
+    const auto applyHere = [&](const char* acpPath) -> bool
     {
+        const uint64_t cHitId = DamageDiagnostics::OnLocalHit(apThis, apHitter, aDamage, realDamage, acpPath);
         World::Get().GetRunner().Trigger(HealthChangeEvent(apThis->formID, -realDamage));
-        return TiltedPhoques::ThisCall(RealDamageActor, apThis, aDamage, apHitter, aKillMove);
+        const bool cResult = TiltedPhoques::ThisCall(RealDamageActor, apThis, aDamage, apHitter, aKillMove);
+        DamageDiagnostics::OnDamageApplied(cHitId, apThis, currentHealth);
+        return cResult;
     };
 
     const auto* pExHittee = apThis->GetExtension();
@@ -1055,7 +1059,7 @@ bool TP_MAKE_THISCALL(HookDamageActor, Actor, float aDamage, Actor* apHitter, bo
                 return false;
         }
 
-        return applyHere();
+        return applyHere("hittee-local-player");
     }
     else if (pExHittee->IsRemotePlayer())
     {
@@ -1073,6 +1077,7 @@ bool TP_MAKE_THISCALL(HookDamageActor, Actor, float aDamage, Actor* apHitter, bo
             {
                 using namespace HitDataLayout;
                 const auto* pWeapon = At<TESObjectWEAP*>(pHitData, kWeapon);
+                DamageDiagnostics::OnPlayerHitSent(apThis, apHitter, At<float>(pHitData, kPhysicalDamage));
                 World::Get().GetRunner().Trigger(PlayerHitEvent{apThis->formID, apHitter->formID, pWeapon ? pWeapon->formID : 0,
                                                                 At<float>(pHitData, kPhysicalDamage), At<uint32_t>(pHitData, kFlags) & kSentFlags});
             }
@@ -1086,7 +1091,7 @@ bool TP_MAKE_THISCALL(HookDamageActor, Actor, float aDamage, Actor* apHitter, bo
         const auto* pExHitter = apHitter->GetExtension();
         if (pExHitter->IsLocalPlayer())
         {
-            return applyHere();
+            return applyHere("hitter-local-player");
         }
         if (pExHitter->IsRemotePlayer())
         {
@@ -1096,7 +1101,7 @@ bool TP_MAKE_THISCALL(HookDamageActor, Actor, float aDamage, Actor* apHitter, bo
 
     if (pExHittee->IsLocal())
     {
-        return applyHere();
+        return applyHere("hittee-local-npc");
     }
     else
     {
@@ -1132,7 +1137,8 @@ void Actor::ApplyHitFromOwner(Actor* apAttacker, TESObjectWEAP* apWeapon, float 
     TiltedPhoques::ThisCall(s_calcArmorAndBlock, hitData, false);
 
     // The game applies this one before armor, from the target's perks, so the attacker's copy couldn't.
-    float damage = At<float>(hitData, kTotalDamage);
+    const float cAfterArmor = At<float>(hitData, kTotalDamage);
+    float damage = cAfterArmor;
     if (apAttacker && apWeapon)
         s_applyPerkEntryPoint.Get()(kModIncomingDamage, this, apAttacker, apWeapon, &damage);
 
@@ -1140,8 +1146,11 @@ void Actor::ApplyHitFromOwner(Actor* apAttacker, TESObjectWEAP* apWeapon, float 
 
     // The game's own damage applies the difficulty multiplier and handles bleedout and death like for a local hit.
     // Calls the original so the hook doesn't treat it as a new hit, other clients get the health from the sync.
+    const float cHealthBefore = GetActorValue(ActorValueInfo::kHealth);
     if (damage > 0.f)
         TiltedPhoques::ThisCall(RealDamageActor, this, damage, apAttacker, false);
+
+    DamageDiagnostics::OnPlayerHitReceived(apAttacker, aPhysicalDamage, cAfterArmor, damage, cHealthBefore, GetActorValue(ActorValueInfo::kHealth));
 }
 
 TP_THIS_FUNCTION(TApplyActorEffect, void, ActiveEffect, Actor* apTarget, float aEffectValue, unsigned int unk1);

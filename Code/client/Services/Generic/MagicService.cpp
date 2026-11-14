@@ -30,6 +30,8 @@
 #include <PlayerCharacter.h>
 
 #include <Games/TES.h>
+#include <Forms/ActorValueInfo.h>
+#include <Systems/DamageDiagnostics.h>
 
 MagicService::MagicService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
     : m_world(aWorld)
@@ -447,11 +449,18 @@ void MagicService::OnNotifyAddTarget(const NotifyAddTarget& acMessage) noexcept
         pActor = PlayerCharacter::Get();
 
     // A hit on another player only lands on that player's own client, the copy's health comes from there.
-    if (data.IsAttackOnPlayer() && pActor->GetExtension()->IsRemotePlayer())
+    const bool cIsAttackOnPlayer = data.IsAttackOnPlayer();
+    if (cIsAttackOnPlayer && pActor->GetExtension()->IsRemotePlayer())
         return;
 
-    pActor->magicTarget.AddTarget(data, acMessage.ApplyHealPerkBonus, acMessage.ApplyStaminaPerkBonus);
+    const bool cIsAttackOnLocalPlayer = cIsAttackOnPlayer && pActor->GetExtension()->IsLocalPlayer();
+    const float cHealthBefore = pActor->GetActorValue(ActorValueInfo::kHealth);
+
+    const bool cResult = pActor->magicTarget.AddTarget(data, acMessage.ApplyHealPerkBonus, acMessage.ApplyStaminaPerkBonus);
     spdlog::debug("Applied remote magic effect");
+
+    if (cIsAttackOnLocalPlayer)
+        DamageDiagnostics::OnSpellHitReceived(pCaster, pSpell->GetName(), cEffectId, data.fMagnitude, cResult, cHealthBefore, pActor->GetActorValue(ActorValueInfo::kHealth));
 }
 
 void MagicService::OnRemoveSpellEvent(const RemoveSpellEvent& acEvent) noexcept

@@ -18,6 +18,8 @@
 #include <Effects/ActiveEffect.h>
 #include <Forms/SpellItem.h>
 
+#include <Systems/DamageDiagnostics.h>
+
 TP_THIS_FUNCTION(TAddTarget, bool, MagicTarget, MagicTarget::AddTargetData& arData);
 TP_THIS_FUNCTION(TCheckAddEffectTargetData, bool, MagicTarget::AddTargetData, void* arArgs, float afResistance);
 TP_THIS_FUNCTION(TFindTargets, bool, MagicCaster, float afEffectivenessMult, int32_t* aruiTargetCount,
@@ -226,6 +228,7 @@ bool TP_MAKE_THISCALL(HookAddTarget, MagicTarget, MagicTarget::AddTargetData& ar
         if (IsCloakHit(arData) && arData.pCaster->GetExtension()->IsLocalPlayer() && World::Get().GetServerSettings().PvpEnabled)
         {
             addTargetEvent.IsPvpForwarded = true;
+            DamageDiagnostics::OnSpellHitSent(pTargetActor, arData.pCaster, arData.pSpell->GetName(), arData.pEffectItem->pEffectSetting->formID, arData.fMagnitude);
             World::Get().GetRunner().Trigger(addTargetEvent);
             return false;
         }
@@ -244,6 +247,7 @@ bool TP_MAKE_THISCALL(HookAddTarget, MagicTarget, MagicTarget::AddTargetData& ar
         if (arData.pCaster->GetExtension()->IsLocalPlayer() && IsSelfCastAreaAttack(arData) && !IsChanneledParalysis(arData))
         {
             addTargetEvent.IsPvpForwarded = true;
+            DamageDiagnostics::OnSpellHitSent(pTargetActor, arData.pCaster, arData.pSpell->GetName(), arData.pEffectItem->pEffectSetting->formID, arData.fMagnitude);
             World::Get().GetRunner().Trigger(addTargetEvent);
 
             // A script (the lightning from Unbounded Storms, for example) only has to run on the victim's client.
@@ -256,6 +260,7 @@ bool TP_MAKE_THISCALL(HookAddTarget, MagicTarget, MagicTarget::AddTargetData& ar
         // This client's player or one of its NPCs hit another player, see IsAttackOnPlayer().
         if (arData.pCaster->GetExtension()->IsLocal() && arData.IsAttackOnPlayer())
         {
+            DamageDiagnostics::OnSpellHitSent(pTargetActor, arData.pCaster, arData.pSpell->GetName(), arData.pEffectItem->pEffectSetting->formID, arData.fMagnitude);
             World::Get().GetRunner().Trigger(addTargetEvent);
             return false;
         }

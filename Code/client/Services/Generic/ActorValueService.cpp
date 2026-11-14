@@ -25,6 +25,8 @@
 #include <Messages/RequestPlayerHit.h>
 #include <Messages/NotifyPlayerHit.h>
 
+#include <Systems/DamageDiagnostics.h>
+
 #include <misc/ActorValueOwner.h>
 
 ActorValueService::ActorValueService(World& aWorld, entt::dispatcher& aDispatcher, TransportService& aTransport) noexcept
@@ -345,6 +347,8 @@ void ActorValueService::OnHealthChangeBroadcast(const NotifyHealthChangeBroadcas
         spdlog::error("{}: could not find actor server id {:X}", __FUNCTION__, acMessage.Id);
         return;
     }
+
+    DamageDiagnostics::OnHealthBroadcastReceived(acMessage.Id, acMessage.DeltaHealth);
 
     // A player's health is owned by their own client, hits on it arrive as NotifyPlayerHit. Copies of other players
     // take their owner's health from the actor value sync.
