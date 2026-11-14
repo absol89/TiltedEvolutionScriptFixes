@@ -88,6 +88,12 @@ bool MagicItem::IsBuffSpell() const noexcept
     }
 }
 
+bool MagicItem::IsPoison() const noexcept
+{
+    // AlchemyItem's spell type is always POTION, whether it's a poison or not.
+    return formType == FormType::Alchemy && iHostileCount > 0;
+}
+
 bool MagicItem::IsBoundWeaponSpell() noexcept
 {
     for (EffectItem* pEffect : listOfEffects)

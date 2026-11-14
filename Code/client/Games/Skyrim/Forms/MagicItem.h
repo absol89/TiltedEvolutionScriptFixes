@@ -13,6 +13,7 @@ struct MagicItem : TESBoundObject
     bool IsInvisibilitySpell() const noexcept;
     bool IsHealingSpell() const noexcept;
     bool IsBuffSpell() const noexcept;
+    bool IsPoison() const noexcept;
     bool IsBoundWeaponSpell() noexcept;
     bool HasSummonEffect() const noexcept;
 
