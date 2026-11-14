@@ -26,6 +26,10 @@ protected:
 
     void RunTargetUpdates(const float acDelta) const noexcept;
 
+    // Local summons attack a remote player that is fighting the local player, for as long as the fight lasts.
+    void SendSummonsAtEnemyPlayer(const HitEvent& acEvent) const noexcept;
+    void RunSummonTargetUpdates(const float acDelta) const noexcept;
+
 private:
     World& m_world;
     TransportService& m_transport;

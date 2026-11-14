@@ -15,6 +15,13 @@
 #include <Forms/TESObjectWEAP.h>
 #include <Forms/TESAmmo.h>
 #include <Games/ActorExtension.h>
+#include <Actor.h>
+
+namespace
+{
+// How long after the last hit between two players the local summons keep attacking the other player.
+constexpr float kSummonAggroSeconds = 30.f;
+}
 
 CombatService::CombatService(World& aWorld, TransportService& aTransport, entt::dispatcher& aDispatcher)
     : m_world(aWorld)
@@ -30,6 +37,7 @@ CombatService::CombatService(World& aWorld, TransportService& aTransport, entt::
 void CombatService::OnUpdate(const UpdateEvent& acEvent) const noexcept
 {
     RunTargetUpdates(static_cast<float>(acEvent.Delta));
+    RunSummonTargetUpdates(static_cast<float>(acEvent.Delta));
 }
 
 void CombatService::OnLocalComponentRemoved(entt::registry& aRegistry, entt::entity aEntity) const noexcept
@@ -162,6 +170,8 @@ void CombatService::OnNotifyProjectileLaunch(const NotifyProjectileLaunch& acMes
 
 void CombatService::OnHitEvent(const HitEvent& acEvent) const noexcept
 {
+    SendSummonsAtEnemyPlayer(acEvent);
+
 #if 0
     if (!m_transport.IsConnected())
         return;
@@ -197,6 +207,71 @@ void CombatService::OnHitEvent(const HitEvent& acEvent) const noexcept
 
     pHittee->SetCombatTargetEx(pHitter);
 #endif
+}
+
+void CombatService::SendSummonsAtEnemyPlayer(const HitEvent& acEvent) const noexcept
+{
+    if (!m_world.GetServerSettings().PvpEnabled)
+        return;
+
+    Actor* pHitter = Cast<Actor>(TESForm::GetById(acEvent.HitterId));
+    Actor* pHittee = Cast<Actor>(TESForm::GetById(acEvent.HitteeId));
+    if (!pHitter || !pHittee)
+        return;
+
+    Actor* pEnemy = nullptr;
+    if (pHitter->GetExtension()->IsRemotePlayer() && pHittee->GetExtension()->IsLocalPlayer())
+        pEnemy = pHitter;
+    else if (pHitter->GetExtension()->IsLocalPlayer() && pHittee->GetExtension()->IsRemotePlayer())
+        pEnemy = pHittee;
+
+    if (!pEnemy || pEnemy->IsDead())
+        return;
+
+    auto view = m_world.view<FormIdComponent, LocalComponent>();
+    for (const auto entity : view)
+    {
+        Actor* pSummon = Cast<Actor>(TESForm::GetById(view.get<FormIdComponent>(entity).Id));
+        if (!pSummon || !pSummon->IsPlayerSummon() || pSummon->IsDead())
+            continue;
+
+        const auto* pCombatComponent = m_world.try_get<CombatComponent>(entity);
+        const bool cIsAttackingEnemy = pCombatComponent && pCombatComponent->TargetFormId == pEnemy->formID && pSummon->IsInCombat();
+
+        m_world.emplace_or_replace<CombatComponent>(entity, pEnemy->formID).Timer = kSummonAggroSeconds;
+
+        // Commanded actors are only hostile to whoever is fighting their commander according to the target's own
+        // combat group, and a remote copy doesn't have one, so the target has to be forced.
+        if (!cIsAttackingEnemy)
+            pSummon->StartCombat(pEnemy);
+    }
+}
+
+void CombatService::RunSummonTargetUpdates(const float acDelta) const noexcept
+{
+    const bool cIsPvpEnabled = m_world.GetServerSettings().PvpEnabled;
+
+    Vector<entt::entity> toRemove{};
+
+    auto view = m_world.view<FormIdComponent, CombatComponent>();
+    for (const auto entity : view)
+    {
+        auto& combatComponent = view.get<CombatComponent>(entity);
+        combatComponent.Timer -= acDelta;
+
+        Actor* pEnemy = Cast<Actor>(TESForm::GetById(combatComponent.TargetFormId));
+        if (cIsPvpEnabled && combatComponent.Timer > 0.f && pEnemy && !pEnemy->IsDead())
+            continue;
+
+        // Combat also ends against anyone else here, but the summon picks actual enemies right back up.
+        if (Actor* pSummon = Cast<Actor>(TESForm::GetById(view.get<FormIdComponent>(entity).Id)))
+            pSummon->StopCombat();
+
+        toRemove.push_back(entity);
+    }
+
+    for (const auto entity : toRemove)
+        m_world.remove<CombatComponent>(entity);
 }
 
 void CombatService::RunTargetUpdates(const float acDelta) const noexcept

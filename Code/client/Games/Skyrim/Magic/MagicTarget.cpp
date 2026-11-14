@@ -147,6 +147,10 @@ bool TP_MAKE_THISCALL(HookAddTarget, MagicTarget, MagicTarget::AddTargetData& ar
         if (!arData.pCaster)
             return false;
 
+        // The spell doesn't land here, but it does make the two players enemies.
+        if (arData.pSpell->iHostileCount > 0 && arData.pCaster->GetExtension()->IsLocalPlayer())
+            World::Get().GetRunner().Trigger(HitEvent(arData.pCaster->formID, pTargetActor->formID));
+
         // The charge of a poison belongs to the attacker's weapon, so this client decides that it lands and tells the
         // victim's client. It isn't applied to the copy here, its health comes from the victim's client anyway.
         if (arData.pSpell->IsPoison() && World::Get().GetServerSettings().PvpEnabled && arData.pCaster->GetExtension()->IsLocalPlayer())
@@ -199,8 +203,16 @@ bool TP_MAKE_THISCALL(HookAddTarget, MagicTarget, MagicTarget::AddTargetData& ar
                 if (arData.pSpell->IsHealingSpell() || arData.pSpell->IsBuffSpell())
                     return false;
 
+                if (arData.pSpell->iHostileCount > 0)
+                    World::Get().GetRunner().Trigger(HitEvent(arData.pCaster->formID, pTargetActor->formID));
+
                 // Poisons are synced by the attacker. The copy's ExtraPoison and its charges can be out of date.
                 if (arData.pSpell->IsPoison())
+                    return false;
+            }
+            else if (pCasterExtension->IsRemote() && arData.pCaster->IsPlayerSummon() && arData.pSpell->iHostileCount > 0)
+            {
+                if (!World::Get().GetServerSettings().PvpEnabled)
                     return false;
             }
         }
