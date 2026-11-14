@@ -446,6 +446,10 @@ void MagicService::OnNotifyAddTarget(const NotifyAddTarget& acMessage) noexcept
     if (pEffect->IsSlowEffect())
         pActor = PlayerCharacter::Get();
 
+    // A hit on another player only lands on that player's own client, the copy's health comes from there.
+    if (data.IsAttackOnPlayer() && pActor->GetExtension()->IsRemotePlayer())
+        return;
+
     pActor->magicTarget.AddTarget(data, acMessage.ApplyHealPerkBonus, acMessage.ApplyStaminaPerkBonus);
     spdlog::debug("Applied remote magic effect");
 }
