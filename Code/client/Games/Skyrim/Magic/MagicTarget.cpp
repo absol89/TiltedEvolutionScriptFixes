@@ -155,6 +155,17 @@ bool TP_MAKE_THISCALL(HookAddTarget, MagicTarget, MagicTarget::AddTargetData& ar
             return false;
         }
 
+        // Perk disarms (Disarming Bash etc.) come from the attacker's hit and its perks, which the victim's client
+        // doesn't run, so it gets told here. Shouts reach the victim's client through their own projectile.
+        if (arData.pEffectItem->IsDisarmEffect() && arData.pCaster->GetExtension()->IsLocalPlayer() && World::Get().GetServerSettings().PvpEnabled)
+        {
+            const SpellItem* pSpellItem = Cast<SpellItem>(arData.pSpell);
+            if (pSpellItem && pSpellItem->eDelivery == MagicSystem::Delivery::TOUCH)
+                World::Get().GetRunner().Trigger(addTargetEvent);
+
+            return false;
+        }
+
         if (!arData.pSpell->IsHealingSpell() && !arData.pSpell->IsBuffSpell())
             return false;
 
@@ -235,7 +246,13 @@ bool TP_MAKE_THISCALL(HookAddTarget, MagicTarget, MagicTarget::AddTargetData& ar
 bool TP_MAKE_THISCALL(HookCheckAddEffectTargetData, MagicTarget::AddTargetData, void* arArgs, float afResistance)
 {
     if (s_autoSucceedEffectCheck)
-        return true;
+    {
+        // The victim's client decides on a disarm: the effect checks what the victim's weapon and attack are
+        // doing, which the attacker's copy of them doesn't reliably know.
+        Actor* pTargetActor = (*static_cast<MagicTarget**>(arArgs))->GetTargetAsActor();
+        if (!apThis->pEffectItem->IsDisarmEffect() || !pTargetActor || !pTargetActor->IsPvpDisarmedBy(apThis->pCaster))
+            return true;
+    }
 
     return TiltedPhoques::ThisCall(RealCheckAddEffectTargetData, apThis, arArgs, afResistance);
 }

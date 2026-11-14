@@ -129,6 +129,10 @@ TP_THIS_FUNCTION(TCharacterDestructor, Actor*, Actor);
 TP_THIS_FUNCTION(TAddInventoryItem, void, Actor, TESBoundObject* apItem, ExtraDataList* apExtraData, int32_t aCount, TESObjectREFR* apOldOwner);
 TP_THIS_FUNCTION(TPickUpObject, void*, Actor, TESObjectREFR* apObject, int32_t aCount, bool aUnk1, float aUnk2);
 TP_THIS_FUNCTION(TDropObject, void*, Actor, void* apResult, TESBoundObject* apObject, ExtraDataList* apExtraData, int32_t aCount, NiPoint3* apLocation, NiPoint3* apRotation);
+TP_THIS_FUNCTION(TGetDisarmableWeapon, void*, Actor);
+TP_THIS_FUNCTION(TDisarm, bool, Actor, Actor* apCaster);
+TP_THIS_FUNCTION(TDisarmEffectStart, void, ActiveEffect);
+using TDisarmEffectCheck = bool(void** apArgs);
 TP_THIS_FUNCTION(TSetPosition, char, Actor, NiPoint3& acPosition);
 TP_THIS_FUNCTION(TActorProcess, char, Actor, float aValue);
 
@@ -143,6 +147,10 @@ static TRemoveSpell* RealRemoveSpell = nullptr;
 static TAddInventoryItem* RealAddInventoryItem = nullptr;
 static TPickUpObject* RealPickUpObject = nullptr;
 static TDropObject* RealDropObject = nullptr;
+static TGetDisarmableWeapon* RealGetDisarmableWeapon = nullptr;
+static TDisarm* RealDisarm = nullptr;
+static TDisarmEffectStart* RealDisarmEffectStart = nullptr;
+static TDisarmEffectCheck* RealDisarmEffectCheck = nullptr;
 static TSetPosition* RealSetPosition = nullptr;
 static TActorProcess* RealActorProcess = nullptr;
 
@@ -545,6 +553,12 @@ bool Actor::IsPlayerSummon() const noexcept
 {
     const Actor* pCommandingActor = GetCommandingActor();
     return pCommandingActor && pCommandingActor->formID == 0x14;
+}
+
+bool Actor::IsPvpDisarmedBy(Actor* apCaster) noexcept
+{
+    return apCaster && GetExtension()->IsLocalPlayer() && apCaster->GetExtension()->IsRemotePlayer()
+        && World::Get().GetServerSettings().PvpEnabled;
 }
 
 TESForm* Actor::GetCurrentLocation()
@@ -1107,6 +1121,52 @@ void Actor::PickUpObject(TESObjectREFR* apObject, int32_t aCount, bool aUnk1, fl
     TiltedPhoques::ThisCall(RealPickUpObject, this, apObject, aCount, aUnk1, aUnk2);
 }
 
+// The engine refuses to disarm essential actors, and every player is essential because of
+// SetPlayerRespawnMode. That has to be lifted while the engine looks for the victim's weapon, in the
+// three places that do so: the effect's add check, its start and the task that does the actual drop.
+static thread_local bool s_allowEssentialDisarm = false;
+static thread_local bool s_isPvpDisarming = false;
+
+void* TP_MAKE_THISCALL(HookGetDisarmableWeapon, Actor)
+{
+    if (!s_allowEssentialDisarm || !apThis->IsEssential())
+        return TiltedPhoques::ThisCall(RealGetDisarmableWeapon, apThis);
+
+    apThis->SetEssential(false);
+    void* pResult = TiltedPhoques::ThisCall(RealGetDisarmableWeapon, apThis);
+    apThis->SetEssential(true);
+    return pResult;
+}
+
+bool HookDisarmEffectCheck(void** apArgs)
+{
+    auto* pTarget = static_cast<MagicTarget*>(apArgs[0]);
+    Actor* pTargetActor = pTarget ? pTarget->GetTargetAsActor() : nullptr;
+
+    s_allowEssentialDisarm = pTargetActor && pTargetActor->IsPvpDisarmedBy(static_cast<Actor*>(apArgs[1]));
+    const bool cResult = RealDisarmEffectCheck(apArgs);
+    s_allowEssentialDisarm = false;
+    return cResult;
+}
+
+void TP_MAKE_THISCALL(HookDisarmEffectStart, ActiveEffect)
+{
+    Actor* pTargetActor = apThis->pTarget ? apThis->pTarget->GetTargetAsActor() : nullptr;
+    Actor* pCaster = Cast<Actor>(TESObjectREFR::GetByHandle(apThis->hCaster));
+
+    s_allowEssentialDisarm = pTargetActor && pTargetActor->IsPvpDisarmedBy(pCaster);
+    TiltedPhoques::ThisCall(RealDisarmEffectStart, apThis);
+    s_allowEssentialDisarm = false;
+}
+
+bool TP_MAKE_THISCALL(HookDisarm, Actor, Actor* apCaster)
+{
+    s_allowEssentialDisarm = s_isPvpDisarming = apThis->IsPvpDisarmedBy(apCaster);
+    const bool cResult = TiltedPhoques::ThisCall(RealDisarm, apThis, apCaster);
+    s_allowEssentialDisarm = s_isPvpDisarming = false;
+    return cResult;
+}
+
 void* TP_MAKE_THISCALL(HookDropObject, Actor, void* apResult, TESBoundObject* apObject, ExtraDataList* apExtraData, int32_t aCount, NiPoint3* apLocation, NiPoint3* apRotation)
 {
     auto& modSystem = World::Get().GetModSystem();
@@ -1118,7 +1178,9 @@ void* TP_MAKE_THISCALL(HookDropObject, Actor, void* apResult, TESBoundObject* ap
     if (apExtraData)
         apThis->GetItemFromExtraData(item, apExtraData);
 
-    QueueActorInventoryChange(apThis, InventoryChangeEvent(apThis->formID, std::move(item), true));
+    // A disarmed weapon only exists on the victim's client, so only they can pick it back up. If the
+    // other clients dropped their own copy too, whoever picked that up would duplicate the weapon.
+    QueueActorInventoryChange(apThis, InventoryChangeEvent(apThis->formID, std::move(item), !s_isPvpDisarming));
 
     ScopedInventoryOverride _;
 
@@ -1303,6 +1365,10 @@ static TiltedPhoques::Initializer s_actorHooks(
         POINTER_SKYRIMSE(TAddInventoryItem, s_addInventoryItem, 37525);
         POINTER_SKYRIMSE(TPickUpObject, s_pickUpObject, 37521);
         POINTER_SKYRIMSE(TDropObject, s_dropObject, 40454);
+        POINTER_SKYRIMSE(TGetDisarmableWeapon, s_getDisarmableWeapon, 37523);
+        POINTER_SKYRIMSE(TDisarm, s_disarm, 37524);
+        POINTER_SKYRIMSE(TDisarmEffectStart, s_disarmEffectStart, 34286);
+        POINTER_SKYRIMSE(TDisarmEffectCheck, s_disarmEffectCheck, 34289);
         POINTER_SKYRIMSE(TUpdateDetectionState, s_updateDetectionState, 42704);
         POINTER_SKYRIMSE(TProcessResponse, s_processResponse, 39643);
         POINTER_SKYRIMSE(TInitiateMountPackage, s_initiateMountPackage, 37905);
@@ -1325,6 +1391,10 @@ static TiltedPhoques::Initializer s_actorHooks(
         RealAddInventoryItem = s_addInventoryItem.Get();
         RealPickUpObject = s_pickUpObject.Get();
         RealDropObject = s_dropObject.Get();
+        RealGetDisarmableWeapon = s_getDisarmableWeapon.Get();
+        RealDisarm = s_disarm.Get();
+        RealDisarmEffectStart = s_disarmEffectStart.Get();
+        RealDisarmEffectCheck = s_disarmEffectCheck.Get();
         RealUpdateDetectionState = s_updateDetectionState.Get();
         RealProcessResponse = s_processResponse.Get();
         RealInitiateMountPackage = s_initiateMountPackage.Get();
@@ -1346,6 +1416,10 @@ static TiltedPhoques::Initializer s_actorHooks(
         TP_HOOK(&RealAddInventoryItem, HookAddInventoryItem);
         TP_HOOK(&RealPickUpObject, HookPickUpObject);
         TP_HOOK(&RealDropObject, HookDropObject);
+        TP_HOOK(&RealGetDisarmableWeapon, HookGetDisarmableWeapon);
+        TP_HOOK(&RealDisarm, HookDisarm);
+        TP_HOOK(&RealDisarmEffectStart, HookDisarmEffectStart);
+        TP_HOOK(&RealDisarmEffectCheck, HookDisarmEffectCheck);
         TP_HOOK(&RealUpdateDetectionState, HookUpdateDetectionState);
         TP_HOOK(&RealProcessResponse, HookProcessResponse);
         TP_HOOK(&RealInitiateMountPackage, HookInitiateMountPackage);
