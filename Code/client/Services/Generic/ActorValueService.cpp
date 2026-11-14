@@ -8,6 +8,7 @@
 #include <Games/References.h>
 #include <Components.h>
 #include <Systems/OwnershipSystem.h>
+#include <Systems/DamageDiagnostics.h>
 
 #include <Events/UpdateEvent.h>
 #include <Events/ActorRemovedEvent.h>
@@ -203,6 +204,7 @@ void ActorValueService::OnHealthChange(const HealthChangeEvent& acEvent) noexcep
     requestHealthChange.DeltaHealth = acEvent.DeltaHealth;
 
     m_transport.Send(requestHealthChange);
+    DamageDiagnostics::OnHealthChangeSent(serverId, acEvent.HitteeId, acEvent.DeltaHealth, false);
 
     spdlog::debug("Sent out delta health through collection: {:X}:{:f}", serverId, acEvent.DeltaHealth);
 }
@@ -227,6 +229,8 @@ void ActorValueService::RunSmallHealthUpdates() noexcept
             requestHealthChange.DeltaHealth = value.second;
 
             m_transport.Send(requestHealthChange);
+            if (Actor* pBatchedActor = Utils::GetByServerId<Actor>(value.first))
+                DamageDiagnostics::OnHealthChangeSent(value.first, pBatchedActor->formID, value.second, true);
 
             spdlog::debug("Sent out delta health through timer, {:X}:{:f}", value.first, value.second);
         }
@@ -301,7 +305,8 @@ void ActorValueService::OnHealthChangeBroadcast(const NotifyHealthChangeBroadcas
     if (!pActor->GetExtension()->IsPlayer() && pActor->GetExtension()->IsRemote() && pActor->IsDead())
         return;
 
-    const float newHealth = pActor->GetActorValue(ActorValueInfo::kHealth) + acMessage.DeltaHealth;
+    const float healthBefore = pActor->GetActorValue(ActorValueInfo::kHealth);
+    const float newHealth = healthBefore + acMessage.DeltaHealth;
     if (!pActor->GetExtension()->IsPlayer() && pActor->GetExtension()->IsRemote() && !pActor->IsDead() && newHealth <= 0.f)
     {
         const auto entity = Utils::FindEntityByServerId(acMessage.Id);
@@ -314,12 +319,14 @@ void ActorValueService::OnHealthChangeBroadcast(const NotifyHealthChangeBroadcas
             pActor->ForceActorValue(ActorValueOwner::ForceMode::DAMAGE, ActorValueInfo::kHealth, 1.f);
             if (!m_world.any_of<WaitingFor3D>(*entity))
                 RemoteDeathSystem::Apply(pActor, true);
+            DamageDiagnostics::OnHealthBroadcastReceived(acMessage.Id, pActor, acMessage.DeltaHealth, healthBefore, pActor->GetActorValue(ActorValueInfo::kHealth));
             return;
         }
     }
     pActor->ForceActorValue(ActorValueOwner::ForceMode::DAMAGE, ActorValueInfo::kHealth, newHealth);
 
     const float health = pActor->GetActorValue(ActorValueInfo::kHealth);
+    DamageDiagnostics::OnHealthBroadcastReceived(acMessage.Id, pActor, acMessage.DeltaHealth, healthBefore, health);
     if (!pActor->IsDead() && health <= 0.f)
     {
         ActorExtension* pExtension = pActor->GetExtension();
@@ -349,6 +356,10 @@ void ActorValueService::OnActorValueChanges(const NotifyActorValueChanges& acMes
 
     for (const auto& [key, value] : acMessage.Values)
     {
+        // Health stays delta-driven, the owner's value is only compared for the damage diagnostics.
+        if (key == ActorValueInfo::kHealth)
+            DamageDiagnostics::OnHealthSnapshot(acMessage.Id, pActor, value);
+
         // Syncing dragon souls triggers "Dragon soul collected" event
         if (key == ActorValueInfo::kDragonSouls || key == ActorValueInfo::kHealth)
             continue;

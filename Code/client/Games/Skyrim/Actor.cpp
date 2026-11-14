@@ -22,6 +22,7 @@
 #include <Events/DialogueEvent.h>
 #include <Games/Misc/MenuTopicManager.h>
 #include <Events/HitEvent.h>
+#include <Systems/DamageDiagnostics.h>
 #include <Events/RemoveSpellEvent.h>
 
 #include <Games/TES.h>
@@ -1078,6 +1079,22 @@ bool TP_MAKE_THISCALL(HookDamageActor, Actor, float aDamage, Actor* apHitter, bo
     float currentHealth = apThis->GetActorValue(ActorValueInfo::kHealth);
     bool wouldKill = (currentHealth - realDamage) <= 0.f;
 
+    // Applies the hit here and sends it to the others, with the damage diagnostics logging both.
+    const auto applyHere = [&](const char* acpPath) -> bool
+    {
+        const uint64_t cHitId = DamageDiagnostics::OnDamageHook(apThis, apHitter, aDamage, realDamage, aKillMove, acpPath, true);
+        World::Get().GetRunner().Trigger(HealthChangeEvent(apThis->formID, -realDamage));
+        const bool cResult = TiltedPhoques::ThisCall(RealDamageActor, apThis, aDamage, apHitter, aKillMove);
+        DamageDiagnostics::OnDamageApplied(cHitId, apThis, currentHealth);
+        return cResult;
+    };
+    // Leaves the hit to another client, the diagnostics still log what it would have done here.
+    const auto leaveToOwner = [&](const char* acpPath, bool aResult) -> bool
+    {
+        DamageDiagnostics::OnDamageHook(apThis, apHitter, aDamage, realDamage, aKillMove, acpPath, false);
+        return aResult;
+    };
+
     const auto* pExHittee = apThis->GetExtension();
     if (pExHittee->IsLocalPlayer())
     {
@@ -1085,15 +1102,14 @@ bool TP_MAKE_THISCALL(HookDamageActor, Actor, float aDamage, Actor* apHitter, bo
         {
             // A remote player's summon counts too, its copy swings at whatever the owner's client tells it to.
             if (apHitter && (apHitter->GetExtension()->IsRemotePlayer() || (apHitter->GetExtension()->IsRemote() && apHitter->IsPlayerSummon())))
-                return false;
+                return leaveToOwner("pvp-off-blocked", false);
         }
 
-        World::Get().GetRunner().Trigger(HealthChangeEvent(apThis->formID, -realDamage));
-        return TiltedPhoques::ThisCall(RealDamageActor, apThis, aDamage, apHitter, aKillMove);
+        return applyHere("hittee-local-player");
     }
     else if (pExHittee->IsRemotePlayer())
     {
-        return wouldKill;
+        return leaveToOwner("hittee-remote-player", wouldKill);
     }
 
     if (apHitter)
@@ -1101,23 +1117,21 @@ bool TP_MAKE_THISCALL(HookDamageActor, Actor, float aDamage, Actor* apHitter, bo
         const auto* pExHitter = apHitter->GetExtension();
         if (pExHitter->IsLocalPlayer())
         {
-            World::Get().GetRunner().Trigger(HealthChangeEvent(apThis->formID, -realDamage));
-            return TiltedPhoques::ThisCall(RealDamageActor, apThis, aDamage, apHitter, aKillMove);
+            return applyHere("hitter-local-player");
         }
         if (pExHitter->IsRemotePlayer())
         {
-            return wouldKill;
+            return leaveToOwner("hitter-remote-player", wouldKill);
         }
     }
 
     if (pExHittee->IsLocal())
     {
-        World::Get().GetRunner().Trigger(HealthChangeEvent(apThis->formID, -realDamage));
-        return TiltedPhoques::ThisCall(RealDamageActor, apThis, aDamage, apHitter, aKillMove);
+        return applyHere("hittee-local-npc");
     }
     else
     {
-        return wouldKill;
+        return leaveToOwner("hittee-remote-npc", wouldKill);
     }
 }
 
