@@ -87,7 +87,8 @@ void ActorValueService::OnHealthChangeBroadcast(const PacketEvent<RequestHealthC
     {
         auto& actorValuesComponent = actorValuesView.get<ActorValuesComponent>(*it);
         auto currentHealth = actorValuesComponent.CurrentActorValues.ActorValuesList[24];
-        actorValuesComponent.CurrentActorValues.ActorValuesList[24] = currentHealth - message.DeltaHealth;
+        // DeltaHealth is negative for damage. The stored health is what players who walk in later spawn the actor with.
+        actorValuesComponent.CurrentActorValues.ActorValuesList[24] = currentHealth + message.DeltaHealth;
     }
 
     NotifyHealthChangeBroadcast notify;
