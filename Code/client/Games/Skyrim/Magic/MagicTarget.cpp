@@ -13,6 +13,7 @@
 #include <Games/ActorExtension.h>
 #include <Games/Overrides.h>
 #include <PlayerCharacter.h>
+#include <RemotePerks.h>
 
 #include <Effects/ActiveEffect.h>
 #include <Forms/SpellItem.h>
@@ -49,7 +50,18 @@ bool MagicTarget::AddTarget(AddTargetData& arData, bool aApplyHealPerkBonus, boo
     s_applyHealPerkBonus = aApplyHealPerkBonus;
     s_applyStaminaPerkBonus = aApplyStaminaPerkBonus;
 
-    bool result = TiltedPhoques::ThisCall(RealAddTarget, this, arData);
+    bool result = false;
+    if (arData.pSpell->IsHealingSpell() || arData.pSpell->IsBuffSpell())
+    {
+        // The caster's perks are already part of what they send for these, see ApplyHealPerkBonus.
+        ScopedIgnoreRemotePerks ignoreRemotePerks;
+        result = TiltedPhoques::ThisCall(RealAddTarget, this, arData);
+    }
+    else
+    {
+        ScopedRemotePerks remotePerks;
+        result = TiltedPhoques::ThisCall(RealAddTarget, this, arData);
+    }
 
     s_autoSucceedEffectCheck = false;
     s_applyHealPerkBonus = false;
@@ -153,6 +165,7 @@ bool TP_MAKE_THISCALL(HookAddTarget, MagicTarget, MagicTarget::AddTargetData& ar
             }
         }
 
+        ScopedRemotePerks remotePerks;
         bool result = TiltedPhoques::ThisCall(RealAddTarget, apThis, arData);
         if (result && arData.ShouldSync())
             World::Get().GetRunner().Trigger(addTargetEvent);

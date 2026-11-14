@@ -1,5 +1,7 @@
 #pragma once
 
+#include <RemotePerks.h>
+
 struct World;
 struct TransportService;
 
@@ -15,6 +17,9 @@ struct PartyJoinedEvent;
 struct PartyLeftEvent;
 
 struct NotifyPlayerRespawn;
+struct NotifyPlayerPerks;
+struct NotifyPlayerJoined;
+struct NotifyPlayerLeft;
 
 /**
  * @brief Handles logic related to the local player.
@@ -38,6 +43,9 @@ protected:
     void OnPlayerLevelEvent(const PlayerLevelEvent& acEvent) const noexcept;
     void OnPartyJoinedEvent(const PartyJoinedEvent& acEvent) noexcept;
     void OnPartyLeftEvent(const PartyLeftEvent& acEvent) noexcept;
+    void OnNotifyPlayerPerks(const NotifyPlayerPerks& acMessage) noexcept;
+    void OnNotifyPlayerJoined(const NotifyPlayerJoined& acMessage) noexcept;
+    void OnNotifyPlayerLeft(const NotifyPlayerLeft& acMessage) noexcept;
 
 private:
     /**
@@ -51,6 +59,10 @@ private:
     void RunDifficultyUpdates() const noexcept;
     void RunLevelUpdates() const noexcept;
     void RunBeastFormDetection() const noexcept;
+    /**
+     * @brief Share the local player's perks when they change, and tie the remote players' perks to their copies.
+     */
+    void RunPerkUpdates() noexcept;
 
     void ToggleDeathSystem(bool aSet) noexcept;
 
@@ -74,6 +86,10 @@ private:
     uint32_t m_cachedSecondarySpellId = 0;
     uint32_t m_cachedPowerId = 0;
 
+    std::vector<std::pair<GameId, uint8_t>> m_sentPerks;
+    bool m_arePerksSent = false;
+    std::unordered_map<uint32_t, RemotePerks::PerkDataPtr> m_remotePerks;
+
     entt::scoped_connection m_updateConnection;
     entt::scoped_connection m_connectedConnection;
     entt::scoped_connection m_disconnectedConnection;
@@ -85,4 +101,7 @@ private:
     entt::scoped_connection m_playerLevelConnection;
     entt::scoped_connection m_partyJoinedConnection;
     entt::scoped_connection m_partyLeftConnection;
+    entt::scoped_connection m_notifyPlayerPerksConnection;
+    entt::scoped_connection m_playerJoinedConnection;
+    entt::scoped_connection m_playerLeftConnection;
 };

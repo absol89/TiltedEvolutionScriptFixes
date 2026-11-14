@@ -16,6 +16,8 @@
 #include <Messages/NotifyRespawn.h>
 #include <Messages/PlayerLevelRequest.h>
 #include <Messages/NotifyPlayerLevel.h>
+#include <Messages/PlayerPerksRequest.h>
+#include <Messages/NotifyPlayerPerks.h>
 #include <Messages/NotifyPlayerCellChanged.h>
 
 #include <Setting.h>
@@ -31,6 +33,7 @@ PlayerService::PlayerService(World& aWorld, entt::dispatcher& aDispatcher) noexc
     , m_exteriorCellEnterConnection(aDispatcher.sink<PacketEvent<EnterExteriorCellRequest>>().connect<&PlayerService::HandleExteriorCellEnter>(this))
     , m_playerRespawnConnection(aDispatcher.sink<PacketEvent<PlayerRespawnRequest>>().connect<&PlayerService::OnPlayerRespawnRequest>(this))
     , m_playerLevelConnection(aDispatcher.sink<PacketEvent<PlayerLevelRequest>>().connect<&PlayerService::OnPlayerLevelRequest>(this))
+    , m_playerPerksConnection(aDispatcher.sink<PacketEvent<PlayerPerksRequest>>().connect<&PlayerService::OnPlayerPerksRequest>(this))
 {
 }
 
@@ -212,6 +215,15 @@ void PlayerService::OnPlayerLevelRequest(const PacketEvent<PlayerLevelRequest>& 
     NotifyPlayerLevel notify{};
     notify.PlayerId = acMessage.pPlayer->GetId();
     notify.NewLevel = acMessage.Packet.NewLevel;
+
+    GameServer::Get()->SendToPlayers(notify, acMessage.pPlayer);
+}
+
+void PlayerService::OnPlayerPerksRequest(const PacketEvent<PlayerPerksRequest>& acMessage) const noexcept
+{
+    NotifyPlayerPerks notify{};
+    notify.PlayerId = acMessage.pPlayer->GetId();
+    notify.Perks = acMessage.Packet.Perks;
 
     GameServer::Get()->SendToPlayers(notify, acMessage.pPlayer);
 }
