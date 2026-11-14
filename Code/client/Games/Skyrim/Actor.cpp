@@ -1028,17 +1028,23 @@ bool TP_MAKE_THISCALL(HookDamageActor, Actor, float aDamage, Actor* apHitter, bo
     float currentHealth = apThis->GetActorValue(ActorValueInfo::kHealth);
     bool wouldKill = (currentHealth - realDamage) <= 0.f;
 
+    const auto* pExHittee = apThis->GetExtension();
+
     // Applies the hit here and sends the health change to the others, logged for the damage diagnostics.
     const auto applyHere = [&](const char* acpPath) -> bool
     {
         const uint64_t cHitId = DamageDiagnostics::OnLocalHit(apThis, apHitter, aDamage, realDamage, acpPath);
         World::Get().GetRunner().Trigger(HealthChangeEvent(apThis->formID, -realDamage));
-        const bool cResult = TiltedPhoques::ThisCall(RealDamageActor, apThis, aDamage, apHitter, aKillMove);
+        // Only the owner of an NPC decides that it dies, from the health change sent above, and then sends its death.
+        // A copy that died here on its own would stay dead while the owner's NPC, healed in the meantime, fights on.
+        float damage = aDamage;
+        if (wouldKill && !aKillMove && pExHittee->IsRemote() && !pExHittee->IsPlayer() && realDamage > 0.f)
+            damage *= std::max(currentHealth - 1.f, 0.f) / realDamage;
+        const bool cResult = TiltedPhoques::ThisCall(RealDamageActor, apThis, damage, apHitter, aKillMove);
         DamageDiagnostics::OnDamageApplied(cHitId, apThis, currentHealth);
         return cResult;
     };
 
-    const auto* pExHittee = apThis->GetExtension();
     if (pExHittee->IsLocalPlayer())
     {
         if (apHitter && apHitter->GetExtension()->IsRemote())
