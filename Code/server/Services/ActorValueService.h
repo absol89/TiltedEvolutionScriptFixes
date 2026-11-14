@@ -9,6 +9,7 @@ struct RequestActorValueChanges;
 struct RequestActorMaxValueChanges;
 struct RequestHealthChangeBroadcast;
 struct RequestDeathStateChange;
+struct RequestPlayerHit;
 
 /**
  * @brief Broadcasts changes in (max) actor values and updates them server side.
@@ -27,9 +28,11 @@ private:
     void OnActorMaxValueChanges(const PacketEvent<RequestActorMaxValueChanges>& acMessage) const noexcept;
     void OnHealthChangeBroadcast(const PacketEvent<RequestHealthChangeBroadcast>& acMessage) const noexcept;
     void OnDeathStateChange(const PacketEvent<RequestDeathStateChange>& acMessage) const noexcept;
+    void OnPlayerHit(const PacketEvent<RequestPlayerHit>& acMessage) const noexcept;
 
     entt::scoped_connection m_updateHealthConnection;
     entt::scoped_connection m_updateMaxValueConnection;
     entt::scoped_connection m_updateDeltaHealthConnection;
     entt::scoped_connection m_deathStateConnection;
+    entt::scoped_connection m_playerHitConnection;
 };

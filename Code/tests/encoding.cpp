@@ -104,6 +104,51 @@ TEST_CASE("Encoding factory", "[encoding.factory]")
         REQUIRE(pNotify->PlayerId == notify.PlayerId);
         REQUIRE(pNotify->Perks == notify.Perks);
     }
+
+    {
+        RequestPlayerHit request;
+        request.HitteeId = 0x1234;
+        request.AttackerId = 0x5678;
+        request.WeaponId = GameId(1, 0x12eb7);
+        request.Damage = 42.5f;
+        request.Flags = 1 << 16;
+
+        Buffer::Writer writer(&buff);
+        request.Serialize(writer);
+
+        Buffer::Reader reader(&buff);
+
+        const ClientMessageFactory factory;
+        auto pMessage = factory.Extract(reader);
+
+        REQUIRE(pMessage);
+        REQUIRE(pMessage->GetOpcode() == request.GetOpcode());
+
+        auto pRequest = CastUnique<RequestPlayerHit>(std::move(pMessage));
+        REQUIRE(*pRequest == request);
+    }
+
+    {
+        NotifyPlayerHit notify;
+        notify.HitteeId = 0x1234;
+        notify.AttackerId = 0;
+        notify.Damage = 7.25f;
+        notify.Flags = (1 << 14) | (1 << 17);
+
+        Buffer::Writer writer(&buff);
+        notify.Serialize(writer);
+
+        Buffer::Reader reader(&buff);
+
+        const ServerMessageFactory factory;
+        auto pMessage = factory.Extract(reader);
+
+        REQUIRE(pMessage);
+        REQUIRE(pMessage->GetOpcode() == notify.GetOpcode());
+
+        auto pNotify = CastUnique<NotifyPlayerHit>(std::move(pMessage));
+        REQUIRE(*pNotify == notify);
+    }
 }
 
 TEST_CASE("Static structures", "[encoding.static]")

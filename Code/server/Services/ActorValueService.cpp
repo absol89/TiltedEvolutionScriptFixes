@@ -6,10 +6,13 @@
 #include <Services/ActorValueService.h>
 #include <World.h>
 #include <GameServer.h>
+#include "Game/Player.h"
 #include <Messages/NotifyActorValueChanges.h>
 #include <Messages/NotifyActorMaxValueChanges.h>
 #include <Messages/NotifyHealthChangeBroadcast.h>
 #include <Messages/NotifyDeathStateChange.h>
+#include <Messages/RequestPlayerHit.h>
+#include <Messages/NotifyPlayerHit.h>
 
 ActorValueService::ActorValueService(World& aWorld, entt::dispatcher& aDispatcher) noexcept
     : m_world(aWorld)
@@ -18,6 +21,7 @@ ActorValueService::ActorValueService(World& aWorld, entt::dispatcher& aDispatche
     m_updateMaxValueConnection = aDispatcher.sink<PacketEvent<RequestActorMaxValueChanges>>().connect<&ActorValueService::OnActorMaxValueChanges>(this);
     m_updateDeltaHealthConnection = aDispatcher.sink<PacketEvent<RequestHealthChangeBroadcast>>().connect<&ActorValueService::OnHealthChangeBroadcast>(this);
     m_deathStateConnection = aDispatcher.sink<PacketEvent<RequestDeathStateChange>>().connect<&ActorValueService::OnDeathStateChange>(this);
+    m_playerHitConnection = aDispatcher.sink<PacketEvent<RequestPlayerHit>>().connect<&ActorValueService::OnPlayerHit>(this);
 }
 
 void ActorValueService::OnActorValueChanges(const PacketEvent<RequestActorValueChanges>& acMessage) const noexcept
@@ -122,4 +126,28 @@ void ActorValueService::OnDeathStateChange(const PacketEvent<RequestDeathStateCh
     const entt::entity cEntity = static_cast<entt::entity>(message.Id);
     if (!GameServer::Get()->SendToPlayersInRange(notify, cEntity, acMessage.pPlayer))
         spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
+}
+
+void ActorValueService::OnPlayerHit(const PacketEvent<RequestPlayerHit>& acMessage) const noexcept
+{
+    auto& message = acMessage.Packet;
+
+    // Only the hit player's own client applies it, everyone else gets the new health from that client.
+    auto view = m_world.view<OwnerComponent>();
+    const auto it = view.find(static_cast<entt::entity>(message.HitteeId));
+    if (it == view.end())
+        return;
+
+    Player* pOwner = view.get<OwnerComponent>(*it).GetOwner();
+    if (!pOwner || pOwner == acMessage.pPlayer)
+        return;
+
+    NotifyPlayerHit notify;
+    notify.HitteeId = message.HitteeId;
+    notify.AttackerId = message.AttackerId;
+    notify.WeaponId = message.WeaponId;
+    notify.Damage = message.Damage;
+    notify.Flags = message.Flags;
+
+    pOwner->Send(notify);
 }
