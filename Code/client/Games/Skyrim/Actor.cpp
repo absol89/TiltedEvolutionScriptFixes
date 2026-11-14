@@ -19,6 +19,8 @@
 #include <Events/DialogueEvent.h>
 #include <Games/Misc/MenuTopicManager.h>
 #include <Events/HitEvent.h>
+#include <Events/PlayerHitEvent.h>
+#include <Forms/TESObjectWEAP.h>
 #include <Events/RemoveSpellEvent.h>
 
 #include <Games/TES.h>
@@ -960,6 +962,40 @@ bool TP_MAKE_THISCALL(HookSpawnActorInWorld, Actor)
 TP_THIS_FUNCTION(TDamageActor, bool, Actor, float aDamage, Actor* apHitter, bool aKillMove);
 static TDamageActor* RealDamageActor = nullptr;
 
+// The engine's HitData, only the parts the remote player hit path touches. Offsets are from SkyrimSE 1.6.1170
+// (ctor 43995, HitData::Populate 44001, armor and block step 44014, Actor::ProcessHitData 38586).
+namespace HitDataLayout
+{
+constexpr size_t kSize = 0x98;
+constexpr size_t kAggressorHandle = 0x18;
+constexpr size_t kTargetHandle = 0x1C;
+constexpr size_t kWeapon = 0x30; // TESObjectWEAP*
+constexpr size_t kTotalDamage = 0x50;
+constexpr size_t kPhysicalDamage = 0x54; // total damage before the target's armor and block
+constexpr size_t kFlags = 0x80;
+// Flags the armor and block step reads: bash, power attack, left hand.
+constexpr uint32_t kSentFlags = (1u << 14) | (1u << 16) | (1u << 17);
+
+template <class T> T& At(void* apHitData, size_t aOffset) noexcept
+{
+    return *reinterpret_cast<T*>(static_cast<uint8_t*>(apHitData) + aOffset);
+}
+} // namespace HitDataLayout
+
+TP_THIS_FUNCTION(TProcessHitData, void, Actor, void* apHitData);
+static TProcessHitData* RealProcessHitData = nullptr;
+
+// The HitData the game is applying on this thread, for HookDamageActor().
+static thread_local void* s_pProcessedHitData = nullptr;
+
+void TP_MAKE_THISCALL(HookProcessHitData, Actor, void* apHitData)
+{
+    void* const pPrevious = s_pProcessedHitData;
+    s_pProcessedHitData = apHitData;
+    TiltedPhoques::ThisCall(RealProcessHitData, apThis, apHitData);
+    s_pProcessedHitData = pPrevious;
+}
+
 // TODO: this is flawed, since it does not account for invulnerable actors
 bool TP_MAKE_THISCALL(HookDamageActor, Actor, float aDamage, Actor* apHitter, bool aKillMove)
 {
@@ -971,20 +1007,57 @@ bool TP_MAKE_THISCALL(HookDamageActor, Actor, float aDamage, Actor* apHitter, bo
     float currentHealth = apThis->GetActorValue(ActorValueInfo::kHealth);
     bool wouldKill = (currentHealth - realDamage) <= 0.f;
 
+    // Applies the hit here and sends the health change to the others.
+    const auto applyHere = [&]() -> bool
+    {
+        World::Get().GetRunner().Trigger(HealthChangeEvent(apThis->formID, -realDamage));
+        return TiltedPhoques::ThisCall(RealDamageActor, apThis, aDamage, apHitter, aKillMove);
+    };
+
     const auto* pExHittee = apThis->GetExtension();
     if (pExHittee->IsLocalPlayer())
     {
-        if (!World::Get().GetServerSettings().PvpEnabled)
+        if (apHitter && apHitter->GetExtension()->IsRemote())
         {
-            if (apHitter && apHitter->GetExtension()->IsRemotePlayer())
+            // A weapon hit from a remote player or an NPC owned by another client: its copy here only replays the
+            // swing and misses most of the time. The attacker's own client sees the real hit and sends it, it lands
+            // through Actor::ApplyHitFromOwner(). That client also applies the PvP setting.
+            if (s_pProcessedHitData)
+            {
+                // ProcessHitData calls this once per hit, anything it triggers after that isn't the weapon hit.
+                s_pProcessedHitData = nullptr;
+                return false;
+            }
+
+            // Spell damage (Blizzard, Ice Spike) comes through here from a spell effect, not a weapon hit. It has to
+            // land, except from a player without PvP.
+            if (!World::Get().GetServerSettings().PvpEnabled && (apHitter->GetExtension()->IsPlayer() || apHitter->IsPlayerSummon()))
                 return false;
         }
 
-        World::Get().GetRunner().Trigger(HealthChangeEvent(apThis->formID, -realDamage));
-        return TiltedPhoques::ThisCall(RealDamageActor, apThis, aDamage, apHitter, aKillMove);
+        return applyHere();
     }
     else if (pExHittee->IsRemotePlayer())
     {
+        // The local player or an NPC owned here landed a weapon hit on another player. Send the damage from before
+        // armor and block to that player's client, which applies its own armor, block, perks and difficulty, like
+        // a hit from an enemy, see Actor::ApplyHitFromOwner().
+        void* const pHitData = s_pProcessedHitData;
+        if (pHitData && apHitter && apHitter->GetExtension()->IsLocal())
+        {
+            // ProcessHitData calls this once per hit, don't send it again from anything it triggers.
+            s_pProcessedHitData = nullptr;
+
+            const bool cFromPlayer = apHitter->GetExtension()->IsPlayer() || apHitter->IsPlayerSummon();
+            if (World::Get().GetServerSettings().PvpEnabled || !cFromPlayer)
+            {
+                using namespace HitDataLayout;
+                const auto* pWeapon = At<TESObjectWEAP*>(pHitData, kWeapon);
+                World::Get().GetRunner().Trigger(PlayerHitEvent{apThis->formID, apHitter->formID, pWeapon ? pWeapon->formID : 0,
+                                                                At<float>(pHitData, kPhysicalDamage), At<uint32_t>(pHitData, kFlags) & kSentFlags});
+            }
+        }
+
         return wouldKill;
     }
 
@@ -993,8 +1066,7 @@ bool TP_MAKE_THISCALL(HookDamageActor, Actor, float aDamage, Actor* apHitter, bo
         const auto* pExHitter = apHitter->GetExtension();
         if (pExHitter->IsLocalPlayer())
         {
-            World::Get().GetRunner().Trigger(HealthChangeEvent(apThis->formID, -realDamage));
-            return TiltedPhoques::ThisCall(RealDamageActor, apThis, aDamage, apHitter, aKillMove);
+            return applyHere();
         }
         if (pExHitter->IsRemotePlayer())
         {
@@ -1004,13 +1076,52 @@ bool TP_MAKE_THISCALL(HookDamageActor, Actor, float aDamage, Actor* apHitter, bo
 
     if (pExHittee->IsLocal())
     {
-        World::Get().GetRunner().Trigger(HealthChangeEvent(apThis->formID, -realDamage));
-        return TiltedPhoques::ThisCall(RealDamageActor, apThis, aDamage, apHitter, aKillMove);
+        return applyHere();
     }
     else
     {
         return wouldKill;
     }
+}
+
+void Actor::ApplyHitFromOwner(Actor* apAttacker, TESObjectWEAP* apWeapon, float aPhysicalDamage, uint32_t aHitFlags) noexcept
+{
+    using namespace HitDataLayout;
+
+    TP_THIS_FUNCTION(THitDataCtor, void*, void);
+    TP_THIS_FUNCTION(THitDataDtor, void, void);
+    TP_THIS_FUNCTION(TCalcArmorAndBlock, void, void, bool aSkipBlock);
+    using TApplyPerkEntryPoint = void(uint32_t aEntry, Actor* apOwner, ...);
+
+    POINTER_SKYRIMSE(THitDataCtor, s_hitDataCtor, 43995);
+    POINTER_SKYRIMSE(THitDataDtor, s_hitDataDtor, 43997);
+    POINTER_SKYRIMSE(TCalcArmorAndBlock, s_calcArmorAndBlock, 44014);
+    POINTER_SKYRIMSE(TApplyPerkEntryPoint, s_applyPerkEntryPoint, 23526);
+    constexpr uint32_t kModIncomingDamage = 0x24;
+
+    // Rebuild the hit against this, the real player: the engine's armor and block step reads this actor's own armor
+    // rating, skills, block, perks and whatever mods change, which the attacker's copy of the player doesn't have.
+    alignas(16) uint8_t hitData[kSize]{};
+    TiltedPhoques::ThisCall(s_hitDataCtor, hitData);
+    At<uint32_t>(hitData, kAggressorHandle) = apAttacker ? apAttacker->GetHandle().handle.iBits : 0;
+    At<uint32_t>(hitData, kTargetHandle) = GetHandle().handle.iBits;
+    At<TESObjectWEAP*>(hitData, kWeapon) = apWeapon;
+    At<uint32_t>(hitData, kFlags) |= aHitFlags & kSentFlags;
+    At<float>(hitData, kTotalDamage) = aPhysicalDamage;
+
+    TiltedPhoques::ThisCall(s_calcArmorAndBlock, hitData, false);
+
+    // The game applies this one before armor, from the target's perks, so the attacker's copy couldn't.
+    float damage = At<float>(hitData, kTotalDamage);
+    if (apAttacker && apWeapon)
+        s_applyPerkEntryPoint.Get()(kModIncomingDamage, this, apAttacker, apWeapon, &damage);
+
+    TiltedPhoques::ThisCall(s_hitDataDtor, hitData);
+
+    // The game's own damage applies the difficulty multiplier and handles bleedout and death like for a local hit.
+    // Calls the original so the hook doesn't treat it as a new hit, other clients get the health from the sync.
+    if (damage > 0.f)
+        TiltedPhoques::ThisCall(RealDamageActor, this, damage, apAttacker, false);
 }
 
 TP_THIS_FUNCTION(TApplyActorEffect, void, ActiveEffect, Actor* apTarget, float aEffectValue, unsigned int unk1);
@@ -1298,6 +1409,7 @@ static TiltedPhoques::Initializer s_actorHooks(
         POINTER_SKYRIMSE(TForceState, s_ForceState, 37313);
         POINTER_SKYRIMSE(TSpawnActorInWorld, s_SpawnActorInWorld, 19742);
         POINTER_SKYRIMSE(TDamageActor, s_damageActor, 37335);
+        POINTER_SKYRIMSE(TProcessHitData, s_processHitData, 38586);
         POINTER_SKYRIMSE(TApplyActorEffect, s_applyActorEffect, 35086);
         POINTER_SKYRIMSE(TRegenAttributes, s_regenAttributes, 37448);
         POINTER_SKYRIMSE(TAddInventoryItem, s_addInventoryItem, 37525);
@@ -1320,6 +1432,7 @@ static TiltedPhoques::Initializer s_actorHooks(
         RealForceState = s_ForceState.Get();
         RealSpawnActorInWorld = s_SpawnActorInWorld.Get();
         RealDamageActor = s_damageActor.Get();
+        RealProcessHitData = s_processHitData.Get();
         RealApplyActorEffect = s_applyActorEffect.Get();
         RealRegenAttributes = s_regenAttributes.Get();
         RealAddInventoryItem = s_addInventoryItem.Get();
@@ -1341,6 +1454,7 @@ static TiltedPhoques::Initializer s_actorHooks(
         TP_HOOK(&RealForceState, HookForceState);
         TP_HOOK(&RealSpawnActorInWorld, HookSpawnActorInWorld);
         TP_HOOK(&RealDamageActor, HookDamageActor);
+        TP_HOOK(&RealProcessHitData, HookProcessHitData);
         TP_HOOK(&RealApplyActorEffect, HookApplyActorEffect);
         TP_HOOK(&RealRegenAttributes, HookRegenAttributes);
         TP_HOOK(&RealAddInventoryItem, HookAddInventoryItem);

@@ -16,6 +16,7 @@
 
 struct TESNPC;
 struct TESRace;
+struct TESObjectWEAP;
 struct ExActor;
 struct ExPlayerCharacter;
 struct ActorExtension;
@@ -240,6 +241,7 @@ struct Actor : TESObjectREFR
     void DispelAllSpells(bool aNow = false) noexcept;
     void Reset() noexcept;
     void Kill() noexcept;
+    void ApplyHitFromOwner(Actor* apAttacker, TESObjectWEAP* apWeapon, float aPhysicalDamage, uint32_t aHitFlags) noexcept;
     void Respawn() noexcept;
     void PickUpObject(TESObjectREFR* apObject, int32_t aCount, bool aUnk1, float aUnk2) noexcept;
     void DropObject(TESBoundObject* apObject, ExtraDataList* apExtraData, int32_t aCount, NiPoint3* apLocation, NiPoint3* apRotation) noexcept;
