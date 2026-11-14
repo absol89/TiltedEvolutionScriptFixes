@@ -153,6 +153,11 @@ bool MagicTarget::AddTargetData::IsAttackOnPlayer() const noexcept
     if (pSpellItem && pSpellItem->eCastingType == MagicSystem::CastingType::CONCENTRATION)
         return false;
 
+    // Script effects are mostly mods looking at who's around (a follower framework's scan, for example), several
+    // times a second. They stay with the replayed cast, like before.
+    if (pEffectItem->pEffectSetting->eArchetype == EffectArchetypes::ArchetypeID::kScript)
+        return false;
+
     return !IsCloakHit(*this);
 }
 
