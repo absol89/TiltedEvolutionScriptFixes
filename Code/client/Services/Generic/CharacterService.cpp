@@ -1894,7 +1894,9 @@ void CharacterService::RunRemoteUpdates() noexcept
             pActor = Cast<Actor>(pForm);
         }
 
-        InterpolationSystem::Update(pActor, interpolationComponent, cNow);
+        // A dead NPC's body is left to its ragdoll.
+        const bool cIsCorpse = pActor && !pActor->GetExtension()->IsPlayer() && pActor->IsDead();
+        InterpolationSystem::Update(pActor, interpolationComponent, cNow, cIsCorpse);
     }
 
     auto animatedView = m_world.view<RemoteComponent, RemoteAnimationComponent, InterpolationComponent, FormIdComponent>();

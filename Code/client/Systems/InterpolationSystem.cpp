@@ -20,9 +20,11 @@ constexpr float cMaxPositionCorrection = 256.f;
 // Time constant of the correction fading out, ~95% of it is gone after three times this
 constexpr double cPositionCorrectionTime = 50.0;
 constexpr size_t cMaxTimePoints = 64;
+// How far a dead body may lie from where its owner has it before it's put back there.
+constexpr float cCorpseMaxDrift = 300.f;
 } // namespace
 
-void InterpolationSystem::Update(Actor* apActor, InterpolationComponent& aInterpolationComponent, const double aNow) noexcept
+void InterpolationSystem::Update(Actor* apActor, InterpolationComponent& aInterpolationComponent, const double aNow, const bool aIsCorpse) noexcept
 {
     auto& clock = aInterpolationComponent.Clock;
     const double cDeltaTime = clock.Advance(aNow);
@@ -95,6 +97,17 @@ void InterpolationSystem::Update(Actor* apActor, InterpolationComponent& aInterp
     // Don't try to move a null actor
     if (!apActor)
         return;
+
+    // A dead body is left to its ragdoll: moved or turned every frame, it holds its last pose, kneeling or on its feet.
+    // Only a body that ends up far from where its owner has it is put back there.
+    if (aIsCorpse)
+    {
+        const NiPoint3& cAt = apActor->position;
+        const glm::vec3 cOffset{cAt.x - aInterpolationComponent.Position.x, cAt.y - aInterpolationComponent.Position.y, cAt.z - aInterpolationComponent.Position.z};
+        if (glm::length(cOffset) > cCorpseMaxDrift)
+            apActor->ForcePosition(aInterpolationComponent.Position);
+        return;
+    }
 
     apActor->ForcePosition(aInterpolationComponent.Position);
     apActor->LoadAnimationVariables(second.Variables);
