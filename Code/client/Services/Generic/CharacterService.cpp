@@ -2219,8 +2219,7 @@ void CharacterService::RunRemoteUpdates() noexcept
         // and give up after a few tries.
         constexpr uint8_t cMaxKillAttempts = 5;
         constexpr double cKillRetryMs = 1000.0;
-        if (remoteComponent.KillAttempts >= cMaxKillAttempts || cNow < remoteComponent.NextKillAttempt ||
-            !RemoteDeathSystem::CanKill(pActor))
+        if (remoteComponent.KillAttempts >= cMaxKillAttempts || cNow < remoteComponent.NextKillAttempt || !pActor->GetNiNode())
             continue;
 
         ++remoteComponent.KillAttempts;

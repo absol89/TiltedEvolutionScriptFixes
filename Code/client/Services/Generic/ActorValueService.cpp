@@ -368,15 +368,20 @@ void ActorValueService::OnHealthChangeBroadcast(const NotifyHealthChangeBroadcas
         if (entity && m_world.all_of<RemoteComponent>(*entity))
         {
             m_world.get<RemoteComponent>(*entity).IsDead = true;
+            // A body that isn't loaded yet dies once it is, see RunRemoteUpdates. Zero health now would leave it
+            // dead without its physical death, on its feet.
             if (auto* pWaiting = m_world.try_get<WaitingFor3D>(*entity))
+            {
                 pWaiting->SpawnRequest.IsDead = true;
-            // Do not let zero health commit death before the physical body is ready.
-            pActor->ForceActorValue(ActorValueOwner::ForceMode::DAMAGE, ActorValueInfo::kHealth, 1.f);
-            if (!m_world.any_of<WaitingFor3D>(*entity))
-                RemoteDeathSystem::Apply(pActor, true);
-            return;
+                pActor->ForceActorValue(ActorValueOwner::ForceMode::DAMAGE, ActorValueInfo::kHealth, 1.f);
+                return;
+            }
         }
     }
+
+    // A loaded copy dies right away from the killing blow, the same as on dev. Holding it alive at 1 health until
+    // the death state sync arrived let it replay the owner's dying animation as a living actor, so it knelt or stood
+    // instead of falling into its ragdoll.
     pActor->ForceActorValue(ActorValueOwner::ForceMode::DAMAGE, ActorValueInfo::kHealth, newHealth);
 
     const float health = pActor->GetActorValue(ActorValueInfo::kHealth);
@@ -413,6 +418,23 @@ void ActorValueService::OnActorValueChanges(const NotifyActorValueChanges& acMes
         // any drift from hits that the owner never applied. A dead copy keeps its health, or it gets back up.
         if (key == ActorValueInfo::kHealth && pActor->GetExtension()->IsRemote() && (pActor->GetExtension()->IsPlayer() || !pActor->IsDead()))
         {
+            // An NPC whose owner has it at zero health is dead there. Left alive at zero health, the copy kneels
+            // instead of falling, so it dies here too, the same as from a killing blow in OnHealthChangeBroadcast().
+            if (!pActor->GetExtension()->IsPlayer() && value <= 0.f)
+            {
+                if (auto* pRemote = m_world.try_get<RemoteComponent>(*entity))
+                    pRemote->IsDead = true;
+                if (auto* pWaiting = m_world.try_get<WaitingFor3D>(*entity))
+                {
+                    pWaiting->SpawnRequest.IsDead = true;
+                    continue;
+                }
+
+                pActor->ForceActorValue(ActorValueOwner::ForceMode::DAMAGE, key, value);
+                RemoteDeathSystem::Apply(pActor, true);
+                continue;
+            }
+
             pActor->ForceActorValue(ActorValueOwner::ForceMode::DAMAGE, key, value);
             continue;
         }
