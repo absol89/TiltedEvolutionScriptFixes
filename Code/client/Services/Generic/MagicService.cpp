@@ -2,6 +2,8 @@
 
 #include <World.h>
 
+#include <unordered_set>
+
 #include <Events/UpdateEvent.h>
 #include <Events/SpellCastEvent.h>
 #include <Events/InterruptCastEvent.h>
@@ -385,7 +387,10 @@ void MagicService::OnNotifyAddTarget(const NotifyAddTarget& acMessage) noexcept
     const uint32_t cSpellId = World::Get().GetModSystem().GetGameId(acMessage.SpellId);
     if (cSpellId == 0)
     {
-        spdlog::error("{}: failed to retrieve formID of server spell id, GameId base: {:X}, mod: {:X}, discarding", __FUNCTION__, acMessage.SpellId.BaseId, acMessage.SpellId.ModId);
+        // A spell from a mod this client doesn't have keeps coming, so say it once per spell.
+        static std::unordered_set<uint64_t> s_unknownSpells;
+        if (s_unknownSpells.insert((uint64_t(acMessage.SpellId.ModId) << 32) | acMessage.SpellId.BaseId).second)
+            spdlog::error("{}: failed to retrieve formID of server spell id, GameId base: {:X}, mod: {:X}, discarding (logged once)", __FUNCTION__, acMessage.SpellId.BaseId, acMessage.SpellId.ModId);
         return;
     }
 

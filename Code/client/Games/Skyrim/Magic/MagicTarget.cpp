@@ -246,7 +246,11 @@ bool TP_MAKE_THISCALL(HookAddTarget, MagicTarget, MagicTarget::AddTargetData& ar
             return false;
         }
 
-        if (arData.pCaster->GetExtension()->IsLocalPlayer() && IsSelfCastAreaAttack(arData) && !IsChanneledParalysis(arData))
+        // A script effect that isn't detrimental is a mod looking at who's around the player (a follower framework's
+        // delegate spell, a few times a second), not an attack. The other clients may not even have that mod.
+        const bool cIsHarmlessScript = arData.pEffectItem->pEffectSetting->eArchetype == EffectArchetypes::ArchetypeID::kScript &&
+                                       !arData.pEffectItem->pEffectSetting->IsDetrimental();
+        if (arData.pCaster->GetExtension()->IsLocalPlayer() && IsSelfCastAreaAttack(arData) && !IsChanneledParalysis(arData) && !cIsHarmlessScript)
         {
             addTargetEvent.IsPvpForwarded = true;
             World::Get().GetRunner().Trigger(addTargetEvent);
