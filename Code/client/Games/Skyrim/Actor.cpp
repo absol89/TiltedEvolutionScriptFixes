@@ -1247,8 +1247,10 @@ void Actor::SpeakSound(const char* pFile)
 
 char TP_MAKE_THISCALL(HookActorProcess, Actor, float aDeltaTime)
 {
-    // Suppress local movement for remote actors, but preserve controller timing.
-    if (apThis->GetExtension()->IsRemote())
+    // Suppress local movement for remote actors, but preserve controller timing. A dead NPC still needs its update,
+    // that's where the game takes it from its dying pose into its ragdoll. Without it, the body stays kneeling or on
+    // its feet.
+    if (apThis->GetExtension()->IsRemote() && (apThis->GetExtension()->IsPlayer() || !apThis->IsDead()))
     {
         if (apThis->currentProcess)
         {
