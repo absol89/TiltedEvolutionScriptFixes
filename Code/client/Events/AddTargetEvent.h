@@ -15,4 +15,6 @@ struct AddTargetEvent
     bool IsDualCasting{false};
     bool ApplyHealPerkBonus{false};
     bool ApplyStaminaPerkBonus{false};
+    // A hit on another player that the victim's client can't work out by itself, even for a concentration spell.
+    bool IsPvpForwarded{false};
 };

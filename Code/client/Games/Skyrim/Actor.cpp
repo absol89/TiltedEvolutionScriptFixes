@@ -129,6 +129,9 @@ TP_THIS_FUNCTION(TCharacterDestructor, Actor*, Actor);
 TP_THIS_FUNCTION(TAddInventoryItem, void, Actor, TESBoundObject* apItem, ExtraDataList* apExtraData, int32_t aCount, TESObjectREFR* apOldOwner);
 TP_THIS_FUNCTION(TPickUpObject, void*, Actor, TESObjectREFR* apObject, int32_t aCount, bool aUnk1, float aUnk2);
 TP_THIS_FUNCTION(TDropObject, void*, Actor, void* apResult, TESBoundObject* apObject, ExtraDataList* apExtraData, int32_t aCount, NiPoint3* apLocation, NiPoint3* apRotation);
+TP_THIS_FUNCTION(TIsHostileToActor, bool, Actor, Actor* apTarget);
+TP_THIS_FUNCTION(TCheckValidTarget, bool, Actor, TESObjectREFR* apTarget);
+using TApplyHazardToPlayer = uint64_t(void** apContext, void* apPlayerHandle);
 TP_THIS_FUNCTION(TSetPosition, char, Actor, NiPoint3& acPosition);
 TP_THIS_FUNCTION(TActorProcess, char, Actor, float aValue);
 
@@ -143,6 +146,9 @@ static TRemoveSpell* RealRemoveSpell = nullptr;
 static TAddInventoryItem* RealAddInventoryItem = nullptr;
 static TPickUpObject* RealPickUpObject = nullptr;
 static TDropObject* RealDropObject = nullptr;
+static TIsHostileToActor* RealIsHostileToActor = nullptr;
+static TCheckValidTarget* RealCheckValidTarget = nullptr;
+static TApplyHazardToPlayer* RealApplyHazardToPlayer = nullptr;
 static TSetPosition* RealSetPosition = nullptr;
 static TActorProcess* RealActorProcess = nullptr;
 
@@ -1107,6 +1113,39 @@ void Actor::PickUpObject(TESObjectREFR* apObject, int32_t aCount, bool aUnk1, fl
     TiltedPhoques::ThisCall(RealPickUpObject, this, apObject, aCount, aUnk1, aUnk2);
 }
 
+// A hazard (the fire on the ground from a wall spell, for example) only affects actors that are hostile to its owner,
+// which the local player never is to a remote player since both are in the player faction.
+static thread_local Actor* s_pRemoteHazardOwner = nullptr;
+
+bool TP_MAKE_THISCALL(HookIsHostileToActor, Actor, Actor* apTarget)
+{
+    if (s_pRemoteHazardOwner && s_pRemoteHazardOwner == apTarget && apThis->GetExtension()->IsLocalPlayer())
+        return true;
+
+    return TiltedPhoques::ThisCall(RealIsHostileToActor, apThis, apTarget);
+}
+
+uint64_t HookApplyHazardToPlayer(void** apContext, void* apPlayerHandle)
+{
+    auto* pOwner = static_cast<Actor*>(apContext[0]);
+    if (pOwner && pOwner->GetExtension()->IsRemotePlayer() && World::Get().GetServerSettings().PvpEnabled)
+        s_pRemoteHazardOwner = pOwner;
+
+    const uint64_t cResult = RealApplyHazardToPlayer(apContext, apPlayerHandle);
+    s_pRemoteHazardOwner = nullptr;
+    return cResult;
+}
+
+// An explosion ignores whoever its owner isn't fighting while the owner is in combat, and a remote player's
+// combat group doesn't have the local player in it.
+bool TP_MAKE_THISCALL(HookCheckValidTarget, Actor, TESObjectREFR* apTarget)
+{
+    if (apTarget == PlayerCharacter::Get() && apThis->GetExtension()->IsRemotePlayer() && World::Get().GetServerSettings().PvpEnabled)
+        return true;
+
+    return TiltedPhoques::ThisCall(RealCheckValidTarget, apThis, apTarget);
+}
+
 void* TP_MAKE_THISCALL(HookDropObject, Actor, void* apResult, TESBoundObject* apObject, ExtraDataList* apExtraData, int32_t aCount, NiPoint3* apLocation, NiPoint3* apRotation)
 {
     auto& modSystem = World::Get().GetModSystem();
@@ -1303,6 +1342,9 @@ static TiltedPhoques::Initializer s_actorHooks(
         POINTER_SKYRIMSE(TAddInventoryItem, s_addInventoryItem, 37525);
         POINTER_SKYRIMSE(TPickUpObject, s_pickUpObject, 37521);
         POINTER_SKYRIMSE(TDropObject, s_dropObject, 40454);
+        POINTER_SKYRIMSE(TIsHostileToActor, s_isHostileToActor, 37537);
+        POINTER_SKYRIMSE(TCheckValidTarget, s_checkValidTarget, 38560);
+        POINTER_SKYRIMSE(TApplyHazardToPlayer, s_applyHazardToPlayer, 43987);
         POINTER_SKYRIMSE(TUpdateDetectionState, s_updateDetectionState, 42704);
         POINTER_SKYRIMSE(TProcessResponse, s_processResponse, 39643);
         POINTER_SKYRIMSE(TInitiateMountPackage, s_initiateMountPackage, 37905);
@@ -1325,6 +1367,9 @@ static TiltedPhoques::Initializer s_actorHooks(
         RealAddInventoryItem = s_addInventoryItem.Get();
         RealPickUpObject = s_pickUpObject.Get();
         RealDropObject = s_dropObject.Get();
+        RealIsHostileToActor = s_isHostileToActor.Get();
+        RealCheckValidTarget = s_checkValidTarget.Get();
+        RealApplyHazardToPlayer = s_applyHazardToPlayer.Get();
         RealUpdateDetectionState = s_updateDetectionState.Get();
         RealProcessResponse = s_processResponse.Get();
         RealInitiateMountPackage = s_initiateMountPackage.Get();
@@ -1346,6 +1391,9 @@ static TiltedPhoques::Initializer s_actorHooks(
         TP_HOOK(&RealAddInventoryItem, HookAddInventoryItem);
         TP_HOOK(&RealPickUpObject, HookPickUpObject);
         TP_HOOK(&RealDropObject, HookDropObject);
+        TP_HOOK(&RealIsHostileToActor, HookIsHostileToActor);
+        TP_HOOK(&RealCheckValidTarget, HookCheckValidTarget);
+        TP_HOOK(&RealApplyHazardToPlayer, HookApplyHazardToPlayer);
         TP_HOOK(&RealUpdateDetectionState, HookUpdateDetectionState);
         TP_HOOK(&RealProcessResponse, HookProcessResponse);
         TP_HOOK(&RealInitiateMountPackage, HookInitiateMountPackage);
