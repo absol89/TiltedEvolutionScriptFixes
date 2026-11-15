@@ -314,9 +314,10 @@ void NameTagService::OnDraw() noexcept
 
         const auto lineIt = m_floatingLines.find(playerComponent.Id);
 
-        // Sneaking players show neither a tag nor floating chat. Their line is dropped rather than paused, so it
-        // doesn't pop back up when they stand.
-        if (IsInSneak(pActor))
+        // A sneaking stranger shows neither a tag nor floating chat, whatever the viewer's settings. Their line is
+        // dropped rather than paused, so it doesn't pop back up when they stand. Sneaking party members fade instead.
+        const bool isSneaking = IsInSneak(pActor);
+        if (isSneaking && !isPartyMember)
         {
             if (lineIt != m_floatingLines.end())
                 m_floatingLines.erase(lineIt);
@@ -369,6 +370,8 @@ void NameTagService::OnDraw() noexcept
             alpha = 1.f - SmoothStep(0.f, 1.f, fadeT);
         }
         alpha *= Clamp01(1.f - std::max(depth - 0.95f, 0.f) * 4.f);
+        if (isSneaking)
+            alpha *= kSneakPartyAlpha;
         if (alpha <= 0.01f)
             continue;
 
