@@ -21,7 +21,8 @@ struct ImguiService;
  * Plain name text (a crown marks the party leader), scaled with distance.
  * Which tags show, and how, is set by the "Player UI filters" settings in the
  * overlay (see SetSettings). A player's floating chat line replaces their tag
- * while it shows.
+ * while it shows. While a player sneaks, neither shows for strangers, and a
+ * party member's fades to kSneakPartyAlpha.
  */
 struct NameTagService
 {
@@ -84,6 +85,8 @@ struct NameTagService
     static constexpr float kLineWrapPx = 300.f;
     static constexpr int kLineMaxLines = 2;
     static constexpr float kVisibilityEpsilon = 1e-3f;
+    // Opacity of a sneaking party member's tag and floating chat, on top of the distance fade.
+    static constexpr float kSneakPartyAlpha = 0.5f;
 
 private:
     struct VisibilityInfo
