@@ -8,6 +8,15 @@
 
 struct EffectSetting : TESForm
 {
+    enum Flags : uint32_t
+    {
+        kHostile = 1 << 0,
+        kRecover = 1 << 1,
+        kDetrimental = 1 << 2,
+    };
+
+    [[nodiscard]] bool IsDetrimental() const noexcept { return (flags & kDetrimental) != 0; }
+
     TESFullName fullName;
     BGSMenuDisplayObject menuDisplayObject;
     BGSKeywordForm keywordForm;
