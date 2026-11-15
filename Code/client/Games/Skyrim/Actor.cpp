@@ -1013,12 +1013,7 @@ bool TP_MAKE_THISCALL(HookDamageActor, Actor, float aDamage, Actor* apHitter, bo
     const auto applyHere = [&]() -> bool
     {
         World::Get().GetRunner().Trigger(HealthChangeEvent(apThis->formID, -realDamage));
-        // Only the owner of an NPC decides that it dies, from the health change sent above, and then sends its death.
-        // A copy that died here on its own would stay dead while the owner's NPC, healed in the meantime, fights on.
-        float damage = aDamage;
-        if (wouldKill && !aKillMove && pExHittee->IsRemote() && !pExHittee->IsPlayer() && realDamage > 0.f)
-            damage *= std::max(currentHealth - 1.f, 0.f) / realDamage;
-        return TiltedPhoques::ThisCall(RealDamageActor, apThis, damage, apHitter, aKillMove);
+        return TiltedPhoques::ThisCall(RealDamageActor, apThis, aDamage, apHitter, aKillMove);
     };
 
     if (pExHittee->IsLocalPlayer())
