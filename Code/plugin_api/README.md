@@ -36,6 +36,23 @@ send means the target is not in the current nearby snapshot (the existing result
 The server independently checks every recipient: party equality, or matching interior/worldspace
 and loaded-grid range. Both client and server must run the new protocol build.
 
+## Party leader
+
+The party leader hosts the world: NPCs, scenes and quest progression run on the leader's client. Plugins
+that move NPCs or start scenes, or that need one authoritative client, can look up
+`SkyrimTogetherGetPartyLeaderId` using `GetPartyLeaderId_t` from the header:
+
+```cpp
+auto getLeader = reinterpret_cast<SkyrimTogetherAPI::GetPartyLeaderId_t>(
+    GetProcAddress(GetModuleHandleW(nullptr), SkyrimTogetherAPI::kGetPartyLeaderIdName));
+const uint32_t leader = getLeader ? getLeader() : 0;
+const bool isLeader = leader != 0 && leader == api->GetLocalPlayerId();
+```
+
+It returns 0 while not in a party, and is absent on older executables, so plugins need a fallback (for
+example: act alone when not in a party). It reads the same locked snapshot as the other getters, so a
+leadership change shows up after the next World update.
+
 ## Lifetime and resynchronization
 
 The registration callback reports audience joins/leaves. Nearby membership follows loaded remote player

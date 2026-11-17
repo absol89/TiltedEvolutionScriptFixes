@@ -17,3 +17,9 @@ extern "C" __declspec(dllexport) SkyrimTogetherAPI::ChannelHandle SkyrimTogether
 {
     return PluginService::Get().RegisterScopedChannel(apName, aScope, aOnMessage, aOnPeersChanged);
 }
+
+// Also outside the V1 vtable, for the same reason.
+extern "C" __declspec(dllexport) uint32_t SkyrimTogetherGetPartyLeaderId()
+{
+    return PluginService::Get().GetPartyLeaderId();
+}
