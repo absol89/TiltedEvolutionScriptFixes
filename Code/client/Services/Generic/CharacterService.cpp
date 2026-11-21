@@ -4,6 +4,7 @@
 #include <Services/PartyService.h>
 
 #include <Services/CharacterService.h>
+#include <Systems/SpawnDiagnostics.h>
 #include <Services/InventoryService.h>
 #include <Services/QuestService.h>
 #include <Services/TransportService.h>
@@ -372,6 +373,7 @@ void CharacterService::OnUpdate(const UpdateEvent& acUpdateEvent) noexcept
     ApplyCachedWeaponDraws(acUpdateEvent);
     ProcessLeveledConforms();
     RunStandingBodyRepairs();
+    SpawnDiagnostics::Update();
 }
 
 void CharacterService::OnConnected(const ConnectedEvent& acConnectedEvent) const noexcept
@@ -658,7 +660,9 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
                 return;
             }
 
+            const auto cBaseBefore = SpawnDiagnostics::SnapshotBase(pNpc);
             pNpc->Deserialize(acMessage.AppearanceBuffer, acMessage.ChangeFlags);
+            SpawnDiagnostics::OnBaseAppearanceLoaded(pNpc, cBaseBefore, acMessage.ServerId, acMessage.ChangeFlags);
         }
         else
         {
@@ -769,6 +773,7 @@ void CharacterService::OnCharacterSpawn(const CharacterSpawnRequest& acMessage) 
         ApplyLeveledNpcPick(pActor, acMessage.LeveledNpcPickId);
 
     m_world.emplace_or_replace<RemoteComponent>(*entity, acMessage.ServerId, pActor->formID, acMessage.OwnershipEpoch).IsDead = acMessage.IsDead;
+    SpawnDiagnostics::OnRemoteSpawned(pActor, acMessage.ServerId, acMessage.FormId == GameId{}, acMessage.IsPlayer);
 
     auto& interpolationComponent = InterpolationSystem::Setup(m_world, *entity);
     interpolationComponent.Position = acMessage.Position;
@@ -1773,7 +1778,9 @@ Actor* CharacterService::CreateCharacterForEntity(entt::entity aEntity) const no
                 return nullptr;
             }
 
+            const auto cBaseBefore = SpawnDiagnostics::SnapshotBase(pNpc);
             pNpc->Deserialize(acMessage.AppearanceBuffer, acMessage.ChangeFlags);
+            SpawnDiagnostics::OnBaseAppearanceLoaded(pNpc, cBaseBefore, m_world.get<RemoteComponent>(aEntity).Id, acMessage.ChangeFlags);
         }
         else
         {
@@ -1818,6 +1825,7 @@ Actor* CharacterService::CreateCharacterForEntity(entt::entity aEntity) const no
     }
 
     spdlog::info("Spawned character for entity, server id: {:X}", remoteComponent.Id);
+    SpawnDiagnostics::OnRemoteSpawned(pActor, remoteComponent.Id, acMessage.FormId == GameId{}, acMessage.IsPlayer);
 
     return pActor;
 }

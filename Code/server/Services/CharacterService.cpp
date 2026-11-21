@@ -638,6 +638,58 @@ void CharacterService::OnSubtitleRequest(const PacketEvent<SubtitleRequest>& acM
         spdlog::error("{}: SendToPlayersInRange failed", __FUNCTION__);
 }
 
+// [SpawnDiag] An NPC created at runtime (a random encounter, a Thalmor patrol on the road) gets a new entity from every
+// client that creates it, and every other client then spawns a copy of each one. Logs a new runtime NPC that matches
+// one already here, so duplicates reported in game can be found in the server log. Logging only.
+static void LogRuntimeNpcLookalikes(World& aWorld, const entt::entity acEntity, const Player* apOwner) noexcept
+{
+    constexpr float cLookDistance = 4096.f;
+
+    const auto& character = aWorld.get<CharacterComponent>(acEntity);
+    const auto& cell = aWorld.get<CellIdComponent>(acEntity);
+    const auto& movement = aWorld.get<MovementComponent>(acEntity);
+    const GameId cBase = character.BaseId.Id;
+    const GameId cPick = character.LeveledNpcPickId.Id;
+    const char* cpOwner = apOwner ? apOwner->GetUsername().c_str() : "?";
+
+    spdlog::info("[SpawnDiag] runtime NPC entity {:X} from '{}', base {:X}:{:X}, pick {:X}:{:X}, cell {:X}:{:X}, at ({:.0f}, {:.0f}, {:.0f})", World::ToInteger(acEntity),
+                 cpOwner, cBase.ModId, cBase.BaseId, cPick.ModId, cPick.BaseId, cell.Cell.ModId, cell.Cell.BaseId, movement.Position.x, movement.Position.y,
+                 movement.Position.z);
+
+    auto view = aWorld.view<CharacterComponent, CellIdComponent, MovementComponent, OwnerComponent>();
+    for (const auto entity : view)
+    {
+        if (entity == acEntity)
+            continue;
+
+        const auto& otherCharacter = view.get<CharacterComponent>(entity);
+        if (otherCharacter.IsPlayer())
+            continue;
+
+        const bool cSameBase = cBase != GameId{} && otherCharacter.BaseId.Id == cBase;
+        const bool cSamePick = cPick != GameId{} && otherCharacter.LeveledNpcPickId.Id == cPick;
+        if (!cSameBase && !cSamePick)
+            continue;
+
+        const auto& otherCell = view.get<CellIdComponent>(entity);
+        const bool cSamePlace = cell.IsInInteriorCell() ? otherCell.Cell == cell.Cell : otherCell.WorldSpaceId == cell.WorldSpaceId;
+        if (!cSamePlace)
+            continue;
+
+        const float cDistance = glm::distance(view.get<MovementComponent>(entity).Position, movement.Position);
+        if (cDistance > cLookDistance)
+            continue;
+
+        const Player* pOtherOwner = view.get<OwnerComponent>(entity).GetOwner();
+        const auto* pFormId = aWorld.try_get<FormIdComponent>(entity);
+        spdlog::warn("[SpawnDiag] {}runtime NPC entity {:X} from '{}' matches entity {:X} from '{}' ({}, {}{}), {:.0f} units apart",
+                     pOtherOwner != apOwner ? "FLAG " : "", World::ToInteger(acEntity), cpOwner, World::ToInteger(entity),
+                     pOtherOwner ? pOtherOwner->GetUsername().c_str() : "?",
+                     pFormId ? fmt::format("ref {:X}:{:X}", pFormId->Id.ModId, pFormId->Id.BaseId) : std::string("runtime ref"),
+                     cSamePick ? "same leveled pick" : "same base", otherCharacter.IsDead() ? ", dead" : "", cDistance);
+    }
+}
+
 void CharacterService::CreateCharacter(const PacketEvent<AssignCharacterRequest>& acMessage) const noexcept
 {
     auto& message = acMessage.Packet;
@@ -719,6 +771,9 @@ void CharacterService::CreateCharacter(const PacketEvent<AssignCharacterRequest>
         auto& dispatcher = m_world.GetDispatcher();
         dispatcher.trigger(PlayerEnterWorldEvent(pPlayer));
     }
+
+    if (isTemporary && !isPlayer)
+        LogRuntimeNpcLookalikes(m_world, cEntity, acMessage.pPlayer);
 
     AssignCharacterResponse response{};
     response.Cookie = message.Cookie;

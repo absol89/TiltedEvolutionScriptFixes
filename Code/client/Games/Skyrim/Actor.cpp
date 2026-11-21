@@ -24,6 +24,7 @@
 #include <Events/HitEvent.h>
 #include <Events/PlayerHitEvent.h>
 #include <Systems/DamageDiagnostics.h>
+#include <Systems/SpawnDiagnostics.h>
 #include <Forms/TESObjectWEAP.h>
 #include <Events/RemoveSpellEvent.h>
 
@@ -771,6 +772,7 @@ void Actor::SetActorInventory(const Inventory& acInventory) noexcept
     // Placing this UnEquipAll() here seems to trigger a Skyrim bug/race.
 
     Inventory currentInventory = GetActorInventory();
+    SpawnDiagnostics::OnInventoryApplied(this, currentInventory, acInventory);
 
     if (!this->GetExtension()->IsPlayer() && currentInventory.ContainsQuestItems())
         SetInventoryRetainingQuestItems(currentInventory, acInventory);
