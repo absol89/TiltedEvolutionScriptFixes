@@ -2,6 +2,7 @@
 
 #include <Events/TimeSkipRequestEvent.h>
 #include <Interface/UI.h>
+#include <Services/RunnerService.h>
 #include <World.h>
 
 namespace
@@ -29,6 +30,13 @@ bool SleepWaitMenu::IsOpen() noexcept
 }
 
 void SleepWaitMenu::Confirm(float aHours) noexcept
+{
+    // Called from network handlers on the Papyrus VM job thread. Starting to sleep there deadlocks the game,
+    // the sleep code waits for the main thread while the main thread waits for the job, so defer it.
+    RunnerService::QueueOnGameThread([aHours]() { ConfirmNow(aHours); });
+}
+
+void SleepWaitMenu::ConfirmNow(float aHours) noexcept
 {
     IMenu* pMenu = UI::Get()->FindMenuByName(GetMenuName());
     if (!pMenu)

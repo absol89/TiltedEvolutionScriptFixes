@@ -32,7 +32,21 @@ struct RunnerService
      */
     void Queue(std::function<void()> aFunctor) noexcept;
 
+    /**
+     * @brief Queues a lambda for the game's main thread, run at the start of the next frame.
+     *
+     * OnUpdate() runs inside the Papyrus VM update, on a job thread the main thread waits for. Game code
+     * that waits for the main thread in turn, such as UI callbacks that start sleeping, deadlocks there.
+     */
+    static void QueueOnGameThread(std::function<void()> aFunctor) noexcept;
+
+    /**
+     * @brief Runs the lambdas queued with QueueOnGameThread(). Called by the main loop hook.
+     */
+    static void DrainGameThread() noexcept;
+
 private:
     entt::dispatcher& m_dispatcher;
     TiltedPhoques::TaskQueue m_runner;
+    static TiltedPhoques::TaskQueue s_gameThreadRunner;
 };

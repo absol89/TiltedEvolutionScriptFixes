@@ -8,4 +8,8 @@ struct SleepWaitMenu final : IMenu
 
     // Starts sleeping or waiting for aHours, as if the player confirmed the open menu.
     static void Confirm(float aHours) noexcept;
+
+private:
+    // Confirm() on the game's main thread.
+    static void ConfirmNow(float aHours) noexcept;
 };
