@@ -41,6 +41,10 @@ CalendarService::CalendarService(World& aWorld, entt::dispatcher& aDispatcher, T
 
 void CalendarService::OnTimeUpdate(const ServerTimeSettings& acMessage) noexcept
 {
+    spdlog::info("[TimeSkipDiag] server time {} day {} scale {} received; game hour {}, local online time {}, sleeping {}", acMessage.timeModel.Time,
+                 acMessage.timeModel.Day, acMessage.timeModel.TimeScale, TimeData::Get()->GameHour->f, m_onlineTime.m_timeModel.Time,
+                 IsPlayerSleepingOrWaiting());
+
     // disable the game clock
     ToggleGameClock(false);
     m_onlineTime.m_timeModel.TimeScale = acMessage.timeModel.TimeScale;
@@ -63,6 +67,7 @@ void CalendarService::OnTimeUpdate(const ServerTimeSettings& acMessage) noexcept
 void CalendarService::OnTimeSkipRequest(const TimeSkipRequestEvent& acEvent) noexcept
 {
     m_timeSkipPending = true;
+    spdlog::info("[TimeSkipDiag] confirmed the sleep/wait menu for {} hours, game hour {}", acEvent.Hours, TimeData::Get()->GameHour->f);
 
     RequestTimeSkip request;
     request.Hours = acEvent.Hours;
@@ -71,6 +76,9 @@ void CalendarService::OnTimeSkipRequest(const TimeSkipRequestEvent& acEvent) noe
 
 void CalendarService::OnNotifyTimeSkip(const NotifyTimeSkip& acMessage) noexcept
 {
+    spdlog::info("[TimeSkipDiag] notify ready {}/{}, hours {}, pending {}, menu open {}", acMessage.ReadyCount, acMessage.RequiredCount, acMessage.Hours,
+                 m_timeSkipPending, SleepWaitMenu::IsOpen());
+
     if (acMessage.ReadyCount < acMessage.RequiredCount)
     {
         if (acMessage.ReadyCount > 0)
@@ -129,6 +137,7 @@ void CalendarService::HandleUpdate(const UpdateEvent& aEvent) noexcept
     if (m_timeSkipPending && !SleepWaitMenu::IsOpen())
     {
         m_timeSkipPending = false;
+        spdlog::info("[TimeSkipDiag] sleep/wait menu closed before the skip started, cancelling the request");
         m_transport.Send(RequestTimeSkip{});
     }
 
@@ -151,7 +160,15 @@ void CalendarService::HandleUpdate(const UpdateEvent& aEvent) noexcept
 
         m_onlineTime.Update(delta);
 
-        if (IsPlayerSleepingOrWaiting())
+        const bool cSleeping = IsPlayerSleepingOrWaiting();
+        if (cSleeping != m_wasSleeping)
+        {
+            m_wasSleeping = cSleeping;
+            spdlog::info("[TimeSkipDiag] {} sleeping or waiting: game hour {}, online time {} day {}", cSleeping ? "started" : "stopped",
+                         pGameTime->GameHour->f, m_onlineTime.m_timeModel.Time, m_onlineTime.m_timeModel.Day);
+        }
+
+        if (cSleeping)
             return;
 
         // An interrupted skip still counts in full for timers, like the shared clock that already moved on.

@@ -62,6 +62,10 @@ void CalendarService::OnPlayerJoin(const PlayerJoinEvent& acEvent) noexcept
     timeMsg.timeModel.Month = m_dateTime.m_timeModel.Month;
     timeMsg.timeModel.Year = m_dateTime.m_timeModel.Year;
 
+    spdlog::info("[TimeSkipDiag] player {:X} joined with time {} day {}; server time now {} day {}, sent to {}", acEvent.pPlayer->GetId(),
+                 acEvent.PlayerTime.m_timeModel.Time, acEvent.PlayerTime.m_timeModel.Day, m_dateTime.m_timeModel.Time, m_dateTime.m_timeModel.Day,
+                 playerHasFurthestTime ? "everyone" : "them");
+
     if (playerHasFurthestTime)
         GameServer::Get()->SendToPlayers(timeMsg);
     else
@@ -78,6 +82,7 @@ bool CalendarService::SetTime(int aHours, int aMinutes, float aScale) noexcept
         auto minutes = static_cast<float>(aMinutes) * 0.17f;
         minutes = floor(minutes * 100) / 1000;
         m_dateTime.m_timeModel.Time = static_cast<float>(aHours) + minutes;
+        spdlog::info("[TimeSkipDiag] SetTime {}:{} scale {} -> server time {}", aHours, aMinutes, aScale, m_dateTime.m_timeModel.Time);
 
         SendTimeResync();
 
@@ -116,6 +121,9 @@ void CalendarService::OnTimeSkipRequest(const PacketEvent<RequestTimeSkip>& acMe
 {
     const float hours = acMessage.Packet.Hours;
 
+    spdlog::info("[TimeSkipDiag] request from player {:X}: {} hours (0 = left the menu), server time {} day {} month {}", acMessage.pPlayer->GetId(), hours,
+                 m_dateTime.m_timeModel.Time, m_dateTime.m_timeModel.Day, m_dateTime.m_timeModel.Month);
+
     if (hours > 0.f && hours <= 24.f)
         m_timeSkipRequests[acMessage.pPlayer] = hours;
     else if (!m_timeSkipRequests.erase(acMessage.pPlayer))
@@ -145,11 +153,17 @@ void CalendarService::UpdateTimeSkip() noexcept
 
     GameServer::Get()->SendToLoaded(notify);
 
+    spdlog::info("[TimeSkipDiag] ready {}/{} (loaded players {}, public {}), hours {}", notify.ReadyCount, notify.RequiredCount, playerCount,
+                 GameServer::Get()->IsPublicServer(), notify.Hours);
+
     if (notify.ReadyCount == 0 || notify.ReadyCount < notify.RequiredCount)
         return;
 
+    const float cTimeBefore = m_dateTime.m_timeModel.Time;
     m_timeSkipRequests.clear();
     m_dateTime.AddHours(notify.Hours);
+    spdlog::info("[TimeSkipDiag] skipped {} hours: server time {} -> {}, day {} month {}", notify.Hours, cTimeBefore, m_dateTime.m_timeModel.Time,
+                 m_dateTime.m_timeModel.Day, m_dateTime.m_timeModel.Month);
     SendTimeResync();
 }
 

@@ -43,6 +43,7 @@ private:
     float m_fadeTimer = 0.f;
     float m_timeSkipEndDays = 0.f;
     bool m_timeSkipPending = false;
+    bool m_wasSleeping = false;
     static bool s_gameClockLocked;
 
     uint64_t m_lastTick = 0;
