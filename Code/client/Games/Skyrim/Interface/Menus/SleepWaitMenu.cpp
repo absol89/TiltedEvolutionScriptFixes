@@ -1,29 +1,11 @@
 #include <Interface/Menus/SleepWaitMenu.h>
 
 #include <Events/TimeSkipRequestEvent.h>
-#include <Interface/IMenu.h>
 #include <Interface/UI.h>
 #include <World.h>
 
 namespace
 {
-struct GFxNumber
-{
-    void* pObjectInterface;
-    uint32_t type;
-    double value;
-};
-
-struct FxDelegateArgs
-{
-    uint8_t responseId[0x18];
-    IMenu* pHandler;
-    void* pMovie;
-    const GFxNumber* pArgs;
-    uint32_t argCount;
-};
-static_assert(offsetof(FxDelegateArgs, pArgs) == 0x28);
-
 const BSFixedString& GetMenuName() noexcept
 {
     static const BSFixedString* s_name = new BSFixedString("Sleep/Wait Menu");
@@ -32,13 +14,12 @@ const BSFixedString& GetMenuName() noexcept
 
 FxDelegateHandler::CallbackFn* RealConfirm = nullptr;
 
-void HookConfirm(const void* apArgs)
+void HookConfirm(const FxDelegateArgs* apArgs)
 {
     if (!World::Get().GetTransport().IsConnected())
         return RealConfirm(apArgs);
 
-    const auto* pArgs = static_cast<const FxDelegateArgs*>(apArgs);
-    World::Get().GetRunner().Trigger(TimeSkipRequestEvent{static_cast<float>(pArgs->pArgs[0].value)});
+    World::Get().GetRunner().Trigger(TimeSkipRequestEvent{static_cast<float>((*apArgs)[0].value.number)});
 }
 } // namespace
 
@@ -53,8 +34,14 @@ void SleepWaitMenu::Confirm(float aHours) noexcept
     if (!pMenu)
         return;
 
-    const GFxNumber hours{nullptr, 3, aHours};
-    const FxDelegateArgs args{{}, pMenu, nullptr, &hours, 1};
+    GFxValue hours{};
+    hours.type = GFxValue::kNumber;
+    hours.value.number = aHours;
+
+    FxDelegateArgs args{};
+    args.pHandler = pMenu;
+    args.pArgs = &hours;
+    args.numArgs = 1;
     RealConfirm(&args);
 }
 
