@@ -139,6 +139,7 @@ declare namespace SkyrimTogetherTypes {
 
   type TradeOfferEntry = { index: number; count: number };
   type QuestUpdatedCallback = () => void;
+  type ServerPingCallback = (id: number, ping: number) => void;
 
   /** Voice chat settings, as saved in the player's STServer.ini. Volumes are 0 to 100. */
   type VoiceSettingsCallback = (
@@ -314,6 +315,12 @@ interface SkyrimTogether {
     callback: SkyrimTogetherTypes.QuestUpdatedCallback,
   ): void;
 
+  /** Add listener to when a server answers a ping. */
+  on(
+    event: 'serverPing',
+    callback: SkyrimTogetherTypes.ServerPingCallback,
+  ): void;
+
   /** Remove listener from when the application is first initialized. */
   off(event: 'init', callback?: SkyrimTogetherTypes.InitCallback): void;
 
@@ -470,6 +477,12 @@ interface SkyrimTogether {
     callback?: SkyrimTogetherTypes.QuestUpdatedCallback,
   ): void;
 
+  /** Remove listener from server ping events. */
+  off(
+    event: 'serverPing',
+    callback?: SkyrimTogetherTypes.ServerPingCallback,
+  ): void;
+
   /**
    * Connect to server at given address and port.
    *
@@ -568,6 +581,13 @@ interface SkyrimTogether {
   setTradeReady(ready: boolean): void;
   updateTradeOffer(entries: SkyrimTogetherTypes.TradeOfferEntry[]): void;
   openPlayGuide(): void;
+
+  /**
+   * Ping servers. Each answer arrives as a `serverPing` event.
+   *
+   * @param servers Id, IP address and port of each server.
+   */
+  pingServers(servers: [number, string, number][]): void;
 
   /** Add listener to voice chat settings. */
   on(

@@ -101,6 +101,9 @@ export class ClientService implements OnDestroy {
   /** Local quest started or updated while not in a party. */
   public questUpdatedChange = new Subject<void>();
 
+  /** Server ping received. */
+  public serverPingChange = new Subject<{ address: string; ping: number }>();
+
   /** Trade invite received. */
   public tradeInviteChange = new Subject<TradeInvitePayload>();
 
@@ -168,6 +171,10 @@ export class ClientService implements OnDestroy {
 
   private _remainingReconnectionAttempt = environment.nbReconnectionAttempts;
 
+  private _pingId = 0;
+
+  private _pingAddresses = new Map<number, string>();
+
   /**
    * Instantiate.
    */
@@ -226,6 +233,7 @@ export class ClientService implements OnDestroy {
     skyrimtogether.on('tradeCancelled', this.onTradeCancelled.bind(this));
     skyrimtogether.on('tradeCompleted', this.onTradeCompleted.bind(this));
     skyrimtogether.on('questUpdated', this.onQuestUpdated.bind(this));
+    skyrimtogether.on('serverPing', this.onServerPing.bind(this));
   }
 
   /**
@@ -265,6 +273,7 @@ export class ClientService implements OnDestroy {
     skyrimtogether.off('tradeCancelled');
     skyrimtogether.off('tradeCompleted');
     skyrimtogether.off('questUpdated');
+    skyrimtogether.off('serverPing');
   }
 
   /**
@@ -369,6 +378,19 @@ export class ClientService implements OnDestroy {
 
   public openPlayGuide(): void {
     skyrimtogether.openPlayGuide();
+  }
+
+  /**
+   * Ping servers. Answers to an earlier call are ignored.
+   */
+  public pingServers(servers: { ip: string; port: number }[]): void {
+    this._pingAddresses.clear();
+    skyrimtogether.pingServers(
+      servers.map(server => {
+        this._pingAddresses.set(++this._pingId, `${server.ip}:${server.port}`);
+        return [this._pingId, server.ip, server.port];
+      }),
+    );
   }
 
   /**
@@ -928,6 +950,17 @@ export class ClientService implements OnDestroy {
   private onQuestUpdated() {
     this.zone.run(() => {
       this.questUpdatedChange.next();
+    });
+  }
+
+  private onServerPing(id: number, ping: number) {
+    const address = this._pingAddresses.get(id);
+    if (address === undefined) {
+      return;
+    }
+    this._pingAddresses.delete(id);
+    this.zone.run(() => {
+      this.serverPingChange.next({ address, ping });
     });
   }
 }
