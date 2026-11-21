@@ -25,6 +25,9 @@ constexpr auto kHistory = std::chrono::milliseconds(2000);
 constexpr auto kSameHitWindow = std::chrono::milliseconds(150);
 // Hits below this are damage-over-time ticks, too many and too small to log.
 constexpr float kMinLoggedDamage = 1.f;
+// A spell sent again to the same victim within this window is not logged again (cloaks and
+// script spells such as Follower Delegate Spell re-apply every half second).
+constexpr auto kRepeatedSpellWindow = std::chrono::seconds(30);
 
 struct Record
 {
@@ -41,6 +44,14 @@ std::deque<Record> s_localHits;
 std::deque<Record> s_receivedHits;
 std::deque<Record> s_broadcasts;
 std::deque<Record> s_receivedSpells;
+struct SentSpell
+{
+    Clock::time_point Time{};
+    uint32_t CasterId = 0;
+    uint32_t VictimId = 0;
+    uint32_t EffectId = 0;
+};
+std::deque<SentSpell> s_sentSpells;
 
 long long Ms(Clock::duration aDuration) noexcept
 {
@@ -172,7 +183,21 @@ void OnSpellHitSent(Actor* apHittee, Actor* apCaster, const char* acpSpellName, 
         return;
 
     std::scoped_lock lock(s_lock);
+
+    const auto cNow = Clock::now();
+    while (!s_sentSpells.empty() && cNow - s_sentSpells.front().Time > kRepeatedSpellWindow)
+        s_sentSpells.pop_front();
+
+    const uint32_t cCasterId = apCaster ? apCaster->formID : 0;
+    for (const SentSpell& cSent : s_sentSpells)
+    {
+        if (cSent.CasterId == cCasterId && cSent.VictimId == apHittee->formID && cSent.EffectId == aEffectId)
+            return;
+    }
+
+    s_sentSpells.push_back(SentSpell{cNow, cCasterId, apHittee->formID, aEffectId});
     const uint64_t cId = s_nextId++;
+
     spdlog::info(
         "[DmgDiag] #{} SENT spell caster={} victim={} spell={} effect={:X} magnitude={:.1f}, the victim's client applies resistances and difficulty", cId, Describe(apCaster),
         Describe(apHittee), acpSpellName && *acpSpellName ? acpSpellName : "?", aEffectId, aMagnitude);
