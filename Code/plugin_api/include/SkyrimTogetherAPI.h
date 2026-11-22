@@ -83,4 +83,10 @@ using RequestPluginAPI_t = void* (*)(InterfaceVersion aVersion);
 // Callbacks run in the World update context; queue engine work through SKSE AddTask.
 using RegisterScopedChannel_t = ChannelHandle (*)(const char*, ChannelScope, MessageCallback, PartyChangedCallback);
 constexpr const char* kRegisterScopedChannelName = "SkyrimTogetherRegisterScopedChannel";
+// Optional extension, independent of the V1 vtable. Older executables return no symbol.
+// The player ID of the party leader, who hosts the world's NPCs and quest scenes; 0 while not in a party.
+// Compare with GetLocalPlayerId() to know whether this client leads. Callable from any thread (locked snapshot,
+// refreshed every World update), so it can briefly lag a leadership change.
+using GetPartyLeaderId_t = uint32_t (*)();
+constexpr const char* kGetPartyLeaderIdName = "SkyrimTogetherGetPartyLeaderId";
 } // namespace SkyrimTogetherAPI
