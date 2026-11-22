@@ -2235,6 +2235,11 @@ void CharacterService::RunRemoteUpdates() noexcept
             continue;
         }
 
+        // Swap to the owner's leveled pick first. The swap disables and re-enables the actor, which brings a corpse
+        // back on its feet, and killing the final actor also keeps its look and loot matching the owner's body.
+        if (m_pendingLeveledConforms.find(pActor->formID) != m_pendingLeveledConforms.end())
+            continue;
+
         // The owner has this NPC dead but it is alive here. Kill() can be refused (essential actors, a kill
         // already queued), and retrying on every tick floods the log and the game, so retry once a second
         // and give up after a few tries.
