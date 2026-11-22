@@ -573,12 +573,25 @@ void CharacterService::OnAssignCharacter(const AssignCharacterResponse& acMessag
 
         ReconcileActorData(cEntity, pActor, acMessage.OwnershipEpoch, actorData, true, false);
 
-        spdlog::info("[ActorPlacement] Moving remote {:X} to owner worldspace {:X}:{:X}, cell {:X}:{:X}, position ({:.0f}, {:.0f}, {:.0f})", pActor->formID,
-                     acMessage.WorldSpaceId.ModId, acMessage.WorldSpaceId.BaseId, acMessage.CellId.ModId, acMessage.CellId.BaseId, acMessage.Position.x, acMessage.Position.y,
-                     acMessage.Position.z);
-        LogActorPlacement("Before move", pActor->formID, spdlog::level::debug);
-        MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position);
-        LogActorPlacement("After move", pActor->formID, spdlog::level::debug);
+        // We found this actor in our own area. If its owner has it in an interior we're not in (no worldspace means an
+        // interior), moving it there unloads it here, the game adds it back near us (a follower) and ownership sends it
+        // away again, several times a second. A 3D load still running on a worker then finds no cell and crashes the
+        // game, so leave it where it is; the owner's movement updates take over.
+        const TESObjectCELL* pPlayerCell = PlayerCharacter::Get()->parentCell;
+        if (!acMessage.WorldSpaceId && pPlayerCell && m_world.GetModSystem().GetGameId(acMessage.CellId) != pPlayerCell->formID)
+        {
+            spdlog::info("[ActorPlacement] Not moving remote {:X} to the owner's interior {:X}:{:X}, the player isn't in it", pActor->formID,
+                         acMessage.CellId.ModId, acMessage.CellId.BaseId);
+        }
+        else
+        {
+            spdlog::info("[ActorPlacement] Moving remote {:X} to owner worldspace {:X}:{:X}, cell {:X}:{:X}, position ({:.0f}, {:.0f}, {:.0f})", pActor->formID,
+                         acMessage.WorldSpaceId.ModId, acMessage.WorldSpaceId.BaseId, acMessage.CellId.ModId, acMessage.CellId.BaseId, acMessage.Position.x, acMessage.Position.y,
+                         acMessage.Position.z);
+            LogActorPlacement("Before move", pActor->formID, spdlog::level::debug);
+            MoveActor(pActor, acMessage.WorldSpaceId, acMessage.CellId, acMessage.Position);
+            LogActorPlacement("After move", pActor->formID, spdlog::level::debug);
+        }
 
         // The owner's leveled pick rides the assignment response for actors we discovered ourselves
         ApplyLeveledNpcPick(pActor, acMessage.LeveledNpcPickId);
@@ -1444,15 +1457,6 @@ void CharacterService::MoveActor(const Actor* apActor, const GameId& acWorldSpac
     {
         const uint32_t cCellId = m_world.GetModSystem().GetGameId(acCellId);
         pCell = Cast<TESObjectCELL>(TESForm::GetById(cCellId));
-
-        // No worldspace means an interior. Moving the actor into an interior the player isn't in unloads it here,
-        // and if the game adds it back near the player (a follower), ownership sends it away again, several times a
-        // second. A 3D load still running on a worker then finds no cell and crashes. It's placed when it spawns instead.
-        if (pCell && pCell != PlayerCharacter::Get()->parentCell)
-        {
-            spdlog::info(__FUNCTION__ ": skipped moving actor {:X} to interior {:X}, the player isn't in it", apActor->formID, cCellId);
-            return;
-        }
     }
     // In case of lazy-loading of exterior cells
     else
