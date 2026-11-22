@@ -1280,6 +1280,15 @@ void CharacterService::MoveActor(const Actor* apActor, const GameId& acWorldSpac
     {
         const uint32_t cCellId = m_world.GetModSystem().GetGameId(acCellId);
         pCell = Cast<TESObjectCELL>(TESForm::GetById(cCellId));
+
+        // No worldspace means an interior. Moving the actor into an interior the player isn't in unloads it here,
+        // and if the game adds it back near the player (a follower), ownership sends it away again, several times a
+        // second. A 3D load still running on a worker then finds no cell and crashes. It's placed when it spawns instead.
+        if (pCell && pCell != PlayerCharacter::Get()->parentCell)
+        {
+            spdlog::info(__FUNCTION__ ": skipped moving actor {:X} to interior {:X}, the player isn't in it", apActor->formID, cCellId);
+            return;
+        }
     }
     // In case of lazy-loading of exterior cells
     else
