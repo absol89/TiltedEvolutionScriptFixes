@@ -42,6 +42,8 @@ private:
     DateTime m_offlineTime;
     float m_fadeTimer = 0.f;
     float m_timeSkipEndDays = 0.f;
+    // Hours of a passed sleep/wait vote, until the server's skipped time arrives.
+    float m_timeSkipHours = 0.f;
     bool m_timeSkipPending = false;
     bool m_wasSleeping = false;
     // Tick when a passed vote confirmed the sleep/wait menu, until the sleep starts; 0 otherwise.

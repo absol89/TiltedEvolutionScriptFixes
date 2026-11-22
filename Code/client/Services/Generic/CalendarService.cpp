@@ -60,10 +60,17 @@ void CalendarService::OnTimeUpdate(const ServerTimeSettings& acMessage) noexcept
     }
     else
     {
-        m_onlineTime.m_timeModel.Day = m_offlineTime.m_timeModel.Day;
-        m_onlineTime.m_timeModel.Month = m_offlineTime.m_timeModel.Month;
-        m_onlineTime.m_timeModel.Year = m_offlineTime.m_timeModel.Year;
+        // Each player keeps their own date. A shared sleep or wait still moves it on by the skipped hours, otherwise
+        // a skip past midnight would put the player back on the day they went to sleep.
+        DateTime localDate(m_offlineTime.m_timeModel);
+        if (m_timeSkipHours > 0.f)
+            localDate.AddHours(m_timeSkipHours);
+
+        m_onlineTime.m_timeModel.Day = localDate.m_timeModel.Day;
+        m_onlineTime.m_timeModel.Month = localDate.m_timeModel.Month;
+        m_onlineTime.m_timeModel.Year = localDate.m_timeModel.Year;
     }
+    m_timeSkipHours = 0.f;
 }
 
 void CalendarService::OnTimeSkipRequest(const TimeSkipRequestEvent& acEvent) noexcept
@@ -89,6 +96,8 @@ void CalendarService::OnNotifyTimeSkip(const NotifyTimeSkip& acMessage) noexcept
     }
 
     m_timeSkipEndDays = TimeData::Get()->GameDaysPassed->f + acMessage.Hours / 24.f;
+    // The server sends the skipped time right after this message.
+    m_timeSkipHours = acMessage.Hours;
 
     if (m_timeSkipPending)
     {
@@ -105,6 +114,7 @@ void CalendarService::OnDisconnected(const DisconnectedEvent&) noexcept
     m_timeSkipPending = false;
     m_timeSkipStartTick = 0;
     m_timeSkipEndDays = 0.f;
+    m_timeSkipHours = 0.f;
 
     // signal a time transition
     m_fadeTimer = 0.f;
