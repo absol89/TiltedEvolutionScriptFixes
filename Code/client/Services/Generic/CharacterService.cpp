@@ -2251,7 +2251,9 @@ void CharacterService::RunRemoteUpdates() noexcept
         // and give up after a few tries.
         constexpr uint8_t cMaxKillAttempts = 5;
         constexpr double cKillRetryMs = 1000.0;
-        if (remoteComponent.KillAttempts >= cMaxKillAttempts || cNow < remoteComponent.NextKillAttempt || !pActor->GetNiNode())
+        // KillImpl only takes a body out of its furniture and ragdolls it in a high process. Killed earlier, a copy
+        // that loaded sitting or sleeping dies in that pose, so wait until the game processes it fully.
+        if (remoteComponent.KillAttempts >= cMaxKillAttempts || cNow < remoteComponent.NextKillAttempt || !RemoteDeathSystem::CanKill(pActor))
             continue;
 
         ++remoteComponent.KillAttempts;
@@ -2262,12 +2264,6 @@ void CharacterService::RunRemoteUpdates() noexcept
             spdlog::warn("Remote NPC {:X} is still alive after {} kills while its owner has it dead, giving up until its body reloads",
                          pActor->formID, cMaxKillAttempts);
         pActor->Kill();
-
-        // Killing an actor that was standing or sitting here leaves its body in that pose until the BodyStand check
-        // finds it. Drop it straight away, like the owner's body that fell in combat.
-        static BSFixedString s_ragdollEvent("RagdollInstant");
-        if (!pActor->SendAnimationEvent(&s_ragdollEvent))
-            spdlog::warn("Remote NPC {:X} refused to ragdoll after its loaded death, it may still be sitting or lying in furniture", pActor->formID);
     }
 
     auto animatedView = m_world.view<RemoteComponent, RemoteAnimationComponent, InterpolationComponent, FormIdComponent>();
