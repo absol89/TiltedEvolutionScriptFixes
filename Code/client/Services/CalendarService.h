@@ -44,6 +44,8 @@ private:
     float m_timeSkipEndDays = 0.f;
     bool m_timeSkipPending = false;
     bool m_wasSleeping = false;
+    // Tick when a passed vote confirmed the sleep/wait menu, until the sleep starts; 0 otherwise.
+    uint64_t m_timeSkipStartTick = 0;
     static bool s_gameClockLocked;
 
     uint64_t m_lastTick = 0;

@@ -14,6 +14,8 @@
 #include <TimeManager.h>
 
 constexpr float kTransitionSpeed = 5.f;
+// How long the clock waits for a confirmed sleep or wait to start before following the shared time again.
+constexpr uint64_t kTimeSkipStartTimeoutMs = 3000;
 
 bool CalendarService::s_gameClockLocked = false;
 
@@ -91,6 +93,9 @@ void CalendarService::OnNotifyTimeSkip(const NotifyTimeSkip& acMessage) noexcept
     if (m_timeSkipPending)
     {
         m_timeSkipPending = false;
+        // The sleep starts a frame later, on the main thread. The skipped time arrives right after this message, so
+        // without holding the clock the game hour would jump ahead first and the sleep would then add the hours again.
+        m_timeSkipStartTick = m_world.GetTick();
         SleepWaitMenu::Confirm(acMessage.Hours);
     }
 }
@@ -98,6 +103,7 @@ void CalendarService::OnNotifyTimeSkip(const NotifyTimeSkip& acMessage) noexcept
 void CalendarService::OnDisconnected(const DisconnectedEvent&) noexcept
 {
     m_timeSkipPending = false;
+    m_timeSkipStartTick = 0;
     m_timeSkipEndDays = 0.f;
 
     // signal a time transition
@@ -169,7 +175,20 @@ void CalendarService::HandleUpdate(const UpdateEvent& aEvent) noexcept
         }
 
         if (cSleeping)
+        {
+            m_timeSkipStartTick = 0;
             return;
+        }
+
+        // A confirmed sleep or wait hasn't started yet: keep the game clock where it is until it does.
+        if (m_timeSkipStartTick)
+        {
+            if (now - m_timeSkipStartTick < kTimeSkipStartTimeoutMs)
+                return;
+
+            spdlog::warn("[TimeSkipDiag] the confirmed sleep or wait didn't start within {} ms", kTimeSkipStartTimeoutMs);
+            m_timeSkipStartTick = 0;
+        }
 
         // An interrupted skip still counts in full for timers, like the shared clock that already moved on.
         if (m_timeSkipEndDays > 0.f)
