@@ -39,6 +39,18 @@ CalendarService::CalendarService(World& aWorld, entt::dispatcher& aDispatcher, T
     m_notifyTimeSkipConnection = aDispatcher.sink<NotifyTimeSkip>().connect<&CalendarService::OnNotifyTimeSkip>(this);
     m_updateConnection = aDispatcher.sink<UpdateEvent>().connect<&CalendarService::HandleUpdate>(this);
     m_disconnectedConnection = aDispatcher.sink<DisconnectedEvent>().connect<&CalendarService::OnDisconnected>(this);
+    EventDispatcherManager::Get()->loadGameEvent.RegisterSink(this);
+}
+
+CalendarService::~CalendarService() noexcept
+{
+    EventDispatcherManager::Get()->loadGameEvent.UnRegisterSink(this);
+}
+
+BSTEventResult CalendarService::OnEvent(const TESLoadGameEvent*, const EventDispatcher<TESLoadGameEvent>*)
+{
+    SleepWaitMenu::CancelPendingConfirm();
+    return BSTEventResult::kOk;
 }
 
 void CalendarService::OnTimeUpdate(const ServerTimeSettings& acMessage) noexcept
@@ -75,7 +87,12 @@ void CalendarService::OnTimeUpdate(const ServerTimeSettings& acMessage) noexcept
 
 void CalendarService::OnTimeSkipRequest(const TimeSkipRequestEvent& acEvent) noexcept
 {
+    if (!m_transport.IsConnected() || !SleepWaitMenu::IsRequestPending(acEvent.RequestId))
+        return;
+
     m_timeSkipPending = true;
+    m_timeSkipRequestId = acEvent.RequestId;
+    m_timeSkipStartTick = 0;
     spdlog::info("[TimeSkipDiag] confirmed the sleep/wait menu for {} hours, game hour {}", acEvent.Hours, TimeData::Get()->GameHour->f);
 
     RequestTimeSkip request;
@@ -102,15 +119,17 @@ void CalendarService::OnNotifyTimeSkip(const NotifyTimeSkip& acMessage) noexcept
     if (m_timeSkipPending)
     {
         m_timeSkipPending = false;
-        // The sleep starts a frame later, on the main thread. The skipped time arrives right after this message, so
+        // The sleep starts on a subsequent native menu update. The skipped time arrives right after this message, so
         // without holding the clock the game hour would jump ahead first and the sleep would then add the hours again.
         m_timeSkipStartTick = m_world.GetTick();
-        SleepWaitMenu::Confirm(acMessage.Hours);
+        SleepWaitMenu::Confirm(acMessage.Hours, m_timeSkipRequestId);
     }
 }
 
 void CalendarService::OnDisconnected(const DisconnectedEvent&) noexcept
 {
+    SleepWaitMenu::CancelPendingConfirm();
+    m_timeSkipRequestId = 0;
     m_timeSkipPending = false;
     m_timeSkipStartTick = 0;
     m_timeSkipEndDays = 0.f;
@@ -150,9 +169,10 @@ void CalendarService::ToggleGameClock(bool aEnable)
 
 void CalendarService::HandleUpdate(const UpdateEvent& aEvent) noexcept
 {
-    if (m_timeSkipPending && !SleepWaitMenu::IsOpen())
+    if (m_timeSkipPending && !SleepWaitMenu::IsRequestPending(m_timeSkipRequestId))
     {
         m_timeSkipPending = false;
+        m_timeSkipRequestId = 0;
         spdlog::info("[TimeSkipDiag] sleep/wait menu closed before the skip started, cancelling the request");
         m_transport.Send(RequestTimeSkip{});
     }
@@ -184,9 +204,15 @@ void CalendarService::HandleUpdate(const UpdateEvent& aEvent) noexcept
                          pGameTime->GameHour->f, m_onlineTime.m_timeModel.Time, m_onlineTime.m_timeModel.Day);
         }
 
+        // The OK callback can autosave and re-enter the VM before setting the sleep timer. Do not expire
+        // the handoff or apply the server's skipped clock while that native callback is still running.
+        if (SleepWaitMenu::IsConfirming())
+            return;
+
         if (cSleeping)
         {
             m_timeSkipStartTick = 0;
+            m_timeSkipRequestId = 0;
             return;
         }
 
@@ -197,6 +223,8 @@ void CalendarService::HandleUpdate(const UpdateEvent& aEvent) noexcept
                 return;
 
             spdlog::warn("[TimeSkipDiag] the confirmed sleep or wait didn't start within {} ms", kTimeSkipStartTimeoutMs);
+            SleepWaitMenu::CancelPendingConfirm(m_timeSkipRequestId);
+            m_timeSkipRequestId = 0;
             m_timeSkipStartTick = 0;
         }
 

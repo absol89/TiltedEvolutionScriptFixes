@@ -6,4 +6,6 @@
 struct TimeSkipRequestEvent
 {
     float Hours;
+    // Local menu request identity; not a network field.
+    uint64_t RequestId;
 };

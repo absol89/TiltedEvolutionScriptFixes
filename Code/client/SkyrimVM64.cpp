@@ -1,7 +1,6 @@
 #include <TiltedOnlinePCH.h>
 #include "TiltedOnlineApp.h"
 #include <Misc/GameVM.h>
-#include <Services/RunnerService.h>
 
 extern std::unique_ptr<TiltedOnlineApp> g_appInstance;
 
@@ -25,8 +24,7 @@ int TP_MAKE_THISCALL(HookVMUpdate, GameVM, float a2)
 
 short TP_MAKE_THISCALL(HookMainLoop, Main)
 {
-    // Main::Update runs once per frame on the main thread.
-    RunnerService::DrainGameThread();
+    TP_EMPTY_HOOK_PLACEHOLDER
 
     return TiltedPhoques::ThisCall(MainLoop, apThis);
 }

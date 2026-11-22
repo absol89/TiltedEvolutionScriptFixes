@@ -15,14 +15,16 @@ struct TransportService;
 /**
  * @brief Handles time sync.
  */
-class CalendarService final : public BSTEventSink<TESActivateEvent>
+class CalendarService final : public BSTEventSink<TESLoadGameEvent>
 {
 public:
     CalendarService(World&, entt::dispatcher&, TransportService&);
+    ~CalendarService() noexcept override;
 
     static bool AllowGameTick() noexcept;
 
 private:
+    BSTEventResult OnEvent(const TESLoadGameEvent*, const EventDispatcher<TESLoadGameEvent>*) override;
     void OnTimeUpdate(const ServerTimeSettings&) noexcept;
     void OnTimeSkipRequest(const TimeSkipRequestEvent&) noexcept;
     void OnNotifyTimeSkip(const NotifyTimeSkip&) noexcept;
@@ -45,6 +47,7 @@ private:
     // Hours of a passed sleep/wait vote, until the server's skipped time arrives.
     float m_timeSkipHours = 0.f;
     bool m_timeSkipPending = false;
+    uint64_t m_timeSkipRequestId = 0;
     bool m_wasSleeping = false;
     // Tick when a passed vote confirmed the sleep/wait menu, until the sleep starts; 0 otherwise.
     uint64_t m_timeSkipStartTick = 0;
