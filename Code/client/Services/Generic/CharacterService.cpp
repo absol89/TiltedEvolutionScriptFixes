@@ -2266,7 +2266,8 @@ void CharacterService::RunRemoteUpdates() noexcept
         // Killing an actor that was standing or sitting here leaves its body in that pose until the BodyStand check
         // finds it. Drop it straight away, like the owner's body that fell in combat.
         static BSFixedString s_ragdollEvent("RagdollInstant");
-        pActor->SendAnimationEvent(&s_ragdollEvent);
+        if (!pActor->SendAnimationEvent(&s_ragdollEvent))
+            spdlog::warn("Remote NPC {:X} refused to ragdoll after its loaded death, it may still be sitting or lying in furniture", pActor->formID);
     }
 
     auto animatedView = m_world.view<RemoteComponent, RemoteAnimationComponent, InterpolationComponent, FormIdComponent>();
