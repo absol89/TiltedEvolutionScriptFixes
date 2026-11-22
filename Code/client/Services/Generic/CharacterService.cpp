@@ -1915,6 +1915,7 @@ void CharacterService::RunStandingBodyRepairs() noexcept
 {
     constexpr auto cLookInterval = std::chrono::seconds(2);
     constexpr float cStandingHeight = 50.f; // Pelvis over the feet: about 60 standing, up to 43 lying on a slope.
+    constexpr float cUprightTorso = 35.f;   // Head over the pelvis: about 60 standing or sitting, near 0 lying down.
     constexpr float cStillDistance = 3.f;
     constexpr float cNearPlayer = 4096.f;
     constexpr uint32_t cBodiesPerLook = 24;
@@ -1948,6 +1949,7 @@ void CharacterService::RunStandingBodyRepairs() noexcept
     static BSFixedString s_pelvisName("NPC Pelvis [Pelv]");
     static BSFixedString s_leftFootName("NPC L Foot [Lft ]");
     static BSFixedString s_rightFootName("NPC R Foot [Rft ]");
+    static BSFixedString s_headName("NPC Head [Head]");
     static BSFixedString s_ragdollEvent("RagdollInstant");
 
     uint32_t seen = 0;
@@ -1989,12 +1991,16 @@ void CharacterService::RunStandingBodyRepairs() noexcept
         const NiPoint3 cPelvis = pPelvis->worldTranslate;
         const float cHeight = cPelvis.z - std::min(pLeftFoot->worldTranslate.z, pRightFoot->worldTranslate.z);
 
+        // A body still sitting in a chair keeps its pelvis low, at knee height, but its head stays upright over it.
+        const NiAVObject* pHead = pRoot->GetByName(s_headName);
+        const float cTorso = pHead ? pHead->worldTranslate.z - cPelvis.z : 0.f;
+
         auto it = s_standingBodies.find(pActor->formID);
-        if (cHeight < cStandingHeight)
+        if (cHeight < cStandingHeight && cTorso < cUprightTorso)
         {
             if (it != s_standingBodies.end())
             {
-                spdlog::info("BodyStand: dead {:X} ({}) is lying down, pelvis {:.0f} over its feet", pActor->formID, cpName, cHeight);
+                spdlog::info("BodyStand: dead {:X} ({}) is lying down, pelvis {:.0f} over its feet, head {:.0f} over its pelvis", pActor->formID, cpName, cHeight, cTorso);
                 s_standingBodies.erase(it);
             }
             continue;
@@ -2024,8 +2030,8 @@ void CharacterService::RunStandingBodyRepairs() noexcept
 
         ++it.value().Tries;
         const bool cWasSent = pActor->SendAnimationEvent(&s_ragdollEvent);
-        spdlog::info("BodyStand: dead {:X} ({}) stands, pelvis {:.0f} over its feet, laying it down (try {}, event accepted: {})", pActor->formID, cpName, cHeight,
-                     it.value().Tries, cWasSent);
+        spdlog::info("BodyStand: dead {:X} ({}) stands or sits, pelvis {:.0f} over its feet, head {:.0f} over its pelvis, laying it down (try {}, event accepted: {})",
+                     pActor->formID, cpName, cHeight, cTorso, it.value().Tries, cWasSent);
     }
 
     s_bodiesToSkip = looked > cBodiesPerLook ? seen - 1 : 0;
@@ -2256,6 +2262,11 @@ void CharacterService::RunRemoteUpdates() noexcept
             spdlog::warn("Remote NPC {:X} is still alive after {} kills while its owner has it dead, giving up until its body reloads",
                          pActor->formID, cMaxKillAttempts);
         pActor->Kill();
+
+        // Killing an actor that was standing or sitting here leaves its body in that pose until the BodyStand check
+        // finds it. Drop it straight away, like the owner's body that fell in combat.
+        static BSFixedString s_ragdollEvent("RagdollInstant");
+        pActor->SendAnimationEvent(&s_ragdollEvent);
     }
 
     auto animatedView = m_world.view<RemoteComponent, RemoteAnimationComponent, InterpolationComponent, FormIdComponent>();
