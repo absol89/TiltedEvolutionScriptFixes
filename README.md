@@ -81,6 +81,9 @@ Have some experience in C++, and want to help advance the project faster? Contri
 ## License
 [![GNU GPLv3 Image](https://www.gnu.org/graphics/gplv3-127x51.png)](http://www.gnu.org/licenses/gpl-3.0.en.html)
 
+<img width="1057" height="390" alt="image" src="https://github.com/user-attachments/assets/1ddbab2a-f6be-40ff-b4ec-b3d51ba698b3" />
+
+
 TiltedEvolution is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
